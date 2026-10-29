@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to release (for example, v0.1.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -32,6 +37,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -43,12 +50,12 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
+          VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -eu
-          version="${GITHUB_REF_NAME}"
-          stem="sshctl_${version}_${GOOS}_${GOARCH}"
+          stem="sshctl_${VERSION}_${GOOS}_${GOARCH}"
           mkdir -p dist
-          binary="dist/sshctl"
+          binary="dist/${stem}"
           if [ "$GOOS" = windows ]; then
             binary="${binary}.exe"
           fi
@@ -67,7 +74,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -80,4 +87,10 @@ jobs:
       - name: Create release and attach downloads
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes
+          fi

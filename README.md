@@ -4,7 +4,7 @@
 
 ## Install
 
-Download a packaged binary for Windows, macOS, or Linux from the [GitHub Releases](https://github.com/jackykornet/sshctl/releases) page. Windows packages contain `sshctl.exe`; macOS and Linux packages contain the `sshctl` executable. Extract the archive and put the executable somewhere on your `PATH`.
+Download a binary or archive for Windows, macOS, or Linux from the [GitHub Releases](https://github.com/jackykornet/sshctl/releases) page. The Windows executable is named `sshctl_<version>_windows_<architecture>.exe`; macOS and Linux have similarly named executables. Put the executable somewhere on your `PATH`. The archives contain the same executable.
 
 You can also build from source with Go 1.25 or newer:
 
@@ -50,6 +50,8 @@ Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh
 ## Platform support
 
 The release workflow builds Windows, macOS, and Linux binaries for amd64 and arm64. Platform behavior still depends on locally installed OpenSSH and terminal applications. This workspace has only been executed on Linux; other platforms should be considered unverified until CI runs successfully.
+
+To publish an existing tag, run the **Release** workflow from GitHub Actions and enter the tag (for example, `v0.1.0`). New `v*` tags publish automatically.
 
 ## Development
 
