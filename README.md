@@ -4,13 +4,15 @@
 
 ## Install
 
-Build from source with Go 1.25 or newer:
+Download a packaged binary for Windows, macOS, or Linux from the [GitHub Releases](https://github.com/jackykornet/sshctl/releases) page. Windows packages contain `sshctl.exe`; macOS and Linux packages contain the `sshctl` executable. Extract the archive and put the executable somewhere on your `PATH`.
+
+You can also build from source with Go 1.25 or newer:
 
 ```sh
 go install ./cmd/sshctl
 ```
 
-You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on `PATH`. No release binaries or canonical published module path are configured yet.
+You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on `PATH`.
 
 ## Commands
 
@@ -47,7 +49,7 @@ Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh
 
 ## Platform support
 
-CI builds and tests Windows, macOS, and Linux on amd64 and arm64. Platform behavior still depends on locally installed OpenSSH and terminal applications. This workspace has only been executed on Linux; other platforms should be considered unverified until CI runs successfully.
+The release workflow builds Windows, macOS, and Linux binaries for amd64 and arm64. Platform behavior still depends on locally installed OpenSSH and terminal applications. This workspace has only been executed on Linux; other platforms should be considered unverified until CI runs successfully.
 
 ## Development
 
