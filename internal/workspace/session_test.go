@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -133,11 +135,14 @@ func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 	pump(t, m, func() bool { return strings.Contains(screen(m), "002") })
 }
 
-func TestScrollbackAndResize(t *testing.T) {
-	m, _ := newSessionModel(t, script{sh: `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; stty size; sleep 30`})
+func TestScrollback(t *testing.T) {
+	m, _ := newSessionModel(t, script{
+		sh:  `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; sleep 30`,
+		cmd: `for /l %i in (1,1,40) do @echo line %i`,
+	})
 	press(m, keyEnter)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") })
-	if strings.Contains(screen(m), "line 1\n") {
+	if strings.Contains(screen(m), "line 1 ") {
 		t.Fatal("line 1 should have scrolled off")
 	}
 	press(m, keyPrefix, text("[")[0])
@@ -149,15 +154,29 @@ func TestScrollbackAndResize(t *testing.T) {
 	if m.scrolling {
 		t.Fatal("q leaves scroll mode")
 	}
+}
+
+func TestPaneSizeReachesPseudoTerminal(t *testing.T) {
+	// The Session prints the terminal size, waits for Enter, then prints it again.
+	m, _ := newSessionModel(t, script{
+		sh:  `stty size; read x; stty size; sleep 30`,
+		cmd: `mode con& set /p x=& mode con& ping -n 30 127.0.0.1 >nul`,
+	})
+	reports := func(rows, cols int) func() bool {
+		var want *regexp.Regexp
+		if runtime.GOOS == "windows" {
+			want = regexp.MustCompile(fmt.Sprintf(`Lines:\s+%d\s.*\n.*Columns:\s+%d\s`, rows, cols))
+		} else {
+			want = regexp.MustCompile(fmt.Sprintf(`(?m)^.*│%d %d\s`, rows, cols))
+		}
+		return func() bool { return want.MatchString(screen(m)) }
+	}
+	press(m, keyEnter)
 	// 80 wide minus the 28-column list and separator, 12 high minus tab bar and status bar.
-	if !strings.Contains(screen(m), "10 51") {
-		t.Fatalf("stty should report the pane size 10x51:\n%s", screen(m))
-	}
+	pump(t, m, reports(10, 51))
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	_, r := m.currentRunner()
-	if w, h := r.term.Size(); w != 71 || h != 18 {
-		t.Fatalf("terminal size after resize = %dx%d, want 71x18", w, h)
-	}
+	press(m, keyEnter)
+	pump(t, m, reports(18, 71))
 }
 
 func TestOSC52CopiesToClipboard(t *testing.T) {
