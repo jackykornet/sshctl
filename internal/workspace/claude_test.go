@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -9,45 +8,19 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-type commandCall struct {
-	alias  string
-	claude bool
-}
-
-// newClaudeModel returns a Workspace whose fake Command records each call and
-// starts a process that exits at once (the test binary running no tests), so
-// it works on every platform.
-func newClaudeModel(t *testing.T) (*Model, *[]commandCall, *[]string) {
+// newClaudeModel returns a recording Workspace over alpha, beta and the
+// orphaned gone.
+func newClaudeModel(t *testing.T) (*Model, *recorder) {
 	t.Helper()
-	var calls []commandCall
-	var opened []string
-	m, err := New(Options{
-		Load: func() (Snapshot, error) {
-			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}, {Alias: "gone", Orphaned: true}}}, nil
-		},
-		Command: func(alias string, claude bool) ([]string, error) {
-			calls = append(calls, commandCall{alias, claude})
-			return []string{os.Args[0], "-test.run=^$"}, nil
-		},
-		OnOpen: func(alias string) error {
-			opened = append(opened, alias)
-			return nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(m.closeAll)
-	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
-	return m, &calls, &opened
+	return newRecordingModel(t, []Entry{{Alias: "alpha"}, {Alias: "beta"}, {Alias: "gone", Orphaned: true}})
 }
 
 func TestPrefixCOpensClaudeSessionOnCursorConnection(t *testing.T) {
-	m, calls, _ := newClaudeModel(t)
+	m, r := newClaudeModel(t)
 	press(m, keyPrefix, text("c")[0])
 	want := commandCall{"alpha", true}
-	if len(*calls) != 1 || (*calls)[0] != want {
-		t.Fatalf("Command calls = %v, want [%v]", *calls, want)
+	if len(r.calls) != 1 || r.calls[0] != want {
+		t.Fatalf("Command calls = %v, want [%v]", r.calls, want)
 	}
 	if c := m.st.Active(); c == nil || c.Alias != "alpha" || len(c.Sessions) != 1 {
 		t.Fatalf("active = %v", c)
@@ -55,7 +28,7 @@ func TestPrefixCOpensClaudeSessionOnCursorConnection(t *testing.T) {
 }
 
 func TestTabBarMarksClaudeSession(t *testing.T) {
-	m, _, _ := newClaudeModel(t)
+	m, _ := newClaudeModel(t)
 	press(m, keyEnter)                // alpha 1: plain ssh
 	press(m, keyPrefix, text("c")[0]) // alpha 2: claude on the Active connection
 	bar, _ := m.tabBar(60)
@@ -68,8 +41,27 @@ func TestTabBarMarksClaudeSession(t *testing.T) {
 	}
 }
 
+func TestTabBarCombinesClaudeMarkerWithSessionState(t *testing.T) {
+	m, _ := newClaudeModel(t)
+	prefixC := []tea.KeyPressMsg{keyPrefix, text("c")[0]}
+	press(m, prefixC...)              // alpha 1: will end
+	press(m, prefixC...)              // alpha 2: will have unseen activity
+	press(m, keyPrefix, text("n")[0]) // alpha 3: plain ssh, the shown tab
+	c := m.st.Active()
+	m.st.EndSession("alpha", 1, 255)
+	m.st.MarkActivity(c.Sessions[1])
+	bar, spans := m.tabBar(80)
+	want := " alpha 1 claude ✕  alpha 2 claude •  alpha 3 "
+	if got := strings.TrimRight(ansi.Strip(bar), " "); got != strings.TrimRight(want, " ") {
+		t.Errorf("tab bar = %q, want %q", got, want)
+	}
+	if len(spans) != 3 {
+		t.Fatalf("spans = %v, want 3 tabs", spans)
+	}
+}
+
 func TestReconnectKeepsClaudeKind(t *testing.T) {
-	m, calls, _ := newClaudeModel(t)
+	m, r := newClaudeModel(t)
 	press(m, keyPrefix, text("c")[0])
 	sess := m.st.Active().CurrentSession()
 	pump(t, m, func() bool { return sess.Ended })
@@ -78,8 +70,8 @@ func TestReconnectKeepsClaudeKind(t *testing.T) {
 		t.Fatal("r should reconnect the ended tab")
 	}
 	want := []commandCall{{"alpha", true}, {"alpha", true}}
-	if len(*calls) != 2 || (*calls)[0] != want[0] || (*calls)[1] != want[1] {
-		t.Fatalf("Command calls = %v, want %v", *calls, want)
+	if len(r.calls) != 2 || r.calls[0] != want[0] || r.calls[1] != want[1] {
+		t.Fatalf("Command calls = %v, want %v", r.calls, want)
 	}
 	if bar, _ := m.tabBar(60); !strings.Contains(ansi.Strip(bar), "alpha 1 claude") {
 		t.Fatalf("reconnected tab lost its marker: %q", ansi.Strip(bar))
@@ -100,21 +92,21 @@ func TestClaudeSessionRecordsHistoryOnlyWhenFirst(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m, _, opened := newClaudeModel(t)
+			m, r := newClaudeModel(t)
 			press(m, tt.keys...)
-			if len(*opened) != 1 || (*opened)[0] != "alpha" {
-				t.Fatalf("OnOpen calls = %v, want [alpha]", *opened)
+			if len(r.opened) != 1 || r.opened[0] != "alpha" {
+				t.Fatalf("OnOpen calls = %v, want [alpha]", r.opened)
 			}
 		})
 	}
 }
 
 func TestOrphanedConnectionRefusesClaudeSession(t *testing.T) {
-	m, calls, _ := newClaudeModel(t)
+	m, r := newClaudeModel(t)
 	press(m, keyDown, keyDown) // gone
 	press(m, keyPrefix, text("c")[0])
-	if len(*calls) != 0 || m.st.Active() != nil {
-		t.Fatalf("calls = %v active = %v", *calls, m.st.Active())
+	if len(r.calls) != 0 || m.st.Active() != nil {
+		t.Fatalf("calls = %v active = %v", r.calls, m.st.Active())
 	}
 	if !m.statusErr || m.status != "gone is missing from ssh_config" {
 		t.Fatalf("status = %q", m.status)

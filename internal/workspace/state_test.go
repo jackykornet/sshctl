@@ -23,6 +23,33 @@ func sample() *State {
 	})
 }
 
+func TestGroupToOpenListsClosedLoadedMembersInListOrder(t *testing.T) {
+	s := NewState([]Entry{
+		{Alias: "web-2", Group: "web"},
+		{Alias: "web-1", Group: "web"},
+		{Alias: "web-open", Group: "web"},
+		{Alias: "web-gone", Group: "web", Orphaned: true},
+		{Alias: "db", Group: "data"},
+		{Alias: "loose"},
+	})
+	mustOpen(t, s, "web-open")
+	mustOpen(t, s, "db")
+	s.SetFilter("loose") // the filter must not hide group members
+	tests := []struct {
+		group string
+		want  []string
+	}{
+		{"web", []string{"web-1", "web-2"}},
+		{"data", []string{}},
+		{"", []string{}},
+	}
+	for _, tt := range tests {
+		if got := aliases(s.GroupToOpen(tt.group)); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("GroupToOpen(%q) = %v, want %v", tt.group, got, tt.want)
+		}
+	}
+}
+
 func TestRowsOrderOpenFirstInOpenOrderThenAlphabetical(t *testing.T) {
 	s := sample()
 	if got, want := aliases(s.Rows()), []string{"db-main", "old-box", "prod-web", "staging"}; !reflect.DeepEqual(got, want) {

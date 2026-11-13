@@ -154,18 +154,18 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 		return strings.Repeat(" ", max(width, 0)), nil
 	}
 	labels := make([]string, len(c.Sessions))
+	styles := make([]lipgloss.Style, len(c.Sessions))
 	for i, s := range c.Sessions {
 		label := fmt.Sprintf("%s %d", c.Alias, s.N)
 		if s.Claude {
 			label += " claude"
 		}
-		switch {
-		case s.Ended: // the ended marker wins over activity
-			label += " ✕"
-		case s.Unseen:
-			label += " " + unseenMarker
+		marker, style := tabState(s)
+		labels[i] = " " + label + marker + " "
+		styles[i] = style
+		if i == c.Current {
+			styles[i] = activeRow
 		}
-		labels[i] = " " + label + " "
 	}
 	// Grow a window of tabs around the current one while it fits, leaving room for ‹ and ›.
 	avail := width - 2
@@ -197,22 +197,26 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	for i := first; i <= last; i++ {
 		lw := ansi.StringWidth(labels[i])
 		spans = append(spans, tabSpan{x, x + lw, i})
-		switch {
-		case i == c.Current:
-			b.WriteString(activeRow.Render(labels[i]))
-		case c.Sessions[i].Ended:
-			b.WriteString(endedStyle.Render(labels[i]))
-		case c.Sessions[i].Unseen:
-			b.WriteString(unseenStyle.Render(labels[i]))
-		default:
-			b.WriteString(dimStyle.Render(labels[i]))
-		}
+		b.WriteString(styles[i].Render(labels[i]))
 		x += lw
 	}
 	if last < len(labels)-1 {
 		b.WriteString(dimStyle.Render("›"))
 	}
 	return fit(b.String(), width), spans
+}
+
+// tabState returns a tab's state marker (with its leading space, or empty)
+// and the style for a tab that is not current. Ended wins over activity.
+func tabState(s *Session) (marker string, style lipgloss.Style) {
+	switch {
+	case s.Ended:
+		return " ✕", endedStyle
+	case s.Unseen:
+		return " " + unseenMarker, unseenStyle
+	default:
+		return "", dimStyle
+	}
 }
 
 func (m *Model) renderPane(w, h int) []string {
