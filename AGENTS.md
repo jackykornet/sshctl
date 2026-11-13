@@ -2,18 +2,24 @@
 
 ## Project Structure & Module Organization
 
-This repository is currently a minimal Go development scaffold. The `.devcontainer/` directory defines the Go 1.25 development image and Node tooling; `.agents/skills/` contains repository workflow guidance, and `skills-lock.json` records the installed skill source. No Go module, application source, tests, or assets exist yet. As the project grows, keep Go code in the repository’s package directories and place tests beside the code they cover in `*_test.go` files.
+sshctl is one Go module (Go 1.25) with a single binary. Domain terms (Connection, Session, Workspace, Orphaned connection, Selected identity) are defined in `GLOSSARY.md`; the Workspace's stack is fixed by `docs/adr/0001-workspace-tui-stack.md`.
+
+- `cmd/sshctl`: the CLI entry. `commands.go` dispatches subcommands; `workspace.go` wires the Workspace to config and OpenSSH (`sessionCommand`, `recordOpen`, `workspaceSnapshot`). With no arguments sshctl opens the Workspace only when stdin and stdout are both terminals, and prints help otherwise.
+- `internal/config`: the versioned JSON config (Connection metadata, Selected identity, History, `workspace` settings) and migration from legacy files.
+- `internal/openssh`: everything that runs or reads OpenSSH: ssh_config aliases (following `Include`), `ssh` argv (`ConnectArgs`), `ssh-add`, `ssh-keygen -R`.
+- `internal/platform`: opens a new OS terminal window running `ssh` for `group connect`.
+- `internal/workspace`: the Workspace TUI (Bubble Tea v2). `state.go` is the pure State; `model.go` the Bubble Tea Model and prefix commands; `view.go` rendering; `term.go` the only importer of `charmbracelet/x/vt`; `runner.go` a Session's process in a pseudo-terminal (go-pty, ConPTY on Windows).
 
 ## Build, Test, and Development Commands
 
-Run commands from the repository root. Once a Go module is present, use:
+Run from the repository root. CI (`.github/workflows/ci.yml`) runs these on Ubuntu, macOS and Windows, so run them before committing:
 
-- `go test ./...` to run all package tests.
-- `go vet ./...` to check for common correctness issues.
-- `gofmt -w <files.go>` to format changed Go files; the devcontainer also formats Go files on save.
-- `go run .` to launch the application when a root `main` package exists.
+- `gofmt -l .` must print nothing.
+- `go vet ./...`, plus `GOOS=windows go vet ./...` to catch Windows-only build errors.
+- `go test -race ./...`.
+- `go run ./cmd/sshctl` launches the CLI; in a terminal with no arguments it opens the Workspace.
 
-There is no build or run target configured yet; add project-specific commands here when those are introduced.
+Use Go 1.25 only, and set `GOTOOLCHAIN=local` if `go get` tries to upgrade. Newer Lip Gloss releases need Go 1.26, so dependency versions in `go.mod` stay pinned.
 
 ## Coding Style & Naming Conventions
 
@@ -21,11 +27,20 @@ Follow standard Go conventions: tabs for indentation (as applied by `gofmt`), mi
 
 ## Testing Guidelines
 
-Use Go’s built-in `testing` package and colocate tests with implementation. Prefer table-driven tests for multiple input cases. Run `go test ./...` before submitting changes; no coverage threshold or additional test framework is configured.
+Use Go’s built-in `testing` package and colocate tests with implementation. Prefer table-driven tests for multiple input cases. Workspace tests go through these seams:
+
+- **State** (`state_test.go`): ordering, open/active/ended, filter and Reload on the pure State, with no terminal.
+- **Golden layouts** (`model_test.go`): `newTestModel`, `press` and `golden` render the whole Workspace to `testdata/*.golden`. After an intended layout change, regenerate with `go test ./internal/workspace -update` and review the golden diff before committing.
+- **Real-process Sessions** (`session_test.go`): `newSessionModel(t, script{sh, cmd})` runs `sh` on POSIX and `cmd.exe` on Windows in place of `ssh`, and `pump` feeds runner events until the screen matches. Give every new Session test a `cmd` variant; a test without one is skipped on Windows.
+- **OpenSSH** (`internal/openssh`): tests write temporary ssh_config trees.
+
+Tests never start the real `ssh`. `Options.Command` and `Options.Load` are the seams for replacing it and the config.
 
 ## Commit & Pull Request Guidelines
 
-No Git commit history is available in this workspace, so no repository-specific commit convention can be inferred. Use concise imperative commit subjects (for example, `Add SSH config parsing`). Pull requests should explain the change and rationale, list relevant validation commands and results, and link any related issue. Include screenshots only when a change adds a visual interface.
+Use concise imperative commit subjects (for example, `Add SSH config parsing`). Pull requests should explain the change and rationale, list the validation commands and results, and link the issue. Include screenshots only when a change adds a visual interface.
+
+Workspace work is a stack of pull requests, merged in order: `ssh-config-include` (#1, into `main`) → `workspace-layout` (#2) → `workspace-sessions` (#3) → `workspace-followups` (#12). Each targets the branch before it. Ticket branches start from `workspace-followups` and merge back into it; merge its current tip into the ticket branch and re-run the checks before handing off.
 
 ## Security & Configuration
 
