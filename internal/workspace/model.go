@@ -333,6 +333,8 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 		if target != nil {
 			return m.open(target.Alias)
 		}
+	case "g":
+		return m.openGroup()
 	case "w":
 		return m.closeTab()
 	case "left":
@@ -410,6 +412,45 @@ func (m *Model) open(alias string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// openGroup opens a Session for every closed, non-orphaned Connection in the
+// cursor Connection's group, in list order, and makes the first one active.
+func (m *Model) openGroup() tea.Cmd {
+	c := m.st.Cursor()
+	if c == nil || c.Group == "" {
+		return m.setStatus("no group to open", false)
+	}
+	var first string
+	var opened int
+	var cmd tea.Cmd
+	for _, member := range m.st.Group(c.Group) {
+		if member.Open() || member.Orphaned {
+			continue
+		}
+		cmd = m.open(member.Alias)
+		if m.st.Get(member.Alias).Open() {
+			if first == "" {
+				first = member.Alias
+			}
+			opened++
+		}
+	}
+	if first == "" {
+		if cmd != nil {
+			return cmd
+		}
+		return m.setStatus("nothing to open in group "+c.Group, false)
+	}
+	m.st.Activate(first)
+	if m.statusErr && cmd != nil {
+		return cmd // keep the last error visible
+	}
+	noun := "connections"
+	if opened == 1 {
+		noun = "connection"
+	}
+	return m.setStatus(fmt.Sprintf("opened %d %s in group %s", opened, noun, c.Group), false)
 }
 
 // start runs the Session's process, replacing any previous one.

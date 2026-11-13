@@ -235,6 +235,7 @@ func (m *Model) helpLines() []string {
 		{"Alt+←/→", "previous / next tab"},
 		{"Alt+↑/↓", "previous / next open connection"},
 		{p + " n", "new tab for the active connection"},
+		{p + " g", "open the connection's group as tabs"},
 		{p + " w", "close tab"},
 		{p + " ←/→  " + p + " 1-9", "switch tab"},
 		{p + " Tab", "move focus between list and terminal"},

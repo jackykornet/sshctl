@@ -121,12 +121,26 @@ func (s *State) Reload(entries []Entry) {
 // order they were opened, then the rest alphabetically. The filter hides only
 // Connections that are not open.
 func (s *State) Rows() []*Connection {
+	return s.rows(s.matches)
+}
+
+// Group returns the Connections in group, in list order, ignoring the filter.
+func (s *State) Group(group string) []*Connection {
+	if group == "" {
+		return nil
+	}
+	return s.rows(func(c *Connection) bool { return c.Group == group })
+}
+
+// rows lists open Connections in the order they were opened, then the closed
+// Connections that keep returns true for, alphabetically.
+func (s *State) rows(keep func(*Connection) bool) []*Connection {
 	var open, closed []*Connection
 	for _, c := range s.conns {
 		switch {
 		case c.Open():
 			open = append(open, c)
-		case s.matches(c):
+		case keep(c):
 			closed = append(closed, c)
 		}
 	}
