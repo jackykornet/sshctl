@@ -24,6 +24,15 @@ type Config struct {
 	History     []string              `json:"history,omitempty"`
 	Keys        []string              `json:"keys,omitempty"`
 	DefaultKey  string                `json:"defaultKey,omitempty"`
+	Workspace   Workspace             `json:"workspace,omitzero"`
+}
+
+// Workspace holds optional settings for the full-screen Workspace. Zero values mean defaults.
+type Workspace struct {
+	// PrefixKey is the key that starts a Workspace command, such as "ctrl+b".
+	PrefixKey string `json:"prefixKey,omitempty"`
+	// ListWidth is the width of the connection list in columns.
+	ListWidth int `json:"listWidth,omitempty"`
 }
 
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }

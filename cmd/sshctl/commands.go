@@ -26,7 +26,8 @@ type app struct {
 }
 
 func run(args []string, in io.Reader, out, errOut io.Writer) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+	startWorkspace := len(args) == 0 && interactive(in, out)
+	if !startWorkspace && (len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
 		help(out)
 		return nil
 	}
@@ -43,12 +44,16 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 		return err
 	}
 	a := &app{in: in, out: out, err: errOut, cfgPath: p, legacy: legacy, cfg: c, ssh: s}
+	if startWorkspace {
+		return a.runWorkspace()
+	}
 	return a.execute(args)
 }
 func help(w io.Writer) {
 	fmt.Fprint(w, `sshctl manages OpenSSH connections and local connection metadata.
 
-Usage: sshctl <command> [arguments]
+Usage: sshctl                 Open the Workspace (in a terminal)
+       sshctl <command> [arguments]
 
 Commands:
   list                         List saved connections and SSH config aliases
