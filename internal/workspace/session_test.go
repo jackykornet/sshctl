@@ -10,12 +10,24 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// newSessionModel returns a Workspace whose Sessions run script with sh in
-// place of ssh. The alias is passed as $1.
-func newSessionModel(t *testing.T, script string) (*Model, *[]string) {
-	t.Helper()
+// script is a Session command for each platform: sh stands in for ssh on
+// POSIX and cmd.exe on Windows. In sh the alias is $1. In cmd, {alias} is
+// replaced with the alias, and delayed expansion (!var!) is on. A test with
+// no cmd variant uses POSIX-only tools and is skipped on Windows.
+type script struct{ sh, cmd string }
+
+func (s script) argv(alias string) []string {
 	if runtime.GOOS == "windows" {
-		t.Skip("session tests use sh")
+		return []string{"cmd.exe", "/d", "/q", "/v:on", "/s", "/c", strings.ReplaceAll(s.cmd, "{alias}", alias)}
+	}
+	return []string{"sh", "-c", s.sh, "sh", alias}
+}
+
+// newSessionModel returns a Workspace whose Sessions run s in place of ssh.
+func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
+	t.Helper()
+	if runtime.GOOS == "windows" && s.cmd == "" {
+		t.Skip("uses POSIX-only tools")
 	}
 	var opened []string
 	m, err := New(Options{
@@ -23,7 +35,7 @@ func newSessionModel(t *testing.T, script string) (*Model, *[]string) {
 			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
 		},
 		Command: func(alias string) ([]string, error) {
-			return []string{"sh", "-c", script, "sh", alias}, nil
+			return s.argv(alias), nil
 		},
 		OnOpen: func(alias string) error {
 			opened = append(opened, alias)
@@ -58,7 +70,10 @@ func pump(t *testing.T, m *Model, cond func() bool) {
 func screen(m *Model) string { return ansi.Strip(m.render()) }
 
 func TestSessionShowsOutputAndTakesInput(t *testing.T) {
-	m, opened := newSessionModel(t, `printf 'hello %s\n' "$1"; while read -r line; do printf 'got:%s\n' "$line"; done`)
+	m, opened := newSessionModel(t, script{
+		sh:  `printf 'hello %s\n' "$1"; while read -r line; do printf 'got:%s\n' "$line"; done`,
+		cmd: `echo hello {alias}& for /l %i in (1,1,1000) do @(set line=& set /p line=& echo got:!line!)`,
+	})
 	press(m, keyEnter)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "hello alpha") })
 	press(m, text("ping")...)
@@ -77,7 +92,7 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 }
 
 func TestSessionEndsAndReconnects(t *testing.T) {
-	m, _ := newSessionModel(t, `echo run; exit 3`)
+	m, _ := newSessionModel(t, script{sh: `echo run; exit 3`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	pump(t, m, func() bool { return sess.Ended })
@@ -100,7 +115,7 @@ func TestSessionEndsAndReconnects(t *testing.T) {
 }
 
 func TestStaleEndedMessageIsIgnoredAfterReconnect(t *testing.T) {
-	m, _ := newSessionModel(t, `sleep 30`)
+	m, _ := newSessionModel(t, script{sh: `sleep 30`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	m.Update(sessionEndedMsg{sess: sess, r: &runner{}, code: 1})
@@ -111,7 +126,7 @@ func TestStaleEndedMessageIsIgnoredAfterReconnect(t *testing.T) {
 
 func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 	// od prints the byte value of what it receives: ^B is 002.
-	m, _ := newSessionModel(t, `stty raw -echo; head -c 1 | od -An -c`)
+	m, _ := newSessionModel(t, script{sh: `stty raw -echo; head -c 1 | od -An -c`})
 	press(m, keyEnter)
 	time.Sleep(200 * time.Millisecond) // let stty run before sending
 	press(m, keyPrefix, keyPrefix)
@@ -119,7 +134,7 @@ func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 }
 
 func TestScrollbackAndResize(t *testing.T) {
-	m, _ := newSessionModel(t, `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; stty size; sleep 30`)
+	m, _ := newSessionModel(t, script{sh: `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; stty size; sleep 30`})
 	press(m, keyEnter)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") })
 	if strings.Contains(screen(m), "line 1\n") {
@@ -146,7 +161,7 @@ func TestScrollbackAndResize(t *testing.T) {
 }
 
 func TestOSC52CopiesToClipboard(t *testing.T) {
-	m, _ := newSessionModel(t, `printf '\033]52;c;aGVsbG8=\007'; sleep 30`)
+	m, _ := newSessionModel(t, script{sh: `printf '\033]52;c;aGVsbG8=\007'; sleep 30`})
 	press(m, keyEnter)
 	msgs := make(chan tea.Msg, 1)
 	go func() { msgs <- m.ev.listen()() }()
