@@ -57,6 +57,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Alt+←`/`Alt+→` | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection |
 | prefix `n` / `w` | New tab / close tab |
+| prefix `g` | Open every closed connection in the selected connection's group (`group connect` still opens separate windows) |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
