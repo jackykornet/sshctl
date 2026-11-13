@@ -24,6 +24,9 @@ type Session struct {
 	N        int
 	Ended    bool
 	ExitCode int
+	// Unseen is true when the Session had activity (output or a bell) while
+	// it was not the shown tab. Showing the tab clears it.
+	Unseen bool
 }
 
 // Connection is a Connection together with its Sessions in this Workspace.
@@ -50,6 +53,16 @@ func (c *Connection) AllEnded() bool {
 		}
 	}
 	return true
+}
+
+// Unseen reports whether any of the Connection's Sessions has unseen activity.
+func (c *Connection) Unseen() bool {
+	for _, s := range c.Sessions {
+		if s.Unseen {
+			return true
+		}
+	}
+	return false
 }
 
 // LiveSessions counts Sessions whose process is still running.
@@ -194,6 +207,7 @@ func (s *State) Activate(alias string) error {
 		return fmt.Errorf("%s is not open", alias)
 	}
 	s.active, s.cursor = alias, alias
+	s.shown()
 	return nil
 }
 
@@ -215,6 +229,7 @@ func (s *State) CycleActive(delta int) {
 		i = (i + delta + len(open)) % len(open)
 	}
 	s.active, s.cursor = open[i].Alias, open[i].Alias
+	s.shown()
 }
 
 // OpenSession adds a new Session to alias, makes it the current tab and makes
@@ -246,12 +261,14 @@ func (s *State) SelectTab(delta int) {
 		return
 	}
 	c.Current = max(0, min(c.Current+delta, len(c.Sessions)-1))
+	s.shown()
 }
 
 // SelectTabIndex makes tab i of the Active connection current.
 func (s *State) SelectTabIndex(i int) {
 	if c := s.Active(); c != nil && i >= 0 && i < len(c.Sessions) {
 		c.Current = i
+		s.shown()
 	}
 }
 
@@ -289,7 +306,24 @@ func (s *State) CloseCurrent() *Session {
 			s.fixCursor()
 		}
 	}
+	s.shown()
 	return closed
+}
+
+// MarkActivity records that sess had output or a bell. It has unseen
+// activity unless it is the shown tab of the Active connection.
+func (s *State) MarkActivity(sess *Session) {
+	if c := s.Active(); c != nil && c.CurrentSession() == sess {
+		return
+	}
+	sess.Unseen = true
+}
+
+// shown clears the activity of the Active connection's shown tab.
+func (s *State) shown() {
+	if c := s.Active(); c != nil && c.Open() {
+		c.CurrentSession().Unseen = false
+	}
 }
 
 // LiveSessions counts every live Session in the Workspace.

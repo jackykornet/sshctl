@@ -134,8 +134,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.status = ""
 		}
 	case redrawMsg:
+		m.takeActivity()
 		return m.ev.listen()
 	case sessionEndedMsg:
+		m.takeActivity()                  // its last output may not have been redrawn yet
 		if m.runners[msg.sess] == msg.r { // ignore a runner replaced by reconnect
 			msg.sess.Ended, msg.sess.ExitCode = true, msg.code
 		}
@@ -152,6 +154,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.mouse(msg)
 	}
 	return nil
+}
+
+// takeActivity marks every Session whose process wrote output since the last call.
+func (m *Model) takeActivity() {
+	for sess, r := range m.runners {
+		if r.activity.Swap(false) {
+			m.st.MarkActivity(sess)
+		}
+	}
 }
 
 // paneSize is the size of the terminal area under the tab bar.

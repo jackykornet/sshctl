@@ -20,7 +20,11 @@ var (
 	barStyle    = lipgloss.NewStyle().Reverse(true)
 	boldStyle   = lipgloss.NewStyle().Bold(true)
 	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
+	unseenStyle = lipgloss.NewStyle().Bold(true)
 )
+
+// unseenMarker flags tabs and Connections with activity the user hasn't seen.
+const unseenMarker = "•"
 
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
@@ -104,6 +108,9 @@ func (m *Model) renderList(w, h int) []string {
 			name = dimStyle.Render(c.Alias)
 		}
 		line := pointer + marker + name
+		if c.Unseen() {
+			line += " " + unseenStyle.Render(unseenMarker)
+		}
 		if extra := rowDetail(c); extra != "" {
 			line += " " + dimStyle.Render(extra)
 		}
@@ -148,9 +155,13 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	}
 	labels := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
-		labels[i] = fmt.Sprintf(" %s %d ", c.Alias, s.N)
-		if s.Ended {
+		switch {
+		case s.Ended: // the ended marker wins over activity
 			labels[i] = fmt.Sprintf(" %s %d ✕ ", c.Alias, s.N)
+		case s.Unseen:
+			labels[i] = fmt.Sprintf(" %s %d %s ", c.Alias, s.N, unseenMarker)
+		default:
+			labels[i] = fmt.Sprintf(" %s %d ", c.Alias, s.N)
 		}
 	}
 	// Grow a window of tabs around the current one while it fits, leaving room for ‹ and ›.
@@ -188,6 +199,8 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 			b.WriteString(activeRow.Render(labels[i]))
 		case c.Sessions[i].Ended:
 			b.WriteString(endedStyle.Render(labels[i]))
+		case c.Sessions[i].Unseen:
+			b.WriteString(unseenStyle.Render(labels[i]))
 		default:
 			b.WriteString(dimStyle.Render(labels[i]))
 		}
