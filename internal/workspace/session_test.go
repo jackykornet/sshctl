@@ -167,6 +167,37 @@ func TestOSC52CopiesToClipboard(t *testing.T) {
 	}
 }
 
+func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
+	m, _ := newSessionModel(t, `sleep 0.3; echo later; sleep 30`)
+	press(m, keyEnter)
+	press(m, keyPrefix, text("n")[0])
+	c := m.st.Active()
+	bg, shown := c.Sessions[0], c.Sessions[1]
+	pump(t, m, func() bool { return bg.Unseen && strings.Contains(screen(m), "later") })
+	if shown.Unseen {
+		t.Fatal("output in the shown tab must not mark it")
+	}
+	press(m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	if bg.Unseen || c.Unseen() {
+		t.Fatal("switching to the tab clears its marker")
+	}
+}
+
+func TestBellMarksBackgroundConnection(t *testing.T) {
+	m, _ := newSessionModel(t, `sleep 0.3; printf '\a'; sleep 30`)
+	press(m, keyEnter)                                                        // alpha
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}, keyDown, keyEnter) // beta
+	alpha := m.st.Get("alpha")
+	pump(t, m, func() bool { return alpha.Unseen() })
+	if m.st.Get("beta").Unseen() {
+		t.Fatal("the shown tab's bell must not mark it")
+	}
+	press(m, tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}) // back to alpha
+	if alpha.Unseen() {
+		t.Fatal("showing alpha's only tab clears its row marker")
+	}
+}
+
 func TestParseOSC52(t *testing.T) {
 	tests := []struct {
 		in   string
