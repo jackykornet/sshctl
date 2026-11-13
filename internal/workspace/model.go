@@ -29,10 +29,11 @@ type Snapshot struct {
 // Options configures a Workspace.
 type Options struct {
 	Load func() (Snapshot, error)
-	// Command returns the command line for a new Session of alias. It is called
-	// each time a tab opens, so it can use the Selected identity at that moment.
-	// When nil, Sessions get no process (used by layout tests).
-	Command func(alias string) ([]string, error)
+	// Command returns the command line for a new Session of alias; claude asks
+	// for a Session that runs claude on the remote host. It is called each time
+	// a tab opens or reconnects, so it can use the Selected identity at that
+	// moment. When nil, Sessions get no process (used by layout tests).
+	Command func(alias string, claude bool) ([]string, error)
 	// OnOpen is called when a Connection becomes open (its first Session starts).
 	OnOpen          func(alias string) error
 	PrefixKey       string
@@ -134,8 +135,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.status = ""
 		}
 	case redrawMsg:
+		m.takeActivity()
 		return m.ev.listen()
 	case sessionEndedMsg:
+		m.takeActivity()                  // its last output may not have been redrawn yet
 		if m.runners[msg.sess] == msg.r { // ignore a runner replaced by reconnect
 			msg.sess.Ended, msg.sess.ExitCode = true, msg.code
 		}
@@ -152,6 +155,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.mouse(msg)
 	}
 	return nil
+}
+
+// takeActivity marks every Session whose process wrote output since the last call.
+func (m *Model) takeActivity() {
+	for sess, r := range m.runners {
+		if r.activity.Swap(false) {
+			m.st.MarkActivity(sess)
+		}
+	}
 }
 
 // paneSize is the size of the terminal area under the tab bar.
@@ -325,14 +337,16 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 		if r := m.liveRunner(); r != nil && m.focus == focusPane {
 			r.term.SendKey(msg)
 		}
-	case "n":
+	case "n", "c":
 		target := m.st.Active()
 		if target == nil {
 			target = m.st.Cursor()
 		}
 		if target != nil {
-			return m.open(target.Alias)
+			return m.open(target.Alias, k == "c")
 		}
+	case "g":
+		return m.openGroup()
 	case "w":
 		return m.closeTab()
 	case "left":
@@ -382,11 +396,11 @@ func (m *Model) enter() tea.Cmd {
 		m.focus = focusPane
 		return nil
 	}
-	return m.open(c.Alias)
+	return m.open(c.Alias, false)
 }
 
-// open starts a new Session (tab) for alias.
-func (m *Model) open(alias string) tea.Cmd {
+// open starts a new Session (tab) for alias, running claude when claude is set.
+func (m *Model) open(alias string, claude bool) tea.Cmd {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
 	sess, err := m.st.OpenSession(alias)
@@ -396,6 +410,7 @@ func (m *Model) open(alias string) tea.Cmd {
 		}
 		return m.setStatus(err.Error(), true)
 	}
+	sess.Claude = claude
 	if err := m.start(alias, sess); err != nil {
 		m.st.CloseCurrent()
 		if m.st.Active() == nil {
@@ -412,12 +427,51 @@ func (m *Model) open(alias string) tea.Cmd {
 	return nil
 }
 
+// openGroup opens a Session for every closed, non-orphaned Connection in the
+// cursor Connection's group, in list order, and makes the first one active.
+func (m *Model) openGroup() tea.Cmd {
+	c := m.st.Cursor()
+	if c == nil || c.Group == "" {
+		return m.setStatus("no group to open", false)
+	}
+	var first string
+	var opened int
+	var cmd tea.Cmd
+	for _, member := range m.st.Group(c.Group) {
+		if member.Open() || member.Orphaned {
+			continue
+		}
+		cmd = m.open(member.Alias, false)
+		if m.st.Get(member.Alias).Open() {
+			if first == "" {
+				first = member.Alias
+			}
+			opened++
+		}
+	}
+	if first == "" {
+		if cmd != nil {
+			return cmd
+		}
+		return m.setStatus("nothing to open in group "+c.Group, false)
+	}
+	m.st.Activate(first)
+	if m.statusErr && cmd != nil {
+		return cmd // keep the last error visible
+	}
+	noun := "connections"
+	if opened == 1 {
+		noun = "connection"
+	}
+	return m.setStatus(fmt.Sprintf("opened %d %s in group %s", opened, noun, c.Group), false)
+}
+
 // start runs the Session's process, replacing any previous one.
 func (m *Model) start(alias string, sess *Session) error {
 	if m.opts.Command == nil {
 		return nil
 	}
-	argv, err := m.opts.Command(alias)
+	argv, err := m.opts.Command(alias, sess.Claude)
 	if err != nil {
 		return err
 	}

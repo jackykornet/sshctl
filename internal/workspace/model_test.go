@@ -108,6 +108,25 @@ func TestLayoutGolden(t *testing.T) {
 	})
 }
 
+func TestActivityMarkersGolden(t *testing.T) {
+	m := newTestModel(t, 80, 8)
+	press(m, keyDown, keyDown, keyEnter) // prod-web 1
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab})
+	press(m, keyDown, keyEnter) // db-main 1
+	press(m, keyPrefix, text("n")[0], keyPrefix, text("n")[0])
+	prod, db := m.st.Get("prod-web"), m.st.Get("db-main")
+	m.st.MarkActivity(prod.Sessions[0])
+	m.st.MarkActivity(db.Sessions[0])
+	m.st.MarkActivity(db.Sessions[1])
+	m.st.EndSession("db-main", 2, 1)
+	m.st.MarkActivity(db.Sessions[2]) // shown: never marked
+	golden(t, "activity", m)
+
+	alt := tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt}
+	press(m, alt, alt) // through db-main 2 to db-main 1
+	golden(t, "activity-cleared", m)
+}
+
 func TestTabBarScrollsToCurrentTab(t *testing.T) {
 	m := newTestModel(t, 70, 6)
 	press(m, keyEnter) // db-main 1

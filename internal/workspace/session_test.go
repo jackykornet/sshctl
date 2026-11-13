@@ -36,7 +36,7 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 		Load: func() (Snapshot, error) {
 			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
 		},
-		Command: func(alias string) ([]string, error) {
+		Command: func(alias string, _ bool) ([]string, error) {
 			return s.argv(alias), nil
 		},
 		OnOpen: func(alias string) error {
@@ -198,6 +198,43 @@ func TestOSC52CopiesToClipboard(t *testing.T) {
 		case <-deadline:
 			t.Fatal("no clipboard message")
 		}
+	}
+}
+
+func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
+	m, _ := newSessionModel(t, script{
+		sh:  `sleep 0.3; echo later; sleep 30`,
+		cmd: `ping -n 2 127.0.0.1 >nul& echo later& ping -n 30 127.0.0.1 >nul`,
+	})
+	press(m, keyEnter)
+	press(m, keyPrefix, text("n")[0])
+	c := m.st.Active()
+	bg, shown := c.Sessions[0], c.Sessions[1]
+	pump(t, m, func() bool { return bg.Unseen && strings.Contains(screen(m), "later") })
+	if shown.Unseen {
+		t.Fatal("output in the shown tab must not mark it")
+	}
+	press(m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	if bg.Unseen || c.Unseen() {
+		t.Fatal("switching to the tab clears its marker")
+	}
+}
+
+func TestBellMarksBackgroundConnection(t *testing.T) {
+	m, _ := newSessionModel(t, script{
+		sh:  `sleep 0.3; printf '\a'; sleep 30`,
+		cmd: "ping -n 2 127.0.0.1 >nul& echo \a& ping -n 30 127.0.0.1 >nul",
+	})
+	press(m, keyEnter)                                                        // alpha
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}, keyDown, keyEnter) // beta
+	alpha := m.st.Get("alpha")
+	pump(t, m, func() bool { return alpha.Unseen() })
+	if m.st.Get("beta").Unseen() {
+		t.Fatal("the shown tab's bell must not mark it")
+	}
+	press(m, tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}) // back to alpha
+	if alpha.Unseen() {
+		t.Fatal("showing alpha's only tab clears its row marker")
 	}
 }
 

@@ -36,13 +36,14 @@ func (a *app) runWorkspace() error {
 
 // sessionCommand builds ssh for a new tab using the Selected identity as it
 // is now, so a change made with "sshctl key use" applies to the next tab.
-func (a *app) sessionCommand(alias string) ([]string, error) {
+// claude runs claude on the remote host.
+func (a *app) sessionCommand(alias string, claude bool) ([]string, error) {
 	cfg, err := config.Load(a.cfgPath, a.legacy)
 	if err != nil {
 		return nil, err
 	}
 	a.cfg = cfg
-	return openssh.ConnectArgs(alias, cfg.DefaultKey, false), nil
+	return openssh.ConnectArgs(alias, cfg.DefaultKey, claude), nil
 }
 
 // recordOpen adds a Connection to History when it becomes open in the Workspace.

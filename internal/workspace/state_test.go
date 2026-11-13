@@ -155,6 +155,66 @@ func TestCursorAndCycleActive(t *testing.T) {
 	}
 }
 
+func TestActivityMarksOnlySessionsNotShown(t *testing.T) {
+	s := sample()
+	db1 := mustOpen(t, s, "db-main")
+	db2 := mustOpen(t, s, "db-main") // shown tab of db-main
+	web := mustOpen(t, s, "staging")
+	s.Activate("db-main") // staging is now in the background
+
+	s.MarkActivity(db2)
+	if db2.Unseen {
+		t.Fatal("output in the shown tab must not mark it")
+	}
+	s.MarkActivity(db1)
+	if !db1.Unseen || !s.Get("db-main").Unseen() {
+		t.Fatal("output in a background tab marks the tab and its Connection")
+	}
+	s.MarkActivity(web)
+	if !web.Unseen || !s.Get("staging").Unseen() {
+		t.Fatal("output in a non-active Connection marks its tab and row")
+	}
+}
+
+func TestShowingATabClearsItsActivity(t *testing.T) {
+	tests := []struct {
+		name string
+		show func(s *State)
+	}{
+		{"select previous tab", func(s *State) { s.SelectTab(-1) }},
+		{"select tab by index", func(s *State) { s.SelectTabIndex(0) }},
+		{"close the shown tab", func(s *State) { s.CloseCurrent() }},
+		{"activate its connection", func(s *State) { s.Activate("staging"); s.Activate("db-main"); s.SelectTab(-1) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := sample()
+			db1 := mustOpen(t, s, "db-main")
+			mustOpen(t, s, "db-main")
+			s.MarkActivity(db1)
+			mustOpen(t, s, "staging")
+			s.Activate("db-main")
+			tt.show(s)
+			if db1.Unseen || s.Get("db-main").Unseen() {
+				t.Fatal("the shown tab and its row should be cleared")
+			}
+		})
+	}
+}
+
+func TestActivatingConnectionClearsOnlyItsShownTab(t *testing.T) {
+	s := sample()
+	a1 := mustOpen(t, s, "db-main")
+	a2 := mustOpen(t, s, "db-main")
+	mustOpen(t, s, "staging")
+	s.MarkActivity(a1)
+	s.MarkActivity(a2)
+	s.CycleActive(1) // db-main, showing tab 2
+	if a2.Unseen || !a1.Unseen || !s.Get("db-main").Unseen() {
+		t.Fatalf("a1=%v a2=%v: only the shown tab clears; the row stays marked", a1.Unseen, a2.Unseen)
+	}
+}
+
 func mustOpen(t *testing.T, s *State, alias string) *Session {
 	t.Helper()
 	sess, err := s.OpenSession(alias)
