@@ -399,16 +399,27 @@ func (m *Model) enter() tea.Cmd {
 	return m.open(c.Alias, false)
 }
 
-// open starts a new Session (tab) for alias, running claude when claude is set.
+// open starts a new Session (tab) for alias, running claude when claude is
+// set, and shows any error on the status line.
 func (m *Model) open(alias string, claude bool) tea.Cmd {
+	if err := m.openSession(alias, claude); err != nil {
+		return m.setStatus(err.Error(), true)
+	}
+	return nil
+}
+
+// openSession starts a new Session (tab) for alias. When the Session cannot
+// start, the Connection is left as it was and the error is a *startError.
+// A History error is returned with the Session left running.
+func (m *Model) openSession(alias string, claude bool) error {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
 	sess, err := m.st.OpenSession(alias)
 	if err != nil {
 		if errors.Is(err, ErrOrphaned) {
-			return m.setStatus(alias+" is missing from ssh_config", true)
+			return errors.New(alias + " is missing from ssh_config")
 		}
-		return m.setStatus(err.Error(), true)
+		return err
 	}
 	sess.Claude = claude
 	if err := m.start(alias, sess); err != nil {
@@ -416,54 +427,96 @@ func (m *Model) open(alias string, claude bool) tea.Cmd {
 		if m.st.Active() == nil {
 			m.focus = focusList
 		}
-		return m.setStatus(alias+": "+err.Error(), true)
+		return &startError{alias, err}
 	}
 	m.focus, m.scrolling = focusPane, false
 	if first && m.opts.OnOpen != nil {
 		if err := m.opts.OnOpen(alias); err != nil {
-			return m.setStatus("history: "+err.Error(), true)
+			return fmt.Errorf("history: %w", err)
 		}
 	}
 	return nil
 }
 
-// openGroup opens a Session for every closed, non-orphaned Connection in the
-// cursor Connection's group, in list order, and makes the first one active.
+// startError is a Session that could not start for alias.
+type startError struct {
+	alias string
+	err   error
+}
+
+func (e *startError) Error() string { return e.alias + ": " + e.err.Error() }
+func (e *startError) Unwrap() error { return e.err }
+
+// openGroup opens a Session for every Connection State.GroupToOpen returns
+// for the cursor Connection's group and makes the first one active. The
+// status reports every member that failed to start.
 func (m *Model) openGroup() tea.Cmd {
 	c := m.st.Cursor()
 	if c == nil || c.Group == "" {
 		return m.setStatus("no group to open", false)
 	}
-	var first string
-	var opened int
-	var cmd tea.Cmd
-	for _, member := range m.st.Group(c.Group) {
-		if member.Open() || member.Orphaned {
-			continue
-		}
-		cmd = m.open(member.Alias, false)
-		if m.st.Get(member.Alias).Open() {
-			if first == "" {
-				first = member.Alias
-			}
-			opened++
-		}
-	}
-	if first == "" {
-		if cmd != nil {
-			return cmd
-		}
+	members := m.st.GroupToOpen(c.Group)
+	if len(members) == 0 {
 		return m.setStatus("nothing to open in group "+c.Group, false)
 	}
-	m.st.Activate(first)
-	if m.statusErr && cmd != nil {
-		return cmd // keep the last error visible
+	var opened []string
+	var failed []*startError
+	var other error // e.g. a History error; the Session still opened
+	for _, member := range members {
+		err := m.openSession(member.Alias, false)
+		var se *startError
+		switch {
+		case errors.As(err, &se):
+			failed = append(failed, se)
+		case err != nil:
+			opened = append(opened, member.Alias)
+			other = err
+		default:
+			opened = append(opened, member.Alias)
+		}
 	}
-	noun := "connections"
-	if opened == 1 {
-		noun = "connection"
+	if len(opened) > 0 {
+		m.st.Activate(opened[0])
 	}
-	return m.setStatus(fmt.Sprintf("opened %d %s in group %s", opened, noun, c.Group), false)
+	if len(failed) == 0 {
+		if other != nil {
+			return m.setStatus(other.Error(), true)
+		}
+		return m.setStatus(fmt.Sprintf("opened %s in group %s", countConnections(len(opened)), c.Group), false)
+	}
+	aliases, reason := failedAliases(failed)
+	if len(opened) == 0 {
+		return m.setStatus(fmt.Sprintf("could not open %s in group %s%s", aliases, c.Group, reason), true)
+	}
+	return m.setStatus(fmt.Sprintf("opened %s in group %s; could not open %s%s", countConnections(len(opened)), c.Group, aliases, reason), true)
+}
+
+// failedAliases lists the aliases that failed to start. When they all failed
+// for the same reason, reason is ": <error>"; otherwise each alias carries
+// its own error in parentheses and reason is empty.
+func failedAliases(failed []*startError) (aliases, reason string) {
+	same := true
+	for _, f := range failed {
+		same = same && f.err.Error() == failed[0].err.Error()
+	}
+	parts := make([]string, len(failed))
+	for i, f := range failed {
+		parts[i] = f.alias
+		if !same {
+			parts[i] += " (" + f.err.Error() + ")"
+		}
+	}
+	if same {
+		reason = ": " + failed[0].err.Error()
+	}
+	return strings.Join(parts, ", "), reason
+}
+
+func countConnections(n int) string {
+	if n == 1 {
+		return "1 connection"
+	}
+	return fmt.Sprintf("%d connections", n)
 }
 
 // start runs the Session's process, replacing any previous one.

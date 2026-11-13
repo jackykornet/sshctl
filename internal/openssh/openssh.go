@@ -143,9 +143,13 @@ func (c *Client) Connect(ctx context.Context, alias string, key string, claude b
 }
 
 // ConnectArgs returns the ssh command line for alias. A non-empty key is the
-// Selected identity and is passed with -i; claude runs claude on the remote host.
+// Selected identity and is passed with -i; claude runs claude on the remote
+// host, with -t because ssh gives a remote command no terminal otherwise.
 func ConnectArgs(alias, key string, claude bool) []string {
 	argv := []string{"ssh"}
+	if claude {
+		argv = append(argv, "-t")
+	}
 	if key != "" {
 		argv = append(argv, "-i", key)
 	}

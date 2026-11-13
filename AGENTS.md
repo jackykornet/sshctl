@@ -12,11 +12,13 @@ sshctl is one Go module (Go 1.25) with a single binary. Domain terms (Connection
 
 ## Build, Test, and Development Commands
 
-Run from the repository root. CI (`.github/workflows/ci.yml`) runs these on Ubuntu, macOS and Windows, so run them before committing:
+Run from the repository root. CI (`.github/workflows/ci.yml`) runs these, so run them before committing:
 
-- `gofmt -l .` must print nothing.
-- `go vet ./...`, plus `GOOS=windows go vet ./...` to catch Windows-only build errors.
-- `go test -race ./...`.
+- `gofmt -l .` must print nothing (CI checks this on Ubuntu).
+- `go vet ./...` (CI runs it on Ubuntu, macOS and Windows).
+- `go test -race ./...` (CI runs it on Ubuntu, macOS and Windows).
+
+CI does not cross-vet, so also run `GOOS=windows go vet ./...` locally to catch Windows-only build errors before pushing.
 - `go run ./cmd/sshctl` launches the CLI; in a terminal with no arguments it opens the Workspace.
 
 Use Go 1.25 only, and set `GOTOOLCHAIN=local` if `go get` tries to upgrade. Newer Lip Gloss releases need Go 1.26, so dependency versions in `go.mod` stay pinned.
@@ -32,6 +34,7 @@ Use Go’s built-in `testing` package and colocate tests with implementation. Pr
 - **State** (`state_test.go`): ordering, open/active/ended, filter and Reload on the pure State, with no terminal.
 - **Golden layouts** (`model_test.go`): `newTestModel`, `press` and `golden` render the whole Workspace to `testdata/*.golden`. After an intended layout change, regenerate with `go test ./internal/workspace -update` and review the golden diff before committing.
 - **Real-process Sessions** (`session_test.go`): `newSessionModel(t, script{sh, cmd})` runs `sh` on POSIX and `cmd.exe` on Windows in place of `ssh`, and `pump` feeds runner events until the screen matches. Give every new Session test a `cmd` variant; a test without one is skipped on Windows.
+- **Recording fake Command** (`fixture_test.go`): `newRecordingModel(t, entries, fail...)` returns a Workspace and a `recorder` of every `Command` call (alias, claude) and `OnOpen` alias. Its Command runs the test binary with no tests, which exits at once on every platform, and fails for the aliases in `fail`. Use it for tests about which Sessions start, not what they print.
 - **OpenSSH** (`internal/openssh`): tests write temporary ssh_config trees.
 
 Tests never start the real `ssh`. `Options.Command` and `Options.Load` are the seams for replacing it and the config.

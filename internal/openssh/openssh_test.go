@@ -142,7 +142,8 @@ func TestConnectArgs(t *testing.T) {
 	}{
 		{"", false, []string{"ssh", "web"}},
 		{"/k/id", false, []string{"ssh", "-i", "/k/id", "web"}},
-		{"/k/id", true, []string{"ssh", "-i", "/k/id", "web", "claude"}},
+		{"", true, []string{"ssh", "-t", "web", "claude"}},
+		{"/k/id", true, []string{"ssh", "-t", "-i", "/k/id", "web", "claude"}},
 	}
 	for _, tt := range tests {
 		if got := ConnectArgs("web", tt.key, tt.claude); !reflect.DeepEqual(got, tt.want) {

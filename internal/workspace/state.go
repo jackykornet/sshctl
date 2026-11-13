@@ -139,12 +139,19 @@ func (s *State) Rows() []*Connection {
 	return s.rows(s.matches)
 }
 
-// Group returns the Connections in group, in list order, ignoring the filter.
-func (s *State) Group(group string) []*Connection {
+// GroupToOpen returns the Connections that opening group would open: its
+// closed, non-orphaned members in list order, ignoring the filter.
+func (s *State) GroupToOpen(group string) []*Connection {
 	if group == "" {
 		return nil
 	}
-	return s.rows(func(c *Connection) bool { return c.Group == group })
+	var out []*Connection
+	for _, c := range s.rows(func(c *Connection) bool { return c.Group == group }) {
+		if c.Group == group && !c.Open() && !c.Orphaned {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // rows lists open Connections in the order they were opened, then the closed
@@ -223,7 +230,7 @@ func (s *State) Activate(alias string) error {
 		return fmt.Errorf("%s is not open", alias)
 	}
 	s.active, s.cursor = alias, alias
-	s.shown()
+	s.clearShownActivity()
 	return nil
 }
 
@@ -245,7 +252,7 @@ func (s *State) CycleActive(delta int) {
 		i = (i + delta + len(open)) % len(open)
 	}
 	s.active, s.cursor = open[i].Alias, open[i].Alias
-	s.shown()
+	s.clearShownActivity()
 }
 
 // OpenSession adds a new Session to alias, makes it the current tab and makes
@@ -277,14 +284,14 @@ func (s *State) SelectTab(delta int) {
 		return
 	}
 	c.Current = max(0, min(c.Current+delta, len(c.Sessions)-1))
-	s.shown()
+	s.clearShownActivity()
 }
 
 // SelectTabIndex makes tab i of the Active connection current.
 func (s *State) SelectTabIndex(i int) {
 	if c := s.Active(); c != nil && i >= 0 && i < len(c.Sessions) {
 		c.Current = i
-		s.shown()
+		s.clearShownActivity()
 	}
 }
 
@@ -322,7 +329,7 @@ func (s *State) CloseCurrent() *Session {
 			s.fixCursor()
 		}
 	}
-	s.shown()
+	s.clearShownActivity()
 	return closed
 }
 
@@ -335,8 +342,8 @@ func (s *State) MarkActivity(sess *Session) {
 	sess.Unseen = true
 }
 
-// shown clears the activity of the Active connection's shown tab.
-func (s *State) shown() {
+// clearShownActivity clears the activity of the Active connection's shown tab.
+func (s *State) clearShownActivity() {
 	if c := s.Active(); c != nil && c.Open() {
 		c.CurrentSession().Unseen = false
 	}
