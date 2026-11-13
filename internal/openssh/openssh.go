@@ -29,17 +29,37 @@ const maxIncludeDepth = 16
 // Aliases returns the non-pattern Host aliases from the user's ssh_config,
 // following Include directives the way OpenSSH does. Missing files are ignored.
 func (c *Client) Aliases() ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	err := c.walkConfig(func(keyword string, args []string) {
+		if !strings.EqualFold(keyword, "host") {
+			return
+		}
+		for _, a := range args {
+			if strings.ContainsAny(a, "*?!") || seen[a] {
+				continue
+			}
+			seen[a] = true
+			out = append(out, a)
+		}
+	})
+	return out, err
+}
+
+// walkConfig calls visit for every directive in the user's ssh_config, in the
+// order OpenSSH reads them. Include directives are followed in place: relative
+// paths resolve against the ssh directory, "~" expands, globs expand in sorted
+// order, missing files are ignored and nesting is limited to OpenSSH's depth.
+// Include lines themselves are not passed to visit.
+func (c *Client) walkConfig(visit func(keyword string, args []string)) error {
 	sshDir := c.SSHDir
 	if sshDir == "" {
 		sshDir = filepath.Dir(c.SSHConfig)
 	}
-	seen := map[string]bool{}
-	var out []string
-	err := collectAliases(c.SSHConfig, sshDir, 0, seen, &out)
-	return out, err
+	return walkConfigFile(c.SSHConfig, sshDir, 0, visit)
 }
 
-func collectAliases(path, sshDir string, depth int, seen map[string]bool, out *[]string) error {
+func walkConfigFile(path, sshDir string, depth int, visit func(string, []string)) error {
 	if depth > maxIncludeDepth {
 		return fmt.Errorf("%s: too many nested Include directives", path)
 	}
@@ -54,25 +74,21 @@ func collectAliases(path, sshDir string, depth int, seen map[string]bool, out *[
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		keyword, args := splitDirective(sc.Text())
-		switch {
-		case strings.EqualFold(keyword, "host"):
-			for _, a := range args {
-				if strings.ContainsAny(a, "*?!") || seen[a] {
-					continue
-				}
-				seen[a] = true
-				*out = append(*out, a)
+		if keyword == "" {
+			continue
+		}
+		if !strings.EqualFold(keyword, "include") {
+			visit(keyword, args)
+			continue
+		}
+		for _, a := range args {
+			matches, err := filepath.Glob(expandIncludePath(a, sshDir))
+			if err != nil {
+				return fmt.Errorf("%s: Include %s: %w", path, a, err)
 			}
-		case strings.EqualFold(keyword, "include"):
-			for _, a := range args {
-				matches, err := filepath.Glob(expandIncludePath(a, sshDir))
-				if err != nil {
-					return fmt.Errorf("%s: Include %s: %w", path, a, err)
-				}
-				for _, m := range matches {
-					if err := collectAliases(m, sshDir, depth+1, seen, out); err != nil {
-						return err
-					}
+			for _, m := range matches {
+				if err := walkConfigFile(m, sshDir, depth+1, visit); err != nil {
+					return err
 				}
 			}
 		}
@@ -107,28 +123,18 @@ func expandIncludePath(p, sshDir string) string {
 	return filepath.Join(sshDir, p)
 }
 
-// SafeSettings reports only non-secret, useful directives from the user config.
+// SafeSettings reports only non-secret, useful directives from the user
+// config and the files it Includes, in the order OpenSSH reads them.
 func (c *Client) SafeSettings() ([]string, error) {
-	f, err := os.Open(c.SSHConfig)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
 	allowed := map[string]bool{"host": true, "hostname": true, "user": true, "port": true, "identityfile": true, "identitiesonly": true, "forwardagent": true, "addkeystoagent": true}
 	var settings []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(strings.SplitN(sc.Text(), "#", 2)[0])
-		fields := strings.Fields(line)
-		if len(fields) < 2 || !allowed[strings.ToLower(fields[0])] {
-			continue
+	err := c.walkConfig(func(keyword string, args []string) {
+		if len(args) == 0 || !allowed[strings.ToLower(keyword)] {
+			return
 		}
-		settings = append(settings, fields[0]+" "+strings.Join(fields[1:], " "))
-	}
-	return settings, sc.Err()
+		settings = append(settings, keyword+" "+strings.Join(args, " "))
+	})
+	return settings, err
 }
 
 func (c *Client) Connect(ctx context.Context, alias string, key string, claude bool) error {
