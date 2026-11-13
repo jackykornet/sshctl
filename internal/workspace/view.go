@@ -155,14 +155,17 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	}
 	labels := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
+		label := fmt.Sprintf("%s %d", c.Alias, s.N)
+		if s.Claude {
+			label += " claude"
+		}
 		switch {
 		case s.Ended: // the ended marker wins over activity
-			labels[i] = fmt.Sprintf(" %s %d ✕ ", c.Alias, s.N)
+			label += " ✕"
 		case s.Unseen:
-			labels[i] = fmt.Sprintf(" %s %d %s ", c.Alias, s.N, unseenMarker)
-		default:
-			labels[i] = fmt.Sprintf(" %s %d ", c.Alias, s.N)
+			label += " " + unseenMarker
 		}
+		labels[i] = " " + label + " "
 	}
 	// Grow a window of tabs around the current one while it fits, leaving room for ‹ and ›.
 	avail := width - 2
@@ -248,6 +251,7 @@ func (m *Model) helpLines() []string {
 		{"Alt+←/→", "previous / next tab"},
 		{"Alt+↑/↓", "previous / next open connection"},
 		{p + " n", "new tab for the active connection"},
+		{p + " c", "new tab running claude on the remote host"},
 		{p + " g", "open the connection's group as tabs"},
 		{p + " w", "close tab"},
 		{p + " ←/→  " + p + " 1-9", "switch tab"},

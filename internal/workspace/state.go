@@ -27,6 +27,8 @@ type Session struct {
 	// Unseen is true when the Session had activity (output or a bell) while
 	// it was not the shown tab. Showing the tab clears it.
 	Unseen bool
+	// Claude is true for a Session that runs claude on the remote host.
+	Claude bool
 }
 
 // Connection is a Connection together with its Sessions in this Workspace.

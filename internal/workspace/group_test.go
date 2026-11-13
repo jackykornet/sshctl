@@ -25,7 +25,7 @@ func newGroupModel(t *testing.T) (m *Model, started, opened *[]string) {
 				{Alias: "other", Group: "batch"},
 			}}, nil
 		},
-		Command: func(alias string) ([]string, error) {
+		Command: func(alias string, _ bool) ([]string, error) {
 			*started = append(*started, alias)
 			return []string{os.Args[0], "-test.run=^$"}, nil
 		},

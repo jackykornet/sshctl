@@ -22,7 +22,7 @@ func newSessionModel(t *testing.T, script string) (*Model, *[]string) {
 		Load: func() (Snapshot, error) {
 			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
 		},
-		Command: func(alias string) ([]string, error) {
+		Command: func(alias string, _ bool) ([]string, error) {
 			return []string{"sh", "-c", script, "sh", alias}, nil
 		},
 		OnOpen: func(alias string) error {
@@ -121,7 +121,8 @@ func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 func TestScrollbackAndResize(t *testing.T) {
 	m, _ := newSessionModel(t, `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; stty size; sleep 30`)
 	press(m, keyEnter)
-	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") })
+	// Wait for stty too: output can arrive after "line 40" is on screen.
+	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") && strings.Contains(screen(m), "10 51") })
 	if strings.Contains(screen(m), "line 1\n") {
 		t.Fatal("line 1 should have scrolled off")
 	}
