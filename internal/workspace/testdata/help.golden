@@ -6,6 +6,7 @@
   Alt+←/→        previous / next tab                                            
   Alt+↑/↓        previous / next open connection                                
   ^B n           new tab for the active connection                              
+  ^B c           new tab running claude on the remote host                      
   ^B w           close tab                                                      
   ^B ←/→  ^B 1-9 switch tab                                                     
   ^B Tab         move focus between list and terminal                           
@@ -15,6 +16,5 @@
   ^B r           refresh connections from ssh_config                            
   ^B ^B          send ^B to the session                                         
   ^B q           quit                                                           
-                                                                                
                                                                                 
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

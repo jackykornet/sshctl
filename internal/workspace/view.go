@@ -148,10 +148,14 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	}
 	labels := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
-		labels[i] = fmt.Sprintf(" %s %d ", c.Alias, s.N)
-		if s.Ended {
-			labels[i] = fmt.Sprintf(" %s %d ✕ ", c.Alias, s.N)
+		label := fmt.Sprintf("%s %d", c.Alias, s.N)
+		if s.Claude {
+			label += " claude"
 		}
+		if s.Ended {
+			label += " ✕"
+		}
+		labels[i] = " " + label + " "
 	}
 	// Grow a window of tabs around the current one while it fits, leaving room for ‹ and ›.
 	avail := width - 2
@@ -235,6 +239,7 @@ func (m *Model) helpLines() []string {
 		{"Alt+←/→", "previous / next tab"},
 		{"Alt+↑/↓", "previous / next open connection"},
 		{p + " n", "new tab for the active connection"},
+		{p + " c", "new tab running claude on the remote host"},
 		{p + " w", "close tab"},
 		{p + " ←/→  " + p + " 1-9", "switch tab"},
 		{p + " Tab", "move focus between list and terminal"},

@@ -24,6 +24,8 @@ type Session struct {
 	N        int
 	Ended    bool
 	ExitCode int
+	// Claude is true for a Session that runs claude on the remote host.
+	Claude bool
 }
 
 // Connection is a Connection together with its Sessions in this Workspace.
