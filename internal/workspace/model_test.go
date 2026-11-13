@@ -102,7 +102,7 @@ func TestLayoutGolden(t *testing.T) {
 		golden(t, "narrow", m)
 	})
 	t.Run("help", func(t *testing.T) {
-		m := newTestModel(t, 80, 18)
+		m := newTestModel(t, 80, 20)
 		press(m, keyPrefix, text("?")[0])
 		golden(t, "help", m)
 	})

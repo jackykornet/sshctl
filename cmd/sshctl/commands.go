@@ -179,6 +179,11 @@ func (a *app) connect(args []string) error {
 	if err := a.ssh.Connect(context.Background(), alias, a.cfg.DefaultKey, claude); err != nil {
 		return err
 	}
+	return a.recordHistory(alias)
+}
+
+// recordHistory moves alias to the front of History, keeping the 20 most recent.
+func (a *app) recordHistory(alias string) error {
 	a.cfg.History = append([]string{alias}, removeString(a.cfg.History, alias)...)
 	if len(a.cfg.History) > 20 {
 		a.cfg.History = a.cfg.History[:20]

@@ -33,6 +33,8 @@ type Workspace struct {
 	PrefixKey string `json:"prefixKey,omitempty"`
 	// ListWidth is the width of the connection list in columns.
 	ListWidth int `json:"listWidth,omitempty"`
+	// ScrollbackLines is how many lines of history each tab keeps.
+	ScrollbackLines int `json:"scrollbackLines,omitempty"`
 }
 
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }

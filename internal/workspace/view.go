@@ -12,19 +12,27 @@ import (
 
 // Colors are basic ANSI colors so they follow the user's terminal theme.
 var (
-	openStyle  = lipgloss.NewStyle().Foreground(lipgloss.Green)
-	endedStyle = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
-	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
-	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Red)
-	activeRow  = lipgloss.NewStyle().Reverse(true)
-	barStyle   = lipgloss.NewStyle().Reverse(true)
-	boldStyle  = lipgloss.NewStyle().Bold(true)
+	openStyle   = lipgloss.NewStyle().Foreground(lipgloss.Green)
+	endedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
+	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
+	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Red)
+	activeRow   = lipgloss.NewStyle().Reverse(true)
+	barStyle    = lipgloss.NewStyle().Reverse(true)
+	boldStyle   = lipgloss.NewStyle().Bold(true)
+	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
 )
 
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.WindowTitle = "sshctl"
+	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
+		!m.scrolling && !m.help && m.confirm == nil && !m.filtering {
+		if x, y, visible := r.term.Cursor(); visible {
+			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
+		}
+	}
 	return v
 }
 
@@ -34,6 +42,19 @@ func (m *Model) render() string {
 		return ""
 	}
 	mainH := m.h - 1
+	if m.help {
+		// Help covers the whole Workspace without resizing the Sessions under it.
+		lines := make([]string, 0, m.h)
+		for _, l := range m.helpLines() {
+			if len(lines) < mainH {
+				lines = append(lines, fit(l, m.w))
+			}
+		}
+		for len(lines) < mainH {
+			lines = append(lines, strings.Repeat(" ", m.w))
+		}
+		return strings.Join(append(lines, m.renderStatus(m.w)), "\n")
+	}
 	lw := m.listWidth()
 	pane := m.renderPane(m.w-m.paneOffset(), mainH)
 	var list []string
@@ -182,27 +203,26 @@ func (m *Model) renderPane(w, h int) []string {
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
 	var body []string
-	switch c := m.st.Active(); {
-	case m.help:
-		body = m.helpLines()
-	case c == nil:
+	s, r := m.currentRunner()
+	switch {
+	case s == nil:
 		body = []string{"", "  " + dimStyle.Render("Select a connection and press Enter.")}
-	default:
-		s := c.CurrentSession()
-		if s.Ended {
-			body = []string{"", fmt.Sprintf("  [session ended: exit %d]", s.ExitCode)}
-		} else {
-			body = []string{"", "  " + dimStyle.Render("ssh "+c.Alias+": the terminal view is not implemented yet.")}
-		}
+	case r != nil:
+		body = r.term.Lines(r.scroll)
 	}
 	for _, l := range body {
 		if len(lines) == h {
 			break
 		}
-		lines = append(lines, fit(l, w))
+		// Reset after each line so remote styles never bleed into the separator.
+		lines = append(lines, fit(l, w)+"\x1b[m")
 	}
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
+	}
+	if s != nil && s.Ended && h > 1 {
+		banner := fmt.Sprintf(" session ended (exit %d) · r reconnect · x close ", s.ExitCode)
+		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
 }
@@ -218,6 +238,8 @@ func (m *Model) helpLines() []string {
 		{p + " w", "close tab"},
 		{p + " ←/→  " + p + " 1-9", "switch tab"},
 		{p + " Tab", "move focus between list and terminal"},
+		{p + " [", "scroll back (mouse wheel also scrolls)"},
+		{"r / x", "on an ended tab: reconnect / close"},
 		{p + " b", "hide or show the connection list"},
 		{p + " r", "refresh connections from ssh_config"},
 		{p + " " + p, "send " + p + " to the session"},
@@ -239,6 +261,11 @@ func (m *Model) renderStatus(w int) string {
 		left = errStyle.Render(m.status)
 	case m.status != "":
 		left = m.status
+	case m.scrolling:
+		left = "scroll mode · ↑/↓ PgUp/PgDn g/G · q exit"
+		if _, r := m.currentRunner(); r != nil {
+			left = fmt.Sprintf("scroll: %d/%d lines back · ↑/↓ PgUp/PgDn g/G · q exit", r.scroll, r.term.ScrollbackLen())
+		}
 	default:
 		left = m.sessionStatus()
 	}
