@@ -22,33 +22,89 @@ func New() (*Client, error) {
 	}
 	return &Client{SSHConfig: filepath.Join(home, ".ssh", "config"), SSHDir: filepath.Join(home, ".ssh")}, nil
 }
+
+// maxIncludeDepth matches OpenSSH's limit on nested Include directives.
+const maxIncludeDepth = 16
+
+// Aliases returns the non-pattern Host aliases from the user's ssh_config,
+// following Include directives the way OpenSSH does. Missing files are ignored.
 func (c *Client) Aliases() ([]string, error) {
-	f, err := os.Open(c.SSHConfig)
-	if os.IsNotExist(err) {
-		return nil, nil
+	sshDir := c.SSHDir
+	if sshDir == "" {
+		sshDir = filepath.Dir(c.SSHConfig)
 	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
 	seen := map[string]bool{}
 	var out []string
+	err := collectAliases(c.SSHConfig, sshDir, 0, seen, &out)
+	return out, err
+}
+
+func collectAliases(path, sshDir string, depth int, seen map[string]bool, out *[]string) error {
+	if depth > maxIncludeDepth {
+		return fmt.Errorf("%s: too many nested Include directives", path)
+	}
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		line := strings.TrimSpace(strings.SplitN(sc.Text(), "#", 2)[0])
-		fields := strings.Fields(line)
-		if len(fields) < 2 || !strings.EqualFold(fields[0], "host") {
-			continue
-		}
-		for _, a := range fields[1:] {
-			if strings.ContainsAny(a, "*?!") || seen[a] {
-				continue
+		keyword, args := splitDirective(sc.Text())
+		switch {
+		case strings.EqualFold(keyword, "host"):
+			for _, a := range args {
+				if strings.ContainsAny(a, "*?!") || seen[a] {
+					continue
+				}
+				seen[a] = true
+				*out = append(*out, a)
 			}
-			seen[a] = true
-			out = append(out, a)
+		case strings.EqualFold(keyword, "include"):
+			for _, a := range args {
+				matches, err := filepath.Glob(expandIncludePath(a, sshDir))
+				if err != nil {
+					return fmt.Errorf("%s: Include %s: %w", path, a, err)
+				}
+				for _, m := range matches {
+					if err := collectAliases(m, sshDir, depth+1, seen, out); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
-	return out, sc.Err()
+	return sc.Err()
+}
+
+// splitDirective splits an ssh_config line into its keyword and arguments,
+// accepting both "Keyword value" and "Keyword=value" forms.
+func splitDirective(line string) (string, []string) {
+	line = strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+	i := strings.IndexAny(line, " \t=")
+	if i < 0 {
+		return line, nil
+	}
+	rest := strings.TrimLeft(line[i:], " \t")
+	rest = strings.TrimPrefix(rest, "=")
+	return line[:i], strings.Fields(rest)
+}
+
+// expandIncludePath resolves an Include argument: "~" is the user's home and
+// relative paths are relative to the user's ~/.ssh directory.
+func expandIncludePath(p, sshDir string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[1:])
+		}
+	}
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(sshDir, p)
 }
 
 // SafeSettings reports only non-secret, useful directives from the user config.

@@ -33,7 +33,7 @@ sshctl known-hosts remove <host>
 sshctl config show
 ```
 
-Aliases come from `~/.ssh/config`; saved connection descriptions and groups are sshctl metadata only. `add` and `edit` prompt for a description and group. `connect` runs `ssh <alias>` (and appends `claude` remotely with `--claude`). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); saved connection descriptions and groups are sshctl metadata only. `add` and `edit` prompt for a description and group. `connect` runs `ssh <alias>` (and appends `claude` remotely with `--claude`). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
 
 `key list` lists public keys and certificates found in `~/.ssh` and registered external key paths. `key add` registers a key path; `key use` selects the identity used by sshctl. `agent ensure` inspects `ssh-add -l` and asks before adding the selected key. It does not start an agent automatically, and does not perform a signing challenge to inspect loaded keys. On Windows, use the OpenSSH Authentication Agent service and start it yourself if unavailable; normal connections do not require elevation.
 
