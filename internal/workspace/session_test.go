@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -10,12 +12,24 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// newSessionModel returns a Workspace whose Sessions run script with sh in
-// place of ssh. The alias is passed as $1.
-func newSessionModel(t *testing.T, script string) (*Model, *[]string) {
-	t.Helper()
+// script is a Session command for each platform: sh stands in for ssh on
+// POSIX and cmd.exe on Windows. In sh the alias is $1. In cmd, {alias} is
+// replaced with the alias, and delayed expansion (!var!) is on. A test with
+// no cmd variant uses POSIX-only tools and is skipped on Windows.
+type script struct{ sh, cmd string }
+
+func (s script) argv(alias string) []string {
 	if runtime.GOOS == "windows" {
-		t.Skip("session tests use sh")
+		return []string{"cmd.exe", "/d", "/q", "/v:on", "/s", "/c", strings.ReplaceAll(s.cmd, "{alias}", alias)}
+	}
+	return []string{"sh", "-c", s.sh, "sh", alias}
+}
+
+// newSessionModel returns a Workspace whose Sessions run s in place of ssh.
+func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
+	t.Helper()
+	if runtime.GOOS == "windows" && s.cmd == "" {
+		t.Skip("uses POSIX-only tools")
 	}
 	var opened []string
 	m, err := New(Options{
@@ -23,7 +37,7 @@ func newSessionModel(t *testing.T, script string) (*Model, *[]string) {
 			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
 		},
 		Command: func(alias string, _ bool) ([]string, error) {
-			return []string{"sh", "-c", script, "sh", alias}, nil
+			return s.argv(alias), nil
 		},
 		OnOpen: func(alias string) error {
 			opened = append(opened, alias)
@@ -58,7 +72,10 @@ func pump(t *testing.T, m *Model, cond func() bool) {
 func screen(m *Model) string { return ansi.Strip(m.render()) }
 
 func TestSessionShowsOutputAndTakesInput(t *testing.T) {
-	m, opened := newSessionModel(t, `printf 'hello %s\n' "$1"; while read -r line; do printf 'got:%s\n' "$line"; done`)
+	m, opened := newSessionModel(t, script{
+		sh:  `printf 'hello %s\n' "$1"; while read -r line; do printf 'got:%s\n' "$line"; done`,
+		cmd: `echo hello {alias}& for /l %i in (1,1,1000) do @(set line=& set /p line=& echo got:!line!)`,
+	})
 	press(m, keyEnter)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "hello alpha") })
 	press(m, text("ping")...)
@@ -77,7 +94,7 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 }
 
 func TestSessionEndsAndReconnects(t *testing.T) {
-	m, _ := newSessionModel(t, `echo run; exit 3`)
+	m, _ := newSessionModel(t, script{sh: `echo run; exit 3`, cmd: `echo run& exit 3`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	pump(t, m, func() bool { return sess.Ended })
@@ -100,7 +117,7 @@ func TestSessionEndsAndReconnects(t *testing.T) {
 }
 
 func TestStaleEndedMessageIsIgnoredAfterReconnect(t *testing.T) {
-	m, _ := newSessionModel(t, `sleep 30`)
+	m, _ := newSessionModel(t, script{sh: `sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	m.Update(sessionEndedMsg{sess: sess, r: &runner{}, code: 1})
@@ -111,19 +128,21 @@ func TestStaleEndedMessageIsIgnoredAfterReconnect(t *testing.T) {
 
 func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 	// od prints the byte value of what it receives: ^B is 002.
-	m, _ := newSessionModel(t, `stty raw -echo; head -c 1 | od -An -c`)
+	m, _ := newSessionModel(t, script{sh: `stty raw -echo; head -c 1 | od -An -c`})
 	press(m, keyEnter)
 	time.Sleep(200 * time.Millisecond) // let stty run before sending
 	press(m, keyPrefix, keyPrefix)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "002") })
 }
 
-func TestScrollbackAndResize(t *testing.T) {
-	m, _ := newSessionModel(t, `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; stty size; sleep 30`)
+func TestScrollback(t *testing.T) {
+	m, _ := newSessionModel(t, script{
+		sh:  `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; sleep 30`,
+		cmd: `for /l %i in (1,1,40) do @echo line %i`,
+	})
 	press(m, keyEnter)
-	// Wait for stty too: output can arrive after "line 40" is on screen.
-	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") && strings.Contains(screen(m), "10 51") })
-	if strings.Contains(screen(m), "line 1\n") {
+	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") })
+	if strings.Contains(screen(m), "line 1 ") {
 		t.Fatal("line 1 should have scrolled off")
 	}
 	press(m, keyPrefix, text("[")[0])
@@ -135,19 +154,33 @@ func TestScrollbackAndResize(t *testing.T) {
 	if m.scrolling {
 		t.Fatal("q leaves scroll mode")
 	}
+}
+
+func TestPaneSizeReachesPseudoTerminal(t *testing.T) {
+	// The Session prints the terminal size, waits for Enter, then prints it again.
+	m, _ := newSessionModel(t, script{
+		sh:  `stty size; read x; stty size; sleep 30`,
+		cmd: `mode con& set /p x=& mode con& ping -n 30 127.0.0.1 >nul`,
+	})
+	reports := func(rows, cols int) func() bool {
+		var want *regexp.Regexp
+		if runtime.GOOS == "windows" {
+			want = regexp.MustCompile(fmt.Sprintf(`Lines:\s+%d\s.*\n.*Columns:\s+%d\s`, rows, cols))
+		} else {
+			want = regexp.MustCompile(fmt.Sprintf(`(?m)^.*│%d %d\s`, rows, cols))
+		}
+		return func() bool { return want.MatchString(screen(m)) }
+	}
+	press(m, keyEnter)
 	// 80 wide minus the 28-column list and separator, 12 high minus tab bar and status bar.
-	if !strings.Contains(screen(m), "10 51") {
-		t.Fatalf("stty should report the pane size 10x51:\n%s", screen(m))
-	}
+	pump(t, m, reports(10, 51))
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	_, r := m.currentRunner()
-	if w, h := r.term.Size(); w != 71 || h != 18 {
-		t.Fatalf("terminal size after resize = %dx%d, want 71x18", w, h)
-	}
+	press(m, keyEnter)
+	pump(t, m, reports(18, 71))
 }
 
 func TestOSC52CopiesToClipboard(t *testing.T) {
-	m, _ := newSessionModel(t, `printf '\033]52;c;aGVsbG8=\007'; sleep 30`)
+	m, _ := newSessionModel(t, script{sh: `printf '\033]52;c;aGVsbG8=\007'; sleep 30`})
 	press(m, keyEnter)
 	msgs := make(chan tea.Msg, 1)
 	go func() { msgs <- m.ev.listen()() }()
@@ -169,7 +202,10 @@ func TestOSC52CopiesToClipboard(t *testing.T) {
 }
 
 func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
-	m, _ := newSessionModel(t, `sleep 0.3; echo later; sleep 30`)
+	m, _ := newSessionModel(t, script{
+		sh:  `sleep 0.3; echo later; sleep 30`,
+		cmd: `ping -n 2 127.0.0.1 >nul& echo later& ping -n 30 127.0.0.1 >nul`,
+	})
 	press(m, keyEnter)
 	press(m, keyPrefix, text("n")[0])
 	c := m.st.Active()
@@ -185,7 +221,10 @@ func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
 }
 
 func TestBellMarksBackgroundConnection(t *testing.T) {
-	m, _ := newSessionModel(t, `sleep 0.3; printf '\a'; sleep 30`)
+	m, _ := newSessionModel(t, script{
+		sh:  `sleep 0.3; printf '\a'; sleep 30`,
+		cmd: "ping -n 2 127.0.0.1 >nul& echo \a& ping -n 30 127.0.0.1 >nul",
+	})
 	press(m, keyEnter)                                                        // alpha
 	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}, keyDown, keyEnter) // beta
 	alpha := m.st.Get("alpha")
