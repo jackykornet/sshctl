@@ -92,7 +92,7 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 }
 
 func TestSessionEndsAndReconnects(t *testing.T) {
-	m, _ := newSessionModel(t, script{sh: `echo run; exit 3`})
+	m, _ := newSessionModel(t, script{sh: `echo run; exit 3`, cmd: `echo run& exit 3`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	pump(t, m, func() bool { return sess.Ended })
@@ -115,7 +115,7 @@ func TestSessionEndsAndReconnects(t *testing.T) {
 }
 
 func TestStaleEndedMessageIsIgnoredAfterReconnect(t *testing.T) {
-	m, _ := newSessionModel(t, script{sh: `sleep 30`})
+	m, _ := newSessionModel(t, script{sh: `sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	m.Update(sessionEndedMsg{sess: sess, r: &runner{}, code: 1})
