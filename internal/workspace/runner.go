@@ -19,7 +19,10 @@ type runner struct {
 	cmd  *pty.Cmd
 	term *vterm
 	// scroll is how many lines the pane is scrolled back into history.
-	scroll    int
+	scroll int
+	// activity is set when the program writes output (a bell is output too)
+	// and cleared when the Workspace takes it.
+	activity  atomic.Bool
 	closeOnce sync.Once
 	ptyOnce   sync.Once
 }
@@ -100,6 +103,7 @@ func startRunner(argv []string, w, h, scrollback int, sess *Session, ev *events)
 			if n > 0 {
 				lastRead.Store(time.Now().UnixNano())
 				r.term.Write(buf[:n])
+				r.activity.Store(true)
 				ev.notifyRedraw()
 			}
 			if err != nil {

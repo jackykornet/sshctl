@@ -24,6 +24,11 @@ type Session struct {
 	N        int
 	Ended    bool
 	ExitCode int
+	// Unseen is true when the Session had activity (output or a bell) while
+	// it was not the shown tab. Showing the tab clears it.
+	Unseen bool
+	// Claude is true for a Session that runs claude on the remote host.
+	Claude bool
 }
 
 // Connection is a Connection together with its Sessions in this Workspace.
@@ -50,6 +55,16 @@ func (c *Connection) AllEnded() bool {
 		}
 	}
 	return true
+}
+
+// Unseen reports whether any of the Connection's Sessions has unseen activity.
+func (c *Connection) Unseen() bool {
+	for _, s := range c.Sessions {
+		if s.Unseen {
+			return true
+		}
+	}
+	return false
 }
 
 // LiveSessions counts Sessions whose process is still running.
@@ -121,12 +136,33 @@ func (s *State) Reload(entries []Entry) {
 // order they were opened, then the rest alphabetically. The filter hides only
 // Connections that are not open.
 func (s *State) Rows() []*Connection {
+	return s.rows(s.matches)
+}
+
+// GroupToOpen returns the Connections that opening group would open: its
+// closed, non-orphaned members in list order, ignoring the filter.
+func (s *State) GroupToOpen(group string) []*Connection {
+	if group == "" {
+		return nil
+	}
+	var out []*Connection
+	for _, c := range s.rows(func(c *Connection) bool { return c.Group == group }) {
+		if c.Group == group && !c.Open() && !c.Orphaned {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// rows lists open Connections in the order they were opened, then the closed
+// Connections that keep returns true for, alphabetically.
+func (s *State) rows(keep func(*Connection) bool) []*Connection {
 	var open, closed []*Connection
 	for _, c := range s.conns {
 		switch {
 		case c.Open():
 			open = append(open, c)
-		case s.matches(c):
+		case keep(c):
 			closed = append(closed, c)
 		}
 	}
@@ -194,6 +230,7 @@ func (s *State) Activate(alias string) error {
 		return fmt.Errorf("%s is not open", alias)
 	}
 	s.active, s.cursor = alias, alias
+	s.clearShownActivity()
 	return nil
 }
 
@@ -215,6 +252,7 @@ func (s *State) CycleActive(delta int) {
 		i = (i + delta + len(open)) % len(open)
 	}
 	s.active, s.cursor = open[i].Alias, open[i].Alias
+	s.clearShownActivity()
 }
 
 // OpenSession adds a new Session to alias, makes it the current tab and makes
@@ -246,12 +284,14 @@ func (s *State) SelectTab(delta int) {
 		return
 	}
 	c.Current = max(0, min(c.Current+delta, len(c.Sessions)-1))
+	s.clearShownActivity()
 }
 
 // SelectTabIndex makes tab i of the Active connection current.
 func (s *State) SelectTabIndex(i int) {
 	if c := s.Active(); c != nil && i >= 0 && i < len(c.Sessions) {
 		c.Current = i
+		s.clearShownActivity()
 	}
 }
 
@@ -289,7 +329,24 @@ func (s *State) CloseCurrent() *Session {
 			s.fixCursor()
 		}
 	}
+	s.clearShownActivity()
 	return closed
+}
+
+// MarkActivity records that sess had output or a bell. It has unseen
+// activity unless it is the shown tab of the Active connection.
+func (s *State) MarkActivity(sess *Session) {
+	if c := s.Active(); c != nil && c.CurrentSession() == sess {
+		return
+	}
+	sess.Unseen = true
+}
+
+// clearShownActivity clears the activity of the Active connection's shown tab.
+func (s *State) clearShownActivity() {
+	if c := s.Active(); c != nil && c.Open() {
+		c.CurrentSession().Unseen = false
+	}
 }
 
 // LiveSessions counts every live Session in the Workspace.

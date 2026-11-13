@@ -34,7 +34,7 @@ sshctl known-hosts remove <host>
 sshctl config show
 ```
 
-Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); saved connection descriptions and groups are sshctl metadata only. `add` and `edit` prompt for a description and group. `connect` runs `ssh <alias>` (and appends `claude` remotely with `--claude`). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); saved connection descriptions and groups are sshctl metadata only. `add` and `edit` prompt for a description and group. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
 
 `key list` lists public keys and certificates found in `~/.ssh` and registered external key paths. `key add` registers a key path; `key use` selects the identity used by sshctl. `agent ensure` inspects `ssh-add -l` and asks before adding the selected key. It does not start an agent automatically, and does not perform a signing challenge to inspect loaded keys. On Windows, use the OpenSSH Authentication Agent service and start it yourself if unavailable; normal connections do not require elevation.
 
@@ -57,6 +57,8 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Alt+←`/`Alt+→` | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection |
 | prefix `n` / `w` | New tab / close tab |
+| prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
+| prefix `g` | Open every closed connection in the group of the Connection under the cursor (`group connect` still opens separate windows) |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
@@ -81,13 +83,22 @@ Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh
 
 ## Platform support
 
-The release workflow builds Windows, macOS, and Linux binaries for amd64 and arm64. Platform behavior still depends on locally installed OpenSSH and terminal applications. This workspace has only been executed on Linux; other platforms should be considered unverified until CI runs successfully.
+The release workflow builds Windows, macOS, and Linux binaries for amd64 and arm64.
+
+CI runs `go vet` and the test suite on the GitHub-hosted Ubuntu, macOS, and Windows runners (Linux and Windows on amd64, macOS on arm64). The other three targets are only cross-compiled. The Workspace's Session tests start real processes in pseudo-terminals on all three runners, with `sh` (or `cmd.exe` on Windows, through ConPTY) standing in for `ssh`. A few Session tests rely on POSIX-only tools and are skipped on Windows.
+
+CI does not run a real OpenSSH client or open terminal windows, so actual connections and `group connect`'s terminal launching depend on the locally installed OpenSSH and terminal applications and are not verified by CI.
+
+The Workspace needs Windows 10 version 1809 or newer, because it uses ConPTY for its pseudo-terminals. The other commands do not.
 
 To publish an existing tag, run the **Release** workflow from GitHub Actions and enter the tag (for example, `v0.1.0`). New `v*` tags publish automatically.
 
 ## Development
 
 ```sh
-go test ./...
+gofmt -l .
 go vet ./...
+go test -race ./...
 ```
+
+After an intended change to the Workspace layout, regenerate its golden files with `go test ./internal/workspace -update` and review the diff.
