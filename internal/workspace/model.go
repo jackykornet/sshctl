@@ -10,11 +10,13 @@ import (
 )
 
 const (
-	defaultPrefixKey = "ctrl+b"
-	defaultListWidth = 28
+	defaultPrefixKey  = "ctrl+b"
+	defaultListWidth  = 28
+	defaultScrollback = 10000
 	// autoHideWidth is the total width below which the connection list hides itself.
 	autoHideWidth = 60
 	statusTimeout = 4 * time.Second
+	wheelLines    = 3
 )
 
 // Snapshot is what the Workspace loads at startup and on refresh.
@@ -26,9 +28,16 @@ type Snapshot struct {
 
 // Options configures a Workspace.
 type Options struct {
-	Load      func() (Snapshot, error)
-	PrefixKey string
-	ListWidth int
+	Load func() (Snapshot, error)
+	// Command returns the command line for a new Session of alias. It is called
+	// each time a tab opens, so it can use the Selected identity at that moment.
+	// When nil, Sessions get no process (used by layout tests).
+	Command func(alias string) ([]string, error)
+	// OnOpen is called when a Connection becomes open (its first Session starts).
+	OnOpen          func(alias string) error
+	PrefixKey       string
+	ListWidth       int
+	ScrollbackLines int
 }
 
 type focus int
@@ -50,10 +59,13 @@ type Model struct {
 	opts      Options
 	st        *State
 	identity  string
+	ev        *events
+	runners   map[*Session]*runner
 	w, h      int
 	focus     focus
 	prefix    bool
 	filtering bool
+	scrolling bool
 	hideList  bool
 	help      bool
 	confirm   *confirmation
@@ -70,26 +82,50 @@ func New(opts Options) (*Model, error) {
 	if opts.ListWidth <= 0 {
 		opts.ListWidth = defaultListWidth
 	}
+	if opts.ScrollbackLines <= 0 {
+		opts.ScrollbackLines = defaultScrollback
+	}
 	snap, err := opts.Load()
 	if err != nil {
 		return nil, err
 	}
-	return &Model{opts: opts, st: NewState(snap.Entries), identity: snap.Identity}, nil
+	return &Model{
+		opts:     opts,
+		st:       NewState(snap.Entries),
+		identity: snap.Identity,
+		ev:       newEvents(),
+		runners:  map[*Session]*runner{},
+	}, nil
 }
 
-// Run starts the Workspace and blocks until it quits.
+// Run starts the Workspace and blocks until it quits. Every Session still
+// running when it quits is ended.
 func Run(opts Options) error {
 	m, err := New(opts)
 	if err != nil {
 		return err
 	}
+	defer m.closeAll()
 	_, err = tea.NewProgram(m).Run()
 	return err
 }
 
-func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) closeAll() {
+	for s, r := range m.runners {
+		r.close()
+		delete(m.runners, s)
+	}
+}
+
+func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	m.syncSize()
+	return m, cmd
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -97,21 +133,59 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id == m.statusID {
 			m.status = ""
 		}
-	case tea.KeyPressMsg:
-		return m, m.key(msg)
-	case tea.MouseClickMsg:
-		return m, m.click(msg.Mouse())
-	case tea.MouseWheelMsg:
-		if mm := msg.Mouse(); mm.X < m.listWidth() {
-			switch mm.Button {
-			case tea.MouseWheelUp:
-				m.st.MoveCursor(-1)
-			case tea.MouseWheelDown:
-				m.st.MoveCursor(1)
-			}
+	case redrawMsg:
+		return m.ev.listen()
+	case sessionEndedMsg:
+		if m.runners[msg.sess] == msg.r { // ignore a runner replaced by reconnect
+			msg.sess.Ended, msg.sess.ExitCode = true, msg.code
 		}
+		return m.ev.listen()
+	case clipboardMsg:
+		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
+	case tea.PasteMsg:
+		if r := m.liveRunner(); r != nil && m.focus == focusPane && m.confirm == nil {
+			r.term.Paste(msg.Content)
+		}
+	case tea.KeyPressMsg:
+		return m.key(msg)
+	case tea.MouseMsg:
+		return m.mouse(msg)
 	}
-	return m, nil
+	return nil
+}
+
+// paneSize is the size of the terminal area under the tab bar.
+func (m *Model) paneSize() (int, int) {
+	return max(m.w-m.paneOffset(), 1), max(m.h-2, 1)
+}
+
+// syncSize resizes every Session's terminal to the current pane size.
+func (m *Model) syncSize() {
+	if m.w == 0 {
+		return
+	}
+	w, h := m.paneSize()
+	for _, r := range m.runners {
+		r.resize(w, h)
+	}
+}
+
+// currentRunner returns the process behind the Active connection's current tab.
+func (m *Model) currentRunner() (*Session, *runner) {
+	c := m.st.Active()
+	if c == nil {
+		return nil, nil
+	}
+	s := c.CurrentSession()
+	return s, m.runners[s]
+}
+
+func (m *Model) liveRunner() *runner {
+	s, r := m.currentRunner()
+	if s == nil || s.Ended {
+		return nil
+	}
+	return r
 }
 
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
@@ -129,7 +203,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.prefix {
 		m.prefix = false
-		return m.prefixCommand(k)
+		return m.prefixCommand(msg)
 	}
 	if k == m.opts.PrefixKey {
 		m.prefix = true
@@ -137,16 +211,18 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch k {
 	case "alt+left":
-		m.st.SelectTab(-1)
+		m.selectTab(-1)
 		return nil
 	case "alt+right":
-		m.st.SelectTab(1)
+		m.selectTab(1)
 		return nil
 	case "alt+up":
 		m.st.CycleActive(-1)
+		m.scrolling = false
 		return nil
 	case "alt+down":
 		m.st.CycleActive(1)
+		m.scrolling = false
 		return nil
 	}
 	if m.filtering {
@@ -154,8 +230,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if m.focus == focusPane {
-		// Key presses are forwarded to the Session once Sessions run ssh.
-		return nil
+		return m.paneKey(msg)
 	}
 	switch k {
 	case "up", "k":
@@ -172,6 +247,56 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.quit()
 	}
 	return nil
+}
+
+// paneKey handles a key while the terminal pane has focus: scroll mode keys,
+// the ended-Session actions, or forwarding to the live Session.
+func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
+	s, r := m.currentRunner()
+	if s == nil {
+		return nil
+	}
+	if m.scrolling && r != nil {
+		m.scrollKey(r, msg.String())
+		return nil
+	}
+	if s.Ended {
+		switch msg.String() {
+		case "r":
+			return m.reconnect()
+		case "x":
+			return m.closeTab()
+		}
+		return nil
+	}
+	if r != nil {
+		r.scroll = 0
+		r.term.SendKey(msg)
+	}
+	return nil
+}
+
+func (m *Model) scrollKey(r *runner, k string) {
+	_, h := m.paneSize()
+	switch k {
+	case "up", "k":
+		m.scrollBy(r, 1)
+	case "down", "j":
+		m.scrollBy(r, -1)
+	case "pgup":
+		m.scrollBy(r, h)
+	case "pgdown", "ctrl+f", "space":
+		m.scrollBy(r, -h)
+	case "g", "home":
+		m.scrollBy(r, r.term.ScrollbackLen())
+	case "G", "end", "q", "esc":
+		r.scroll, m.scrolling = 0, false
+	}
+}
+
+func (m *Model) scrollBy(r *runner, n int) {
+	r.scroll = max(0, min(r.scroll+n, r.term.ScrollbackLen()))
+	m.scrolling = r.scroll > 0
 }
 
 func (m *Model) filterKey(msg tea.KeyPressMsg) {
@@ -193,10 +318,13 @@ func (m *Model) filterKey(msg tea.KeyPressMsg) {
 	}
 }
 
-func (m *Model) prefixCommand(k string) tea.Cmd {
+func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
+	k := msg.String()
 	switch k {
 	case m.opts.PrefixKey:
-		// Sends a literal prefix key to the Session once Sessions run ssh.
+		if r := m.liveRunner(); r != nil && m.focus == focusPane {
+			r.term.SendKey(msg)
+		}
 	case "n":
 		target := m.st.Active()
 		if target == nil {
@@ -208,9 +336,14 @@ func (m *Model) prefixCommand(k string) tea.Cmd {
 	case "w":
 		return m.closeTab()
 	case "left":
-		m.st.SelectTab(-1)
+		m.selectTab(-1)
 	case "right":
-		m.st.SelectTab(1)
+		m.selectTab(1)
+	case "[":
+		if _, r := m.currentRunner(); r != nil {
+			m.scrolling = true
+			m.focus = focusPane
+		}
 	case "tab":
 		if m.focus == focusList && m.st.Active() != nil {
 			m.focus = focusPane
@@ -227,10 +360,16 @@ func (m *Model) prefixCommand(k string) tea.Cmd {
 		return m.quit()
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		m.st.SelectTabIndex(int(k[0] - '1'))
+		m.scrolling = false
 	default:
 		return m.setStatus(fmt.Sprintf("unknown command %s %s (%s ? for help)", keyHint(m.opts.PrefixKey), k, keyHint(m.opts.PrefixKey)), true)
 	}
 	return nil
+}
+
+func (m *Model) selectTab(delta int) {
+	m.st.SelectTab(delta)
+	m.scrolling = false
 }
 
 func (m *Model) enter() tea.Cmd {
@@ -246,14 +385,72 @@ func (m *Model) enter() tea.Cmd {
 	return m.open(c.Alias)
 }
 
+// open starts a new Session (tab) for alias.
 func (m *Model) open(alias string) tea.Cmd {
-	if _, err := m.st.OpenSession(alias); err != nil {
+	c := m.st.Get(alias)
+	first := c != nil && !c.Open()
+	sess, err := m.st.OpenSession(alias)
+	if err != nil {
 		if errors.Is(err, ErrOrphaned) {
 			return m.setStatus(alias+" is missing from ssh_config", true)
 		}
 		return m.setStatus(err.Error(), true)
 	}
-	m.focus = focusPane
+	if err := m.start(alias, sess); err != nil {
+		m.st.CloseCurrent()
+		if m.st.Active() == nil {
+			m.focus = focusList
+		}
+		return m.setStatus(alias+": "+err.Error(), true)
+	}
+	m.focus, m.scrolling = focusPane, false
+	if first && m.opts.OnOpen != nil {
+		if err := m.opts.OnOpen(alias); err != nil {
+			return m.setStatus("history: "+err.Error(), true)
+		}
+	}
+	return nil
+}
+
+// start runs the Session's process, replacing any previous one.
+func (m *Model) start(alias string, sess *Session) error {
+	if m.opts.Command == nil {
+		return nil
+	}
+	argv, err := m.opts.Command(alias)
+	if err != nil {
+		return err
+	}
+	w, h := m.paneSize()
+	r, err := startRunner(argv, w, h, m.opts.ScrollbackLines, sess, m.ev)
+	if err != nil {
+		return err
+	}
+	if old := m.runners[sess]; old != nil {
+		old.close()
+	}
+	m.runners[sess] = r
+	return nil
+}
+
+// reconnect starts a new process in the current tab after its Session ended.
+func (m *Model) reconnect() tea.Cmd {
+	c := m.st.Active()
+	if c == nil {
+		return nil
+	}
+	sess := c.CurrentSession()
+	if !sess.Ended {
+		return nil
+	}
+	if c.Orphaned {
+		return m.setStatus(c.Alias+" is missing from ssh_config", true)
+	}
+	if err := m.start(c.Alias, sess); err != nil {
+		return m.setStatus(c.Alias+": "+err.Error(), true)
+	}
+	sess.Ended, sess.ExitCode = false, 0
+	m.scrolling = false
 	return nil
 }
 
@@ -264,7 +461,13 @@ func (m *Model) closeTab() tea.Cmd {
 	}
 	sess := c.CurrentSession()
 	doClose := func(m *Model) tea.Cmd {
-		m.st.CloseCurrent()
+		if s := m.st.CloseCurrent(); s != nil {
+			if r := m.runners[s]; r != nil {
+				r.close()
+				delete(m.runners, s)
+			}
+		}
+		m.scrolling = false
 		if m.st.Active() == nil {
 			m.focus = focusList
 		}
@@ -310,12 +513,70 @@ func (m *Model) setStatus(s string, isErr bool) tea.Cmd {
 	return tea.Tick(statusTimeout, func(time.Time) tea.Msg { return clearStatusMsg{id} })
 }
 
-func (m *Model) click(mm tea.Mouse) tea.Cmd {
-	if mm.Button != tea.MouseLeft || mm.Y >= m.h-1 {
+func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
+	mm := msg.Mouse()
+	if mm.Y >= m.h-1 || m.help || m.confirm != nil {
 		return nil
 	}
 	lw := m.listWidth()
 	if mm.X < lw {
+		return m.listMouse(msg, mm)
+	}
+	paneX := mm.X - m.paneOffset()
+	if paneX < 0 {
+		return nil // the separator column
+	}
+	if mm.Y == 0 {
+		if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
+			_, spans := m.tabBar(m.w - m.paneOffset())
+			for _, sp := range spans {
+				if paneX >= sp.start && paneX < sp.end {
+					m.st.SelectTabIndex(sp.index)
+					m.scrolling = false
+				}
+			}
+			if m.st.Active() != nil {
+				m.focus = focusPane
+			}
+		}
+		return nil
+	}
+	s, r := m.currentRunner()
+	if s == nil || r == nil {
+		return nil
+	}
+	if _, ok := msg.(tea.MouseClickMsg); ok {
+		m.focus = focusPane
+	}
+	// Full-screen programs get the mouse; otherwise the wheel scrolls history.
+	if r.term.AltScreen() && !s.Ended {
+		r.term.SendMouse(msg, paneX, mm.Y-1)
+		return nil
+	}
+	if _, ok := msg.(tea.MouseWheelMsg); ok {
+		switch mm.Button {
+		case tea.MouseWheelUp:
+			m.scrollBy(r, wheelLines)
+		case tea.MouseWheelDown:
+			m.scrollBy(r, -wheelLines)
+		}
+	}
+	return nil
+}
+
+func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		switch mm.Button {
+		case tea.MouseWheelUp:
+			m.st.MoveCursor(-1)
+		case tea.MouseWheelDown:
+			m.st.MoveCursor(1)
+		}
+	case tea.MouseClickMsg:
+		if mm.Button != tea.MouseLeft {
+			return nil
+		}
 		rows, offset, top := m.listRows()
 		i := mm.Y - top + offset
 		if mm.Y < top || i >= len(rows) {
@@ -324,34 +585,18 @@ func (m *Model) click(mm tea.Mouse) tea.Cmd {
 		c := rows[i]
 		if c.Open() {
 			m.st.Activate(c.Alias)
-			m.focus = focusPane
+			m.focus, m.scrolling = focusPane, false
 		} else {
 			m.st.SetCursor(c.Alias)
 			m.focus = focusList
 		}
-		return nil
-	}
-	paneX := mm.X - lw
-	if lw > 0 {
-		paneX--
-	}
-	if mm.Y == 0 {
-		_, spans := m.tabBar(m.w - m.paneOffset())
-		for _, sp := range spans {
-			if paneX >= sp.start && paneX < sp.end {
-				m.st.SelectTabIndex(sp.index)
-			}
-		}
-	}
-	if m.st.Active() != nil {
-		m.focus = focusPane
 	}
 	return nil
 }
 
 // listWidth is the connection list's width, or 0 when it is hidden.
 func (m *Model) listWidth() int {
-	if m.hideList || m.help || m.w < autoHideWidth {
+	if m.hideList || m.w < autoHideWidth {
 		return 0
 	}
 	return min(m.opts.ListWidth, m.w/2)

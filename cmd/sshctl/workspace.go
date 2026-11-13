@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/sshctl/sshctl/internal/config"
+	"github.com/sshctl/sshctl/internal/openssh"
 	"github.com/sshctl/sshctl/internal/workspace"
 )
 
@@ -24,10 +25,34 @@ func (a *app) runWorkspace() error {
 		return fmt.Errorf("the Workspace needs the OpenSSH client: %w", err)
 	}
 	return workspace.Run(workspace.Options{
-		Load:      a.workspaceSnapshot,
-		PrefixKey: a.cfg.Workspace.PrefixKey,
-		ListWidth: a.cfg.Workspace.ListWidth,
+		Load:            a.workspaceSnapshot,
+		Command:         a.sessionCommand,
+		OnOpen:          a.recordOpen,
+		PrefixKey:       a.cfg.Workspace.PrefixKey,
+		ListWidth:       a.cfg.Workspace.ListWidth,
+		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 	})
+}
+
+// sessionCommand builds ssh for a new tab using the Selected identity as it
+// is now, so a change made with "sshctl key use" applies to the next tab.
+func (a *app) sessionCommand(alias string) ([]string, error) {
+	cfg, err := config.Load(a.cfgPath, a.legacy)
+	if err != nil {
+		return nil, err
+	}
+	a.cfg = cfg
+	return openssh.ConnectArgs(alias, cfg.DefaultKey, false), nil
+}
+
+// recordOpen adds a Connection to History when it becomes open in the Workspace.
+func (a *app) recordOpen(alias string) error {
+	cfg, err := config.Load(a.cfgPath, a.legacy)
+	if err != nil {
+		return err
+	}
+	a.cfg = cfg
+	return a.recordHistory(alias)
 }
 
 // workspaceSnapshot reads ssh_config aliases and sshctl metadata fresh from disk,

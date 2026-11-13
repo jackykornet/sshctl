@@ -17,6 +17,7 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 ## Commands
 
 ```text
+sshctl
 sshctl list
 sshctl connect <alias> [--claude]
 sshctl add <alias>
@@ -40,6 +41,37 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 `known-hosts remove` asks before invoking `ssh-keygen -R`, which handles hashed entries. `known-hosts list` displays the host field as stored (hashed names remain hashed).
 
 Group launching starts a separate terminal for each saved connection. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
+
+## Workspace
+
+Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the tabs of the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
+
+Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Open connections are marked green and move to the top of the list. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
+
+Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session):
+
+| Keys | Action |
+| --- | --- |
+| `↑`/`↓`, `Enter` | Move in the list, open or switch to a connection |
+| `/` | Filter the list by alias, description, or group |
+| `Alt+←`/`Alt+→` | Previous / next tab |
+| `Alt+↑`/`Alt+↓` | Previous / next open connection |
+| prefix `n` / `w` | New tab / close tab |
+| prefix `←`/`→`, `1`–`9` | Switch tab |
+| prefix `Tab` | Move focus between the list and the terminal |
+| prefix `[` | Scroll back through the tab's history (`q` to leave) |
+| prefix `b` / `r` | Hide the list / reload connections from disk |
+| prefix `?` / `q` | Help / quit |
+
+The mouse selects connections and tabs and scrolls history; full-screen programs such as `vim` receive mouse events when they ask for them. Hold Shift while dragging to select text with your own terminal. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
+
+Optional settings go in a `workspace` object in the config file:
+
+```json
+"workspace": { "prefixKey": "ctrl+a", "listWidth": 32, "scrollbackLines": 20000 }
+```
+
+The Workspace needs Windows 10 version 1809 or newer for its pseudo-terminals; the other commands do not.
 
 ## Configuration and security
 

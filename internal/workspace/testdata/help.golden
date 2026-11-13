@@ -1,5 +1,4 @@
                                                                                 
-                                                                                
   Keys  (press any key to close)                                                
                                                                                 
   ↑/↓ Enter      move, open or switch to a connection                           
@@ -10,9 +9,12 @@
   ^B w           close tab                                                      
   ^B ←/→  ^B 1-9 switch tab                                                     
   ^B Tab         move focus between list and terminal                           
+  ^B [           scroll back (mouse wheel also scrolls)                         
+  r / x          on an ended tab: reconnect / close                             
   ^B b           hide or show the connection list                               
   ^B r           refresh connections from ssh_config                            
   ^B ^B          send ^B to the session                                         
   ^B q           quit                                                           
+                                                                                
                                                                                 
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

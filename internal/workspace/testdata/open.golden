@@ -1,6 +1,6 @@
  ● prod-web public site [we…│ prod-web 1  prod-web 2                            
    db-main postgres         │                                                   
-   old-box (missing)        │  ssh prod-web: the terminal view is not implement…
+   old-box (missing)        │                                                   
    staging [web]            │                                                   
                             │                                                   
                             │                                                   
