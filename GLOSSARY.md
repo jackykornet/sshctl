@@ -5,16 +5,12 @@ sshctl manages metadata about OpenSSH host aliases and gives a workspace for ope
 ## Connections and sessions
 
 **Connection**:
-One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. sshctl's metadata never defines how to reach the host; only a Host block does.
+One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. sshctl's metadata never defines how to reach the host; only a Host block does. Renaming a Connection carries its metadata and History to the new alias. A Connection with neither a description nor a group has no sshctl metadata.
 _Avoid_: Server, host, profile
 
 **Managed connection**:
 A Connection whose Host block is in sshctl's own file, `~/.ssh/sshctl_config`, which the user's ssh_config Includes. The Workspace can add, edit, rename and delete it. Every other Connection's Host block belongs to the user, and sshctl only edits its description and group.
 _Avoid_: sshctl host, owned connection
-
-**Connection catalog**:
-The one place sshctl reads and changes Connections, keeping sshctl's metadata, History and Managed connections' Host blocks consistent: a rename moves all three, metadata with no description and no group is dropped, and a failed save changes nothing.
-_Avoid_: Store, repository, database
 
 **Orphaned connection**:
 A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened.
@@ -35,6 +31,10 @@ _Avoid_: Current, focused, selected connection
 **Group**:
 A name in a Connection's sshctl metadata that gathers it with other Connections. The connection list shows each group under a header that can be collapsed to hide its members. A Connection is in at most one group; one with none is **ungrouped**.
 _Avoid_: Folder, tag, category
+
+**History**:
+The 20 most recently opened Connections, most recent first. A Connection is opened when a Workspace Session for it starts or when `sshctl connect` runs it.
+_Avoid_: Recents, log
 
 ## Workspace
 
