@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -444,5 +445,127 @@ func TestProvisionUsesTheGroupsRepoOrRefusesForItsGroup(t *testing.T) {
 				t.Errorf("provisioned with %q / %q, want %q", out.String(), r.calls, tc.want)
 			}
 		})
+	}
+}
+
+// askTree is a tree where no dotfiles repo applies to web, which is in
+// Group group unless that is "", and in is what the user types.
+func askTree(t *testing.T, group, in string) (*app, *bytes.Buffer, *sshRecorder) {
+	t.Helper()
+	cfg := config.New()
+	if group != "" {
+		cfg.Groups = []config.Group{{Name: group}}
+		cfg.Connections["web"] = config.Connection{Alias: "web", Group: group}
+	}
+	a, out := cliTree(t, "Host web\n", cfg, in)
+	r := &sshRecorder{}
+	a.runSSH = r.run
+	return a, out, r
+}
+
+// provisionedWith reports whether the last ssh call's script applies repo.
+func provisionedWith(r *sshRecorder, repo string) bool {
+	if len(r.calls) == 0 {
+		return false
+	}
+	argv := r.calls[len(r.calls)-1]
+	return strings.Contains(argv[len(argv)-1], repo)
+}
+
+func TestProvisionAsksForTheRepoAndCanUseItOnce(t *testing.T) {
+	const repo = "https://example.com/once.git"
+	a, out, r := askTree(t, "prod", repo+"\no\n")
+	if err := a.execute([]string{"provision", "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Dotfiles repo URL: ") {
+		t.Errorf("output %q does not ask for the repo", out.String())
+	}
+	if !provisionedWith(r, repo) {
+		t.Errorf("ssh calls %q do not apply %s", r.calls, repo)
+	}
+	c := load(t, a)
+	if c.Provision.Dotfiles != "" || c.Groups[0].Dotfiles != "" {
+		t.Errorf("once saved global %q, group %q; want nothing", c.Provision.Dotfiles, c.Groups[0].Dotfiles)
+	}
+}
+
+func TestProvisionSavesTheAskedRepoWhereChosen(t *testing.T) {
+	const repo = "https://example.com/asked.git"
+	for _, tc := range []struct {
+		choice             string
+		wantGlobal, wantGr string
+	}{
+		{"g", repo, ""},
+		{"r", "", repo},
+	} {
+		t.Run(tc.choice, func(t *testing.T) {
+			a, _, r := askTree(t, "prod", repo+"\n"+tc.choice+"\n")
+			if err := a.execute([]string{"provision", "web"}); err != nil {
+				t.Fatal(err)
+			}
+			if !provisionedWith(r, repo) {
+				t.Errorf("ssh calls %q do not apply %s", r.calls, repo)
+			}
+			c := load(t, a)
+			if c.Provision.Dotfiles != tc.wantGlobal || c.Groups[0].Dotfiles != tc.wantGr {
+				t.Errorf("saved global %q, group %q; want %q, %q", c.Provision.Dotfiles, c.Groups[0].Dotfiles, tc.wantGlobal, tc.wantGr)
+			}
+		})
+	}
+}
+
+func TestProvisionOffersTheGroupOnlyForAGroupedConnection(t *testing.T) {
+	a, out, _ := askTree(t, "prod", dotfiles+"\no\n")
+	if err := a.execute([]string{"provision", "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Save for: (g)lobal, (r) group prod, (o)nce: "; !strings.Contains(out.String(), want) {
+		t.Errorf("output %q does not offer %q", out.String(), want)
+	}
+
+	a, out, r := askTree(t, "", dotfiles+"\nr\no\n")
+	if err := a.execute([]string{"provision", "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "group") {
+		t.Errorf("output %q offers a group for an ungrouped Connection", out.String())
+	}
+	if strings.Count(out.String(), "Save for: (g)lobal, (o)nce: ") != 2 {
+		t.Errorf("output %q: want r refused and the choice asked again", out.String())
+	}
+	if !provisionedWith(r, dotfiles) || load(t, a).Provision.Dotfiles != "" {
+		t.Error("want the repo used once and not saved")
+	}
+}
+
+func TestProvisionStopsWhenTheAskIsNotAnswered(t *testing.T) {
+	for _, in := range []string{"", "\n", dotfiles + "\n", dotfiles + "\nx\n"} {
+		a, _, r := askTree(t, "prod", in)
+		err := a.execute([]string{"provision", "web"})
+		if err == nil {
+			t.Errorf("input %q: provisioned, want an error", in)
+		}
+		if len(r.calls) != 0 {
+			t.Errorf("input %q: ssh ran %q", in, r.calls)
+		}
+		if c := load(t, a); c.Provision.Dotfiles != "" || c.Groups[0].Dotfiles != "" {
+			t.Errorf("input %q: saved a repo", in)
+		}
+	}
+}
+
+func TestProvisionNeverAsksWhenRefused(t *testing.T) {
+	cfg := config.New()
+	cfg.Provision.Dotfiles = dotfiles
+	cfg.Groups = []config.Group{{Name: "prod", Dotfiles: config.DotfilesNone}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	a, out := cliTree(t, "Host web\n", cfg, dotfiles+"\no\n")
+	a.runSSH = (&sshRecorder{}).run
+	if err := a.execute([]string{"provision", "web"}); err == nil {
+		t.Error("provisioned a refused Connection")
+	}
+	if strings.Contains(out.String(), "URL") {
+		t.Errorf("output %q asks for a repo", out.String())
 	}
 }
