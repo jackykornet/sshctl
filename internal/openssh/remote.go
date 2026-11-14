@@ -213,3 +213,34 @@ func validBase64(s string) bool {
 
 // shellQuote quotes s as one POSIX sh word.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// CheckKeyOnly proves that identity alone logs in to alias's host: ssh with
+// KeyOnly, so it can neither ask for a password nor fall back to one.
+func (c *Client) CheckKeyOnly(ctx context.Context, alias, identity string, stderr io.Writer) error {
+	return c.Run(ctx, alias, RemoteOptions{Identity: identity, KeyOnly: true}, "", io.Discard, stderr)
+}
+
+// Resolve returns the HostName, User and Port that ssh uses for alias, as
+// "ssh -G" prints them after reading all of ssh_config. It does not connect.
+func (c *Client) Resolve(ctx context.Context, alias string) (Endpoint, error) {
+	cmd := c.command(ctx, []string{"ssh", "-G", alias})
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
+	out, err := cmd.Output()
+	if err != nil {
+		return Endpoint{}, fmt.Errorf("ssh -G %s: %s: %w", alias, strings.TrimSpace(errOut.String()), err)
+	}
+	var e Endpoint
+	for _, line := range strings.Split(string(out), "\n") {
+		keyword, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		switch keyword {
+		case "hostname":
+			e.HostName = value
+		case "user":
+			e.User = value
+		case "port":
+			e.Port = value
+		}
+	}
+	return e, nil
+}

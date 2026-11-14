@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -159,5 +160,34 @@ func TestInstallKeyRefusesWhatIsNotAPublicKey(t *testing.T) {
 		if _, err := c.InstallKey(context.Background(), "web", "", key, nil); err == nil {
 			t.Errorf("InstallKey(%q) succeeded, want an error", key)
 		}
+	}
+}
+
+func TestCheckKeyOnlyLogsInWithTheKeyAlone(t *testing.T) {
+	var argv []string
+	c := fakeRemote{sh: `echo ` + posixMarker, cmd: `echo ` + posixMarker}.client(&argv)
+	if err := c.CheckKeyOnly(context.Background(), "web", "/k/id", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(argv, "BatchMode=yes") || !slices.Contains(argv, "PasswordAuthentication=no") || !slices.Contains(argv, "/k/id") {
+		t.Errorf("argv = %q, want key-only options and the key", argv)
+	}
+}
+
+func TestResolveReadsTheEndpointFromSSH(t *testing.T) {
+	var argv []string
+	c := fakeRemote{
+		sh:  `printf 'host web\nhostname 10.0.0.5\nuser deploy\nport 2222\nidentityfile ~/.ssh/id_rsa\n'`,
+		cmd: `echo host web& echo hostname 10.0.0.5& echo user deploy& echo port 2222`,
+	}.client(&argv)
+	got, err := c.Resolve(context.Background(), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Endpoint{HostName: "10.0.0.5", User: "deploy", Port: "2222"}); got != want {
+		t.Errorf("Resolve = %+v, want %+v", got, want)
+	}
+	if want := []string{"ssh", "-G", "web"}; !reflect.DeepEqual(argv, want) {
+		t.Errorf("argv = %q, want %q", argv, want)
 	}
 }
