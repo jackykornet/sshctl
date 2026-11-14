@@ -67,6 +67,11 @@ Commands:
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
   remove <alias>               Remove sshctl metadata
+  group list                   List Groups with their number and member count
+  group add <name>             Create a Group
+  group rename <old> <new>     Rename a Group, moving its Connections
+  group delete <name> [--yes]  Delete a Group; its Connections become ungrouped
+  group move <name> <position> Set a Group's position (its number)
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
   key list|use|add             List, select, or register keys
@@ -88,7 +93,7 @@ func usage(command string) string {
 	case "add", "edit", "remove":
 		return command + " <alias>"
 	case "group":
-		return "group connect <group>"
+		return groupUsage
 	case "key":
 		return "key list | use <key-path|none> | add <private-key-path>"
 	case "agent":
@@ -127,9 +132,7 @@ func (a *app) execute(args []string) error {
 	case "remove":
 		return a.remove(args[1:])
 	case "group":
-		if len(args) > 1 && args[1] == "connect" {
-			return a.groupConnect(args[2:])
-		}
+		return a.groupCommand(args[1:])
 	case "history":
 		for _, h := range a.cfg.History {
 			fmt.Fprintln(a.out, h)
@@ -251,7 +254,11 @@ func (a *app) metadata(args []string, edit bool) error {
 	}
 	// Saving under the same alias without Managed changes only the
 	// description and group, never a Host block.
-	return a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Group: c.Group})
+	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Group: c.Group})
+	if errors.Is(err, catalog.ErrUnknownGroup) {
+		return fmt.Errorf("no group %q; create it first with: sshctl group add %s", c.Group, c.Group)
+	}
+	return err
 }
 func (a *app) remove(args []string) error {
 	if len(args) != 1 {
