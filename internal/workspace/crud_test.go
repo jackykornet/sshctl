@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,54 +11,50 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// fakeStore stands in for ssh_config and sshctl metadata: Load reads its
-// entries, and the save and delete seams change them the way the real ones
-// change the files.
-type fakeStore struct {
+// fakeCatalog stands in for the Connection catalog. It records every call,
+// fails each Save with the next error in saveErrs, and otherwise lists the
+// saved Spec as it is (or drops the deleted alias) on the next Load. The
+// catalog's own rules are tested in internal/catalog.
+type fakeCatalog struct {
 	entries  []Entry
-	saves    []string // "old→alias"
+	saves    []string // "old→alias", one per call
+	specs    []Spec
 	deletes  []string
-	included bool
-	saveErr  error
+	includes int
+	saveErrs []error
 }
 
-func (f *fakeStore) find(alias string) int {
-	for i, e := range f.entries {
-		if e.Alias == alias {
-			return i
+func (f *fakeCatalog) Save(old string, s Spec) error {
+	f.saves = append(f.saves, old+"→"+s.Alias)
+	f.specs = append(f.specs, s)
+	if len(f.saveErrs) > 0 {
+		err := f.saveErrs[0]
+		f.saveErrs = f.saveErrs[1:]
+		if err != nil {
+			return err
 		}
 	}
-	return -1
+	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
+	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host})
+	return nil
 }
 
-func newStoreModel(t *testing.T, f *fakeStore) *Model {
+func (f *fakeCatalog) Delete(alias string) error {
+	f.deletes = append(f.deletes, alias)
+	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == alias })
+	return nil
+}
+
+func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
+
+// needInclude is the error the catalog returns before ssh_config Includes sshctl's file.
+var needInclude = &IncludeError{Line: "Include sshctl_config", Config: "~/.ssh/config"}
+
+func newStoreModel(t *testing.T, f *fakeCatalog) *Model {
 	t.Helper()
 	m, err := New(Options{
-		Load: func() (Snapshot, error) { return Snapshot{Entries: append([]Entry(nil), f.entries...)}, nil },
-		SaveConnection: func(old string, s Spec) error {
-			if f.saveErr != nil {
-				return f.saveErr
-			}
-			if s.Managed && !f.included {
-				return &IncludeError{Line: "Include sshctl_config", Config: "~/.ssh/config"}
-			}
-			f.saves = append(f.saves, old+"→"+s.Alias)
-			e := Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host}
-			if i := f.find(old); old != "" && i >= 0 {
-				f.entries[i] = e
-			} else {
-				f.entries = append(f.entries, e)
-			}
-			return nil
-		},
-		DeleteConnection: func(alias string) error {
-			f.deletes = append(f.deletes, alias)
-			if i := f.find(alias); i >= 0 {
-				f.entries = append(f.entries[:i], f.entries[i+1:]...)
-			}
-			return nil
-		},
-		AddInclude: func() error { f.included = true; return nil },
+		Load:    func() (Snapshot, error) { return Snapshot{Entries: append([]Entry(nil), f.entries...)}, nil },
+		Catalog: f,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +84,7 @@ func fill(m *Model, values ...string) {
 }
 
 func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("a")...)
@@ -103,11 +100,11 @@ func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 		t.Fatalf("want a question about the Include line, got %+v", m.confirm)
 	}
 	press(m, text("y")...)
-	if m.form != nil || !f.included {
-		t.Fatalf("form = %+v included = %v", m.form, f.included)
+	if m.form != nil || f.includes != 1 {
+		t.Fatalf("form = %+v includes = %d", m.form, f.includes)
 	}
-	if want := []string{"→api"}; !reflect.DeepEqual(f.saves, want) {
-		t.Fatalf("saves = %v, want %v", f.saves, want)
+	if want := []string{"→api", "→api"}; !reflect.DeepEqual(f.saves, want) {
+		t.Fatalf("saves = %v, want %v: the save is retried after the Include", f.saves, want)
 	}
 	c := m.st.Get("api")
 	if c == nil || c.Group != "prod" || c.Host.Port != "2222" || !c.Managed {
@@ -119,18 +116,18 @@ func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 }
 
 func TestDecliningIncludeKeepsTheForm(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
 	press(m, keyPrefix, text("a")[0])
 	fill(m, "api", "h")
 	press(m, keyCtrlS, text("n")[0])
-	if m.form == nil || len(f.saves) != 0 || f.included {
-		t.Fatalf("form = %v saves = %v included = %v", m.form, f.saves, f.included)
+	if m.form == nil || len(f.saves) != 1 || f.includes != 0 {
+		t.Fatalf("form = %v saves = %v includes = %d", m.form, f.saves, f.includes)
 	}
 }
 
 func TestSaveErrorStaysInForm(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true, saveErr: errors.New("hostname is required")}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{errors.New("hostname is required")}}
 	m := newStoreModel(t, f)
 	press(m, text("a")...)
 	press(m, keyCtrlS)
@@ -147,7 +144,7 @@ func TestSaveErrorStaysInForm(t *testing.T) {
 }
 
 func TestEditManagedConnectionCanRename(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("e")...)
@@ -165,7 +162,7 @@ func TestEditManagedConnectionCanRename(t *testing.T) {
 }
 
 func TestRenamingOpenConnectionIsRefused(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.OpenSession("web") // active, terminal focus not needed: the cursor is on it
 	press(m, keyPrefix, text("e")[0])
@@ -177,7 +174,7 @@ func TestRenamingOpenConnectionIsRefused(t *testing.T) {
 }
 
 func TestEditUnmanagedConnectionOnlyChangesMetadata(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)
@@ -185,7 +182,11 @@ func TestEditUnmanagedConnectionOnlyChangesMetadata(t *testing.T) {
 		t.Fatalf("fields = %d, want description and group only", len(m.form.fields))
 	}
 	fill(m, "laptop", "home")
-	press(m, keyCtrlS) // no Include needed: nothing is written to ssh_config
+	press(m, keyCtrlS)
+	want := Spec{Alias: "mine", Description: "laptop", Group: "home"}
+	if !reflect.DeepEqual(f.specs, []Spec{want}) {
+		t.Fatalf("saved %+v, want only %+v", f.specs, want)
+	}
 	if c := m.st.Get("mine"); c.Description != "laptop" || c.Group != "home" || c.Managed {
 		t.Fatalf("mine = %+v", c)
 	}
@@ -201,7 +202,7 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.alias, func(t *testing.T) {
-			f := &fakeStore{entries: storeEntries()}
+			f := &fakeCatalog{entries: storeEntries()}
 			m := newStoreModel(t, f)
 			m.st.SetCursor(tt.alias)
 			press(m, text("d")...)
@@ -217,7 +218,7 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 }
 
 func TestDeleteRefusesOpenOrForeignConnections(t *testing.T) {
-	f := &fakeStore{entries: append(storeEntries(), Entry{Alias: "bare"})}
+	f := &fakeCatalog{entries: append(storeEntries(), Entry{Alias: "bare"})}
 	m := newStoreModel(t, f)
 	m.st.OpenSession("web")
 	press(m, keyPrefix, text("d")[0]) // web is active and open
@@ -233,7 +234,7 @@ func TestDeleteRefusesOpenOrForeignConnections(t *testing.T) {
 }
 
 func TestFormIsDrawnInThePane(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
@@ -249,7 +250,7 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 }
 
 func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	load := m.opts.Load
 	loads := 0
@@ -272,7 +273,6 @@ func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
 	if s := m.form.spec(); s.Alias != "api" || s.Host.HostName != "10.0.0.9" {
 		t.Fatalf("form lost its contents: %+v", s)
 	}
-	f.included = true
 	press(m, keyCtrlS)
 	if m.form != nil || !reflect.DeepEqual(f.saves, []string{"→api"}) {
 		t.Fatalf("saving after prefix keys: form = %+v saves = %v", m.form, f.saves)

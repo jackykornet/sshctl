@@ -6,37 +6,19 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // Host is how OpenSSH reaches a Connection whose Host block sshctl manages.
-type Host struct {
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
-}
+type Host = catalog.Host
 
 // Spec is a Connection as entered in the connection form.
-type Spec struct {
-	Alias       string
-	Description string
-	Group       string
-	// Managed is true when sshctl writes the Host block, so Host applies.
-	// For a Connection defined elsewhere in ssh_config only the description
-	// and group are saved.
-	Managed bool
-	Host    Host
-}
+type Spec = catalog.Spec
 
-// IncludeError is returned by Options.SaveConnection when the user's
-// ssh_config does not yet read sshctl's hosts file. Saving can be retried
-// after Options.AddInclude adds Line to Config.
-type IncludeError struct {
-	Line   string
-	Config string
-}
-
-func (e *IncludeError) Error() string { return e.Config + " does not contain " + e.Line }
+// IncludeError is returned by Catalog.Save when the user's ssh_config does
+// not yet read sshctl's hosts file. Saving can be retried after
+// Catalog.AddInclude adds Line to Config.
+type IncludeError = catalog.IncludeError
 
 type fieldID int
 
@@ -134,7 +116,7 @@ func (f *connForm) spec() Spec {
 }
 
 func (m *Model) startAdd() tea.Cmd {
-	if m.opts.SaveConnection == nil {
+	if m.opts.Catalog == nil {
 		return nil
 	}
 	group := ""
@@ -146,7 +128,7 @@ func (m *Model) startAdd() tea.Cmd {
 }
 
 func (m *Model) startEdit() tea.Cmd {
-	if m.opts.SaveConnection == nil {
+	if m.opts.Catalog == nil {
 		return nil
 	}
 	c := m.moveTarget()
@@ -189,7 +171,7 @@ func (m *Model) formKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// saveForm saves the form through Options.SaveConnection and reloads the
+// saveForm saves the form through the Catalog and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config
 // must Include sshctl's hosts file first, it asks before adding the line.
 func (m *Model) saveForm() tea.Cmd {
@@ -201,13 +183,13 @@ func (m *Model) saveForm() tea.Cmd {
 			return nil
 		}
 	}
-	err := m.opts.SaveConnection(f.old, s)
+	err := m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
-	if errors.As(err, &inc) && m.opts.AddInclude != nil {
+	if errors.As(err, &inc) {
 		m.confirm = &confirmation{
 			question: fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config),
 			yes: func(m *Model) tea.Cmd {
-				if err := m.opts.AddInclude(); err != nil {
+				if err := m.opts.Catalog.AddInclude(); err != nil {
 					m.form.err = err.Error()
 					return nil
 				}
@@ -231,7 +213,7 @@ func (m *Model) saveForm() tea.Cmd {
 // deleteConnection asks before deleting the target Connection: its Host
 // block when sshctl manages it, and its sshctl metadata.
 func (m *Model) deleteConnection() tea.Cmd {
-	if m.opts.DeleteConnection == nil {
+	if m.opts.Catalog == nil {
 		return nil
 	}
 	c := m.moveTarget()
@@ -250,7 +232,7 @@ func (m *Model) deleteConnection() tea.Cmd {
 	}
 	alias := c.Alias
 	m.confirm = &confirmation{question: question, yes: func(m *Model) tea.Cmd {
-		if err := m.opts.DeleteConnection(alias); err != nil {
+		if err := m.opts.Catalog.Delete(alias); err != nil {
 			return m.setStatus("delete "+alias+": "+err.Error(), true)
 		}
 		return m.reloadAfterEdit("", "deleted "+alias)

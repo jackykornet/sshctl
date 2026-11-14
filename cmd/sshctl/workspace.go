@@ -1,15 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
 	"github.com/sshctl/sshctl/internal/workspace"
@@ -28,18 +26,16 @@ func (a *app) runWorkspace() error {
 		return fmt.Errorf("the Workspace needs the OpenSSH client: %w", err)
 	}
 	return workspace.Run(workspace.Options{
-		Load:             a.workspaceSnapshot,
-		Command:          a.sessionCommand,
-		OnOpen:           a.recordOpen,
-		OnGroup:          a.setGroup,
-		Collapsed:        a.cfg.Workspace.CollapsedGroups,
-		OnCollapse:       a.saveCollapsed,
-		SaveConnection:   a.saveConnection,
-		DeleteConnection: a.deleteConnection,
-		AddInclude:       a.ssh.AddInclude,
-		PrefixKey:        a.cfg.Workspace.PrefixKey,
-		ListWidth:        a.cfg.Workspace.ListWidth,
-		ScrollbackLines:  a.cfg.Workspace.ScrollbackLines,
+		Load:            a.workspaceSnapshot,
+		Command:         a.sessionCommand,
+		OnOpen:          a.recordOpen,
+		OnGroup:         a.setGroup,
+		Collapsed:       a.cfg.Workspace.CollapsedGroups,
+		OnCollapse:      a.saveCollapsed,
+		Catalog:         catalog.New(a.cfgPath, a.legacy, a.ssh),
+		PrefixKey:       a.cfg.Workspace.PrefixKey,
+		ListWidth:       a.cfg.Workspace.ListWidth,
+		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 	})
 }
 
@@ -73,13 +69,7 @@ func (a *app) setGroup(alias, group string) error {
 		return err
 	}
 	a.cfg = cfg
-	c := cfg.Connections[alias]
-	c.Alias, c.Group = alias, group
-	if c.Description == "" && c.Group == "" {
-		delete(cfg.Connections, alias)
-	} else {
-		cfg.Connections[alias] = c
-	}
+	cfg.SetMetadata(alias, cfg.Connections[alias].Description, group)
 	return a.save()
 }
 
@@ -94,70 +84,6 @@ func (a *app) managedHosts() (map[string]openssh.Host, error) {
 		out[h.Alias] = h
 	}
 	return out, nil
-}
-
-// saveConnection adds a Connection (old is "") or saves changes to old. A
-// Host block is written to sshctl's ssh_config file first whenever the form
-// carries one or the alias is new or renamed; openssh.SaveHost decides
-// whether that is allowed. Then the description and group are saved,
-// following a rename.
-func (a *app) saveConnection(old string, s workspace.Spec) error {
-	if s.Managed || old != s.Alias {
-		h := openssh.Host{Alias: s.Alias, HostName: s.Host.HostName, User: s.Host.User, Port: s.Host.Port, IdentityFile: s.Host.IdentityFile}
-		switch err := a.ssh.SaveHost(old, h); {
-		case errors.Is(err, openssh.ErrNotIncluded):
-			return &workspace.IncludeError{Line: openssh.IncludeLine, Config: displayPath(a.ssh.SSHConfig)}
-		case errors.Is(err, openssh.ErrUnknownHost):
-			return fmt.Errorf("%s is defined outside sshctl and cannot be renamed here", old)
-		case err != nil:
-			return err
-		}
-	}
-	cfg, err := config.Load(a.cfgPath, a.legacy)
-	if err != nil {
-		return err
-	}
-	a.cfg = cfg
-	if old != "" && old != s.Alias {
-		delete(cfg.Connections, old)
-		for i, h := range cfg.History {
-			if h == old {
-				cfg.History[i] = s.Alias
-			}
-		}
-	}
-	if s.Description == "" && s.Group == "" {
-		delete(cfg.Connections, s.Alias)
-	} else {
-		cfg.Connections[s.Alias] = config.Connection{Alias: s.Alias, Description: s.Description, Group: s.Group}
-	}
-	return a.save()
-}
-
-// deleteConnection removes alias's Host block when sshctl manages it, and
-// its sshctl metadata. openssh.DeleteHost decides from ssh_config whether
-// the block is sshctl's; a block anywhere else is left alone.
-func (a *app) deleteConnection(alias string) error {
-	if err := a.ssh.DeleteHost(alias); err != nil && !errors.Is(err, openssh.ErrUnknownHost) {
-		return err
-	}
-	cfg, err := config.Load(a.cfgPath, a.legacy)
-	if err != nil {
-		return err
-	}
-	a.cfg = cfg
-	delete(cfg.Connections, alias)
-	return a.save()
-}
-
-// displayPath shows path with the home directory as "~".
-func displayPath(path string) string {
-	if home, err := os.UserHomeDir(); err == nil {
-		if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join("~", rel)
-		}
-	}
-	return path
 }
 
 // saveCollapsed saves which groups the Workspace connection list shows collapsed.
