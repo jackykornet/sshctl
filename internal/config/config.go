@@ -49,6 +49,21 @@ func (c *Config) SetMetadata(alias, description, group string) {
 	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group}
 }
 
+// historyLen is how many Connections History keeps.
+const historyLen = 20
+
+// RecordOpen moves alias to the front of History, keeping the most recent
+// historyLen.
+func (c *Config) RecordOpen(alias string) {
+	h := []string{alias}
+	for _, a := range c.History {
+		if a != alias && len(h) < historyLen {
+			h = append(h, a)
+		}
+	}
+	c.History = h
+}
+
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }
 
 func Paths() (string, []string, error) {

@@ -31,17 +31,11 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 	if runtime.GOOS == "windows" && s.cmd == "" {
 		t.Skip("uses POSIX-only tools")
 	}
-	var opened []string
+	f := &fakeCatalog{entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}
 	m, err := New(Options{
-		Load: func() (Snapshot, error) {
-			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
-		},
+		Catalog: f,
 		Command: func(alias string, _ bool) ([]string, error) {
 			return s.argv(alias), nil
-		},
-		OnOpen: func(alias string) error {
-			opened = append(opened, alias)
-			return nil
 		},
 		ScrollbackLines: 100,
 	})
@@ -50,7 +44,7 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 	}
 	t.Cleanup(m.closeAll)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
-	return m, &opened
+	return m, &f.opened
 }
 
 // pump feeds runner messages into the model until cond holds.

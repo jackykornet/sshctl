@@ -3,7 +3,6 @@ package workspace
 import (
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -11,51 +10,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// fakeCatalog stands in for the Connection catalog. It records every call,
-// fails each Save with the next error in saveErrs, and otherwise lists the
-// saved Spec as it is (or drops the deleted alias) on the next Load. The
-// catalog's own rules are tested in internal/catalog.
-type fakeCatalog struct {
-	entries  []Entry
-	saves    []string // "old→alias", one per call
-	specs    []Spec
-	deletes  []string
-	includes int
-	saveErrs []error
-}
-
-func (f *fakeCatalog) Save(old string, s Spec) error {
-	f.saves = append(f.saves, old+"→"+s.Alias)
-	f.specs = append(f.specs, s)
-	if len(f.saveErrs) > 0 {
-		err := f.saveErrs[0]
-		f.saveErrs = f.saveErrs[1:]
-		if err != nil {
-			return err
-		}
-	}
-	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
-	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host})
-	return nil
-}
-
-func (f *fakeCatalog) Delete(alias string) error {
-	f.deletes = append(f.deletes, alias)
-	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == alias })
-	return nil
-}
-
-func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
-
 // needInclude is the error the catalog returns before ssh_config Includes sshctl's file.
 var needInclude = &IncludeError{Line: "Include sshctl_config", Config: "~/.ssh/config"}
 
 func newStoreModel(t *testing.T, f *fakeCatalog) *Model {
 	t.Helper()
-	m, err := New(Options{
-		Load:    func() (Snapshot, error) { return Snapshot{Entries: append([]Entry(nil), f.entries...)}, nil },
-		Catalog: f,
-	})
+	m, err := New(Options{Catalog: f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,9 +212,7 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
-	load := m.opts.Load
-	loads := 0
-	m.opts.Load = func() (Snapshot, error) { loads++; return load() }
+	loads := f.loads
 	m.st.SetCursor("web")
 	press(m, text("a")...)
 	fill(m, "api", "10.0.0.9")
@@ -264,8 +222,8 @@ func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
 	if n := len(m.st.Get("web").Sessions); n != 0 {
 		t.Errorf("^B n opened %d Sessions behind the form", n)
 	}
-	if loads != 0 {
-		t.Errorf("^B r reloaded %d times behind the form", loads)
+	if n := f.loads - loads; n != 0 {
+		t.Errorf("^B r reloaded %d times behind the form", n)
 	}
 	if m.form() == nil {
 		t.Fatal("the form should still be open")

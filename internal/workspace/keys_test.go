@@ -47,21 +47,18 @@ func TestBindingsDoNotOverlap(t *testing.T) {
 }
 
 func TestPrefixRefreshReloadsTheList(t *testing.T) {
-	entries := []Entry{{Alias: "alpha"}}
-	var loadErr error
-	m, err := New(Options{Load: func() (Snapshot, error) {
-		return Snapshot{Entries: entries, Identity: "/k"}, loadErr
-	}})
+	f := &fakeCatalog{entries: []Entry{{Alias: "alpha"}}, identity: "/k"}
+	m, err := New(Options{Catalog: f})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
-	entries = []Entry{{Alias: "alpha"}, {Alias: "beta"}}
+	f.entries = []Entry{{Alias: "alpha"}, {Alias: "beta"}}
 	press(m, keyPrefix, text("r")[0])
 	if m.st.Get("beta") == nil || m.status != "connection list refreshed" {
 		t.Fatalf("after ^B r: beta = %v, status = %q", m.st.Get("beta"), m.status)
 	}
-	loadErr = errors.New("boom")
+	f.loadErr = errors.New("boom")
 	press(m, keyPrefix, text("r")[0])
 	if !m.statusErr || m.status != "reload: boom" {
 		t.Fatalf("failed reload status = %q", m.status)

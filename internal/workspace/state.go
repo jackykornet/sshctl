@@ -8,20 +8,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // Entry is one Connection as loaded from ssh_config and sshctl metadata.
-type Entry struct {
-	Alias       string
-	Description string
-	Group       string
-	// Orphaned is true when sshctl metadata exists but the Host alias is gone.
-	Orphaned bool
-	// Managed is true when the Host block is in sshctl's own ssh_config file,
-	// so the Workspace can edit Host and delete the block.
-	Managed bool
-	Host    Host
-}
+type Entry = catalog.Entry
 
 // Session is one tab of a Connection.
 type Session struct {

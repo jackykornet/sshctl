@@ -184,10 +184,7 @@ func (a *app) connect(args []string) error {
 
 // recordHistory moves alias to the front of History, keeping the 20 most recent.
 func (a *app) recordHistory(alias string) error {
-	a.cfg.History = append([]string{alias}, removeString(a.cfg.History, alias)...)
-	if len(a.cfg.History) > 20 {
-		a.cfg.History = a.cfg.History[:20]
-	}
+	a.cfg.RecordOpen(alias)
 	return a.save()
 }
 func (a *app) metadata(args []string, edit bool) error {
@@ -406,13 +403,4 @@ func (a *app) showConfig() error {
 		fmt.Fprintln(a.out, "  "+setting)
 	}
 	return nil
-}
-func removeString(in []string, v string) []string {
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if s != v {
-			out = append(out, s)
-		}
-	}
-	return out
 }

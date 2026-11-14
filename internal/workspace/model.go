@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 const (
@@ -19,16 +20,22 @@ const (
 	wheelLines    = 3
 )
 
-// Snapshot is what the Workspace loads at startup and on refresh.
-type Snapshot struct {
-	Entries []Entry
-	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
-	Identity string
-}
+// Snapshot is what the Workspace loads at startup and on refresh. Its
+// Collapsed groups apply at startup only.
+type Snapshot = catalog.Snapshot
 
-// Catalog is the Connection catalog as the Workspace uses it. The real one
-// is *catalog.Catalog.
+// Catalog is the Connection catalog as the Workspace uses it: everything the
+// Workspace reads and saves goes through it. The real one is
+// *catalog.Catalog.
 type Catalog interface {
+	// Snapshot reads the Connection list fresh from disk.
+	Snapshot() (Snapshot, error)
+	// RecordOpen records in History that alias was opened.
+	RecordOpen(alias string) error
+	// SetGroup saves alias's group ("" for none).
+	SetGroup(alias, group string) error
+	// SetCollapsed saves every group the list shows collapsed.
+	SetCollapsed(groups []string) error
 	// Save adds a Connection (old is "") or saves changes to old. It returns
 	// an *IncludeError when ssh_config must first read sshctl's hosts file.
 	Save(old string, s Spec) error
@@ -41,23 +48,14 @@ type Catalog interface {
 
 // Options configures a Workspace.
 type Options struct {
-	Load func() (Snapshot, error)
+	// Catalog loads and saves Connections and the Workspace's saved state.
+	// It is required.
+	Catalog Catalog
 	// Command returns the command line for a new Session of alias; claude asks
 	// for a Session that runs claude on the remote host. It is called each time
 	// a tab opens or reconnects, so it can use the Selected identity at that
 	// moment. When nil, Sessions get no process (used by layout tests).
-	Command func(alias string, claude bool) ([]string, error)
-	// OnOpen is called when a Connection becomes open (its first Session starts).
-	OnOpen func(alias string) error
-	// OnGroup saves alias's new group ("" for none) before the list shows it there.
-	OnGroup func(alias, group string) error
-	// Collapsed lists the groups that start collapsed.
-	Collapsed []string
-	// OnCollapse saves every collapsed group after one is collapsed or expanded.
-	OnCollapse func(groups []string) error
-	// Catalog saves and deletes Connections. When nil, the Workspace cannot
-	// add, edit or delete them.
-	Catalog         Catalog
+	Command         func(alias string, claude bool) ([]string, error)
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int
@@ -114,12 +112,15 @@ func New(opts Options) (*Model, error) {
 	if opts.ScrollbackLines <= 0 {
 		opts.ScrollbackLines = defaultScrollback
 	}
-	snap, err := opts.Load()
+	if opts.Catalog == nil {
+		return nil, errors.New("workspace: no Connection catalog")
+	}
+	snap, err := opts.Catalog.Snapshot()
 	if err != nil {
 		return nil, err
 	}
 	st := NewState(snap.Entries)
-	for _, g := range opts.Collapsed {
+	for _, g := range snap.Collapsed {
 		st.SetCollapsed(g, true)
 	}
 	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
@@ -368,8 +369,8 @@ func (m *Model) openSession(alias string, claude bool) error {
 		return err
 	}
 	m.focus, m.scrolling = focusPane, false
-	if first && m.opts.OnOpen != nil {
-		if err := m.opts.OnOpen(alias); err != nil {
+	if first {
+		if err := m.opts.Catalog.RecordOpen(alias); err != nil {
 			return fmt.Errorf("history: %w", err)
 		}
 	}
@@ -511,7 +512,7 @@ func (m *Model) quit() tea.Cmd {
 // reload reloads the connection list from disk, puts the cursor on alias
 // when it is set, and shows status.
 func (m *Model) reload(alias, status string) tea.Cmd {
-	snap, err := m.opts.Load()
+	snap, err := m.opts.Catalog.Snapshot()
 	if err != nil {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
@@ -529,10 +530,8 @@ func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
 		return nil
 	}
 	m.st.SetCollapsed(group, collapsed)
-	if m.opts.OnCollapse != nil {
-		if err := m.opts.OnCollapse(m.st.CollapsedGroups()); err != nil {
-			return m.setStatus("save collapsed groups: "+err.Error(), true)
-		}
+	if err := m.opts.Catalog.SetCollapsed(m.st.CollapsedGroups()); err != nil {
+		return m.setStatus("save collapsed groups: "+err.Error(), true)
 	}
 	return nil
 }
@@ -566,10 +565,8 @@ func (m *Model) moveTo(alias, group string) tea.Cmd {
 		return nil
 	}
 	from := c.Group
-	if m.opts.OnGroup != nil {
-		if err := m.opts.OnGroup(alias, group); err != nil {
-			return m.setStatus("move "+alias+": "+err.Error(), true)
-		}
+	if err := m.opts.Catalog.SetGroup(alias, group); err != nil {
+		return m.setStatus("move "+alias+": "+err.Error(), true)
 	}
 	m.st.SetGroup(alias, group)
 	if group == "" {

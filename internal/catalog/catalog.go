@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/config"
@@ -34,6 +35,30 @@ type Spec struct {
 	Host    Host
 }
 
+// Entry is one Connection as listed from ssh_config and sshctl metadata.
+type Entry struct {
+	Alias       string
+	Description string
+	Group       string
+	// Orphaned is true when sshctl metadata exists but the Host alias is gone.
+	Orphaned bool
+	// Managed is true when the Host block is in sshctl's own ssh_config file,
+	// so Host applies and the block can be edited and deleted.
+	Managed bool
+	Host    Host
+}
+
+// Snapshot is the Connection list as it is on disk now.
+type Snapshot struct {
+	// Entries lists ssh_config's aliases in ssh_config order, then the
+	// Orphaned connections sorted by alias.
+	Entries []Entry
+	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
+	Identity string
+	// Collapsed lists the groups the Workspace shows collapsed.
+	Collapsed []string
+}
+
 // IncludeError is returned by Save when the user's ssh_config does not yet
 // read sshctl's hosts file. Saving can be retried after AddInclude adds Line
 // to Config.
@@ -58,6 +83,78 @@ type Catalog struct {
 // (migrated from legacy when missing) and ssh.
 func New(configPath string, legacy []string, ssh *openssh.Client) *Catalog {
 	return &Catalog{configPath: configPath, legacy: legacy, ssh: ssh, saveConfig: config.Save}
+}
+
+// Snapshot reads ssh_config's aliases and sshctl metadata fresh from disk,
+// so a refresh picks up changes made in another terminal.
+func (c *Catalog) Snapshot() (Snapshot, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	aliases, err := c.ssh.Aliases()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	hosts, err := c.ssh.ManagedHosts()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	managed := make(map[string]openssh.Host, len(hosts))
+	for _, h := range hosts {
+		managed[h.Alias] = h
+	}
+	snap := Snapshot{Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
+	seen := map[string]bool{}
+	for _, alias := range aliases {
+		seen[alias] = true
+		m := cfg.Connections[alias]
+		e := Entry{Alias: alias, Description: m.Description, Group: m.Group}
+		if h, ok := managed[alias]; ok {
+			e.Managed = true
+			e.Host = Host{HostName: h.HostName, User: h.User, Port: h.Port, IdentityFile: h.IdentityFile}
+		}
+		snap.Entries = append(snap.Entries, e)
+	}
+	var orphans []string
+	for alias := range cfg.Connections {
+		if !seen[alias] {
+			orphans = append(orphans, alias)
+		}
+	}
+	sort.Strings(orphans)
+	for _, alias := range orphans {
+		m := cfg.Connections[alias]
+		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Group: m.Group, Orphaned: true})
+	}
+	return snap, nil
+}
+
+// RecordOpen records in History that alias was opened.
+func (c *Catalog) RecordOpen(alias string) error {
+	return c.update(func(cfg *config.Config) { cfg.RecordOpen(alias) })
+}
+
+// SetGroup puts alias in group ("" for none), keeping its description.
+func (c *Catalog) SetGroup(alias, group string) error {
+	return c.update(func(cfg *config.Config) {
+		cfg.SetMetadata(alias, cfg.Connections[alias].Description, group)
+	})
+}
+
+// SetCollapsed saves groups as the groups the Workspace shows collapsed.
+func (c *Catalog) SetCollapsed(groups []string) error {
+	return c.update(func(cfg *config.Config) { cfg.Workspace.CollapsedGroups = groups })
+}
+
+// update loads the sshctl config, applies change and saves it.
+func (c *Catalog) update(change func(*config.Config)) error {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return err
+	}
+	change(cfg)
+	return c.saveConfig(c.configPath, cfg)
 }
 
 // Save adds a Connection (old is "") or saves changes to old.
