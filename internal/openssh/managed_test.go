@@ -243,6 +243,76 @@ func TestSaveHostNeedsConfigToIncludeManagedFile(t *testing.T) {
 	}
 }
 
+// linkIntoSource moves the file at path into a separate source directory, as
+// chezmoi does, and leaves a symlink to it at path. It skips the test where
+// the OS cannot make symlinks (unprivileged Windows).
+func linkIntoSource(t *testing.T, path, content string) (target string) {
+	t.Helper()
+	target = filepath.Join(t.TempDir(), filepath.Base(path))
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("cannot make symlinks here: %v", err)
+	}
+	return target
+}
+
+func assertSymlink(t *testing.T, path string) {
+	t.Helper()
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink: %v, %v", path, fi, err)
+	}
+}
+
+func TestSaveHostWritesThroughSymlinkedManagedFile(t *testing.T) {
+	c := includingClient(t, "")
+	target := linkIntoSource(t, c.ManagedPath(), "")
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "10.0.0.1"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertSymlink(t, c.ManagedPath())
+	aliases, err := HostAliases(target)
+	if err != nil || !reflect.DeepEqual(aliases, []string{"web"}) {
+		t.Fatalf("target aliases = %v (%v)", aliases, err)
+	}
+	entries, _ := os.ReadDir(c.SSHDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("temp file left next to the link: %s", e.Name())
+		}
+	}
+}
+
+func TestAddIncludeWritesThroughSymlinkedConfig(t *testing.T) {
+	c := managedClient(t)
+	original := "Host mine\n  HostName example.com\n"
+	target := linkIntoSource(t, c.SSHConfig, original)
+	if err := c.AddInclude(); err != nil {
+		t.Fatal(err)
+	}
+	assertSymlink(t, c.SSHConfig)
+	b, _ := os.ReadFile(target)
+	if !strings.Contains(string(b), IncludeLine) || !strings.HasSuffix(string(b), original) {
+		t.Errorf("target not updated:\n%s", b)
+	}
+	if backup, _ := os.ReadFile(c.SSHConfig + ".sshctl-backup"); string(backup) != original {
+		t.Errorf("backup = %q", backup)
+	}
+}
+
+func TestSaveHostRefusesDanglingSymlink(t *testing.T) {
+	c := includingClient(t, "")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone", ManagedFile), c.ManagedPath()); err != nil {
+		t.Skipf("cannot make symlinks here: %v", err)
+	}
+	err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "w"}})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") || !strings.Contains(err.Error(), c.ManagedPath()) {
+		t.Fatalf("SaveHost through dangling link = %v, want a clear error", err)
+	}
+	assertSymlink(t, c.ManagedPath())
+}
+
 // ADR-0004: a Host block synced between machines must name keys from "~".
 func TestSaveHostWritesIdentityFileUnderHomeWithTilde(t *testing.T) {
 	tests := []struct {
