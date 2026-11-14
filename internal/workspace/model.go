@@ -93,7 +93,7 @@ type Model struct {
 	st        *State
 	identity  string
 	ev        *events
-	runners   map[*Session]*runner
+	sessions  *sessions
 	w, h      int
 	focus     focus
 	prefix    bool
@@ -129,13 +129,16 @@ func New(opts Options) (*Model, error) {
 	for _, g := range opts.Collapsed {
 		st.SetCollapsed(g, true)
 	}
-	return &Model{
-		opts:     opts,
-		st:       st,
-		identity: snap.Identity,
-		ev:       newEvents(),
-		runners:  map[*Session]*runner{},
-	}, nil
+	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
+	m.sessions = &sessions{
+		st:         st,
+		ev:         m.ev,
+		command:    opts.Command,
+		scrollback: opts.ScrollbackLines,
+		size:       m.paneSize,
+		runners:    map[*Session]*runner{},
+	}
+	return m, nil
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -150,12 +153,7 @@ func Run(opts Options) error {
 	return err
 }
 
-func (m *Model) closeAll() {
-	for s, r := range m.runners {
-		r.close()
-		delete(m.runners, s)
-	}
-}
+func (m *Model) closeAll() { m.sessions.closeAll() }
 
 func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
@@ -174,13 +172,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.status = ""
 		}
 	case redrawMsg:
-		m.takeActivity()
+		m.sessions.takeActivity()
 		return m.ev.listen()
 	case sessionEndedMsg:
-		m.takeActivity()                  // its last output may not have been redrawn yet
-		if m.runners[msg.sess] == msg.r { // ignore a runner replaced by reconnect
-			msg.sess.Ended, msg.sess.ExitCode = true, msg.code
-		}
+		m.sessions.takeActivity() // its last output may not have been redrawn yet
+		m.sessions.ended(msg)
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
@@ -196,15 +192,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// takeActivity marks every Session whose process wrote output since the last call.
-func (m *Model) takeActivity() {
-	for sess, r := range m.runners {
-		if r.activity.Swap(false) {
-			m.st.MarkActivity(sess)
-		}
-	}
-}
-
 // paneSize is the size of the terminal area under the tab bar.
 func (m *Model) paneSize() (int, int) {
 	return max(m.w-m.paneOffset(), 1), max(m.h-2, 1)
@@ -215,10 +202,7 @@ func (m *Model) syncSize() {
 	if m.w == 0 {
 		return
 	}
-	w, h := m.paneSize()
-	for _, r := range m.runners {
-		r.resize(w, h)
-	}
+	m.sessions.resize(m.paneSize())
 }
 
 // currentRunner returns the process behind the Active connection's current tab.
@@ -228,7 +212,7 @@ func (m *Model) currentRunner() (*Session, *runner) {
 		return nil, nil
 	}
 	s := c.CurrentSession()
-	return s, m.runners[s]
+	return s, m.sessions.runner(s)
 }
 
 func (m *Model) liveRunner() *runner {
@@ -485,20 +469,14 @@ func (m *Model) open(alias string, claude bool) tea.Cmd {
 func (m *Model) openSession(alias string, claude bool) error {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
-	sess, err := m.st.OpenSession(alias)
-	if err != nil {
+	if _, err := m.sessions.open(alias, claude); err != nil {
 		if errors.Is(err, ErrOrphaned) {
 			return errors.New(alias + " is missing from ssh_config")
 		}
-		return err
-	}
-	sess.Claude = claude
-	if err := m.start(alias, sess); err != nil {
-		m.st.CloseCurrent()
 		if m.st.Active() == nil {
 			m.focus = focusList
 		}
-		return &startError{alias, err}
+		return err
 	}
 	m.focus, m.scrolling = focusPane, false
 	if first && m.opts.OnOpen != nil {
@@ -591,44 +569,18 @@ func countConnections(n int) string {
 	return fmt.Sprintf("%d connections", n)
 }
 
-// start runs the Session's process, replacing any previous one.
-func (m *Model) start(alias string, sess *Session) error {
-	if m.opts.Command == nil {
-		return nil
-	}
-	argv, err := m.opts.Command(alias, sess.Claude)
-	if err != nil {
-		return err
-	}
-	w, h := m.paneSize()
-	r, err := startRunner(argv, w, h, m.opts.ScrollbackLines, sess, m.ev)
-	if err != nil {
-		return err
-	}
-	if old := m.runners[sess]; old != nil {
-		old.close()
-	}
-	m.runners[sess] = r
-	return nil
-}
-
 // reconnect starts a new process in the current tab after its Session ended.
 func (m *Model) reconnect() tea.Cmd {
 	c := m.st.Active()
-	if c == nil {
+	if c == nil || !c.CurrentSession().Ended {
 		return nil
 	}
-	sess := c.CurrentSession()
-	if !sess.Ended {
-		return nil
+	if err := m.sessions.reconnect(c.CurrentSession()); err != nil {
+		if errors.Is(err, ErrOrphaned) {
+			return m.setStatus(c.Alias+" is missing from ssh_config", true)
+		}
+		return m.setStatus(err.Error(), true)
 	}
-	if c.Orphaned {
-		return m.setStatus(c.Alias+" is missing from ssh_config", true)
-	}
-	if err := m.start(c.Alias, sess); err != nil {
-		return m.setStatus(c.Alias+": "+err.Error(), true)
-	}
-	sess.Ended, sess.ExitCode = false, 0
 	m.scrolling = false
 	return nil
 }
@@ -640,12 +592,7 @@ func (m *Model) closeTab() tea.Cmd {
 	}
 	sess := c.CurrentSession()
 	doClose := func(m *Model) tea.Cmd {
-		if s := m.st.CloseCurrent(); s != nil {
-			if r := m.runners[s]; r != nil {
-				r.close()
-				delete(m.runners, s)
-			}
-		}
+		m.sessions.closeCurrent()
 		m.scrolling = false
 		if m.st.Active() == nil {
 			m.focus = focusList
