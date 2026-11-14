@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -98,38 +97,19 @@ func (a *app) managedHosts() (map[string]openssh.Host, error) {
 }
 
 // saveConnection adds a Connection (old is "") or saves changes to old. A
-// managed Connection's Host block is written to sshctl's ssh_config file
-// first, which needs the user's ssh_config to Include it; then the
-// description and group are saved, following a rename.
+// Host block is written to sshctl's ssh_config file first whenever the form
+// carries one or the alias is new or renamed; openssh.SaveHost decides
+// whether that is allowed. Then the description and group are saved,
+// following a rename.
 func (a *app) saveConnection(old string, s workspace.Spec) error {
-	if old == "" && !s.Managed {
-		return errors.New("a new connection needs a Host block")
-	}
-	if old != "" && s.Alias != old && !s.Managed {
-		return fmt.Errorf("%s is defined outside sshctl and cannot be renamed here", old)
-	}
-	if s.Managed {
-		if old != s.Alias {
-			aliases, err := a.ssh.Aliases()
-			if err != nil {
-				return err
-			}
-			if slices.Contains(aliases, s.Alias) {
-				return fmt.Errorf("%s already exists in ssh_config", s.Alias)
-			}
-		}
+	if s.Managed || old != s.Alias {
 		h := openssh.Host{Alias: s.Alias, HostName: s.Host.HostName, User: s.Host.User, Port: s.Host.Port, IdentityFile: s.Host.IdentityFile}
-		if err := h.Validate(); err != nil {
-			return err
-		}
-		included, err := a.ssh.IncludesManaged()
-		if err != nil {
-			return err
-		}
-		if !included {
+		switch err := a.ssh.SaveHost(old, h); {
+		case errors.Is(err, openssh.ErrNotIncluded):
 			return &workspace.IncludeError{Line: openssh.IncludeLine, Config: displayPath(a.ssh.SSHConfig)}
-		}
-		if err := a.ssh.SaveHost(old, h); err != nil {
+		case errors.Is(err, openssh.ErrUnknownHost):
+			return fmt.Errorf("%s is defined outside sshctl and cannot be renamed here", old)
+		case err != nil:
 			return err
 		}
 	}
@@ -155,16 +135,11 @@ func (a *app) saveConnection(old string, s workspace.Spec) error {
 }
 
 // deleteConnection removes alias's Host block when sshctl manages it, and
-// its sshctl metadata.
+// its sshctl metadata. openssh.DeleteHost decides from ssh_config whether
+// the block is sshctl's; a block anywhere else is left alone.
 func (a *app) deleteConnection(alias string) error {
-	managed, err := a.managedHosts()
-	if err != nil {
+	if err := a.ssh.DeleteHost(alias); err != nil && !errors.Is(err, openssh.ErrUnknownHost) {
 		return err
-	}
-	if _, ok := managed[alias]; ok {
-		if err := a.ssh.DeleteHost(alias); err != nil {
-			return err
-		}
 	}
 	cfg, err := config.Load(a.cfgPath, a.legacy)
 	if err != nil {
