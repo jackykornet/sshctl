@@ -62,6 +62,36 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	}
 }
 
+// A hosts file synced without the Include (ADR-0004) gets a one-line hint.
+func TestListHintsAtAMissingInclude(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		sshConfig string
+		want      bool
+	}{
+		{"not included", "Host db\n  HostName 10.0.0.2\n", true},
+		{"included", openssh.IncludeLine + "\nHost db\n  HostName 10.0.0.2\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, out := cliTree(t, tc.sshConfig, config.New(), "")
+			if err := os.WriteFile(a.ssh.ManagedPath(), []byte("Host synced\n  HostName 10.0.0.9\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.list(); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+			hint := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "does not contain "+openssh.IncludeLine) })
+			if got := hint >= 0; got != tc.want {
+				t.Fatalf("hint shown %v, want %v:\n%s", got, tc.want, out.String())
+			}
+			if tc.want && !strings.Contains(lines[hint], "sshctl") {
+				t.Errorf("hint %q should say how to fix it", lines[hint])
+			}
+		})
+	}
+}
+
 func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 	a, _ := cliTree(t, "Host web\n", config.New(), "\n\n")
 	if err := a.metadata([]string{"web"}, false); err != nil {
