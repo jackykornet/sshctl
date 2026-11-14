@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 type commandCall struct {
@@ -23,6 +24,7 @@ type commandCall struct {
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
+	groups         []string // stored Group names, in order
 	identity       string
 	startCollapsed []string
 	loadErr        error
@@ -43,6 +45,9 @@ type fakeCatalog struct {
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed}
+	for _, g := range f.groups {
+		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
+	}
 	if f.includes == 0 {
 		snap.Include = f.include
 	}

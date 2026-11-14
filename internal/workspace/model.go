@@ -59,6 +59,9 @@ type Options struct {
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int
+	// Notice is shown on the status line at startup, such as what loading
+	// the config migrated.
+	Notice string
 }
 
 type focus int
@@ -120,6 +123,7 @@ func New(opts Options) (*Model, error) {
 		return nil, err
 	}
 	st := NewState(snap.Entries)
+	st.SetGroups(groupNames(snap.Groups))
 	for _, g := range snap.Collapsed {
 		st.SetCollapsed(g, true)
 	}
@@ -132,10 +136,22 @@ func New(opts Options) (*Model, error) {
 		size:       m.paneSize,
 		runners:    map[*Session]*runner{},
 	}
+	if opts.Notice != "" {
+		m.status = opts.Notice
+	}
 	if snap.Include != nil {
 		m.offerInclude(snap.Include)
 	}
 	return m, nil
+}
+
+// groupNames returns the names of groups, in order.
+func groupNames(groups []catalog.Group) []string {
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		out[i] = g.Name
+	}
+	return out
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -520,6 +536,7 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
+	m.st.SetGroups(groupNames(snap.Groups))
 	m.identity = snap.Identity
 	if alias != "" {
 		m.st.SetCursor(alias)
@@ -559,13 +576,17 @@ func (m *Model) startMove() tea.Cmd {
 	return nil
 }
 
-// moveTo saves alias's new group and moves it there in the list. A Connection
-// moved into a collapsed group leaves the cursor on that group's header.
+// moveTo saves alias's new group and moves it there in the list. Only an
+// existing Group is a target. A Connection moved into a collapsed group
+// leaves the cursor on that group's header.
 func (m *Model) moveTo(alias, group string) tea.Cmd {
 	group = strings.TrimSpace(group)
 	c := m.st.Get(alias)
 	if c == nil || c.Group == group {
 		return nil
+	}
+	if group != "" && !m.st.HasGroup(group) {
+		return m.setStatus("no group "+group, true)
 	}
 	from := c.Group
 	if err := m.opts.Catalog.SetGroup(alias, group); err != nil {
