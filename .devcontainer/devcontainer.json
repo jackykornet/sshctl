@@ -11,7 +11,8 @@
     "vscode": {
       "extensions": [
         "golang.Go",
-        "openai.codex"
+        "openai.codex",
+        "anthropic.claude-code"
       ],
       "settings": {
         "go.toolsManagement.autoUpdate": true,
@@ -23,5 +24,5 @@
       }
     }
   },
-  "postCreateCommand": "npm install --global @openai/codex@latest && codex plugin marketplace add mattpocock/skills && codex plugin add mattpocock-skills@mattpocock"
+  "postCreateCommand": "npm install --global @openai/codex@latest @anthropic-ai/claude-code@latest && codex plugin marketplace add mattpocock/skills && codex plugin add mattpocock-skills@mattpocock && claude plugin marketplace add mattpocock/skills && claude plugin install mattpocock-skills@mattpocock"
 }
