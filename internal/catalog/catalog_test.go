@@ -405,7 +405,7 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	if err := tr.cat.SetCollapsed([]string{"data", "staging"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := tr.config(t).Workspace.CollapsedGroups, []string{"data", "staging"}; !slices.Equal(got, want) {
+	if got, want := tr.config(t).CollapsedGroups, []string{"data", "staging"}; !slices.Equal(got, want) {
 		t.Errorf("collapsed = %v, want %v", got, want)
 	}
 	snap, err := tr.cat.Snapshot()
@@ -433,6 +433,41 @@ func TestSetIdentitySelectsTheKey(t *testing.T) {
 	}
 }
 
+func TestSyncedConfigLeavesThisMachinesStateAlone(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	if err := tr.cat.Save("web", Spec{Alias: "web", Group: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.RecordOpen("web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetCollapsed([]string{"prod"}); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := os.ReadFile(tr.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another machine's config.json, as chezmoi apply writes it.
+	other := `{"version":3,"groups":[{"name":"prod"}],"connections":{"web":{"alias":"web","description":"from elsewhere","group":"prod"}}}`
+	if err := os.WriteFile(tr.cfg, []byte(other), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(snap.Collapsed, []string{"prod"}) || snap.Entries[0].Description != "from elsewhere" {
+		t.Errorf("snapshot = %+v, want the synced description and this machine's collapsed groups", snap)
+	}
+	if got := tr.config(t).History; !slices.Equal(got, []string{"web"}) {
+		t.Errorf("History = %v, want [web]", got)
+	}
+	if strings.Contains(string(synced), "history") || strings.Contains(string(synced), "collapsed") {
+		t.Errorf("config.json holds machine-local state:\n%s", synced)
+	}
+}
+
 func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}}); err != nil {
@@ -443,7 +478,7 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	}
 	cfg := tr.config(t)
 	cfg.DefaultKey = "/k/id"
-	cfg.Workspace.CollapsedGroups = []string{"prod"}
+	cfg.CollapsedGroups = []string{"prod"}
 	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
 	tr.seed(t, cfg)
