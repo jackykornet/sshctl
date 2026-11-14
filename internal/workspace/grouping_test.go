@@ -112,9 +112,8 @@ func TestPrefixMMovesConnectionToTypedGroup(t *testing.T) {
 		keys  []tea.KeyPressMsg
 		group string
 	}{
-		{"new group", append(append([]tea.KeyPressMsg{keyClear}, text("db")...), keyEnter), "db"},
 		{"existing group", append(append([]tea.KeyPressMsg{keyClear}, text("batch")...), keyEnter), "batch"},
-		{"edit prefilled text", append(append([]tea.KeyPressMsg{{Code: tea.KeyBackspace}}, text("b2")...), keyEnter), "web2"},
+		{"edit prefilled text", append(append([]tea.KeyPressMsg{{Code: tea.KeyBackspace}, {Code: tea.KeyBackspace}, {Code: tea.KeyBackspace}}, text("batch")...), keyEnter), "batch"},
 		{"empty removes from group", []tea.KeyPressMsg{keyClear, keyEnter}, ""},
 	}
 	for _, tt := range tests {
@@ -153,6 +152,61 @@ func TestPrefixMEscapeAndSaveErrorLeaveGroupAlone(t *testing.T) {
 	press(g.Model, append(text("batch"), keyEnter)...)
 	if g.st.Get("alpha").Group != "web" || !g.statusErr || !strings.Contains(g.status, "disk full") {
 		t.Fatalf("group = %q status = %q", g.st.Get("alpha").Group, g.status)
+	}
+}
+
+func TestPrefixMRefusesAGroupThatDoesNotExist(t *testing.T) {
+	g := newGroupingModel(t)
+	g.st.SetCursor("alpha")
+	press(g.Model, keyPrefix, text("m")[0], keyClear)
+	press(g.Model, append(text("db"), keyEnter)...)
+	if got := g.st.Get("alpha").Group; got != "web" || len(g.moves) != 0 {
+		t.Fatalf("group = %q, saved %v; want alpha left in web", got, g.moves)
+	}
+	if !g.statusErr || !strings.Contains(g.status, "no group db") {
+		t.Fatalf("status = %q, want it to say there is no group db", g.status)
+	}
+}
+
+func TestStoredGroupsListInOrderWithEmptyOnesMarked(t *testing.T) {
+	f := &fakeCatalog{entries: groupingEntries, groups: []string{"web", "spare", "batch"}}
+	m, err := New(Options{Catalog: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	if got, want := rowNames(m.st.Rows()), []string{"[web]", "alpha", "beta", "[spare]", "[batch]", "job", "[]", "loose"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	if got := plainList(m)[3]; !strings.Contains(got, "▾ spare (empty)") {
+		t.Fatalf("empty header = %q, want it marked (empty)", got)
+	}
+}
+
+func TestGroupStaysListedAfterItsLastMemberMovesOut(t *testing.T) {
+	f := &fakeCatalog{entries: groupingEntries, groups: []string{"batch", "web"}}
+	m, err := New(Options{Catalog: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.st.SetCursor("job")
+	press(m, keyPrefix, text("m")[0], keyClear)
+	press(m, append(text("web"), keyEnter)...)
+	f.entries = []Entry{{Alias: "job", Group: "web"}, groupingEntries[1], groupingEntries[2], groupingEntries[3]}
+	m.reload("", "")
+	if got, want := rowNames(m.st.Rows()), []string{"[batch]", "[web]", "alpha", "beta", "job", "[]", "loose"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestStartupShowsTheConfigNotice(t *testing.T) {
+	m, err := New(Options{Catalog: &fakeCatalog{}, Notice: `renamed group "2" to "group-2"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.status, "group-2") {
+		t.Fatalf("status = %q, want the notice", m.status)
 	}
 }
 

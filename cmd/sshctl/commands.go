@@ -48,6 +48,9 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	if startWorkspace {
 		return a.runWorkspace()
 	}
+	for _, n := range c.Notices {
+		fmt.Fprintln(errOut, "sshctl: "+n)
+	}
 	return a.execute(args)
 }
 func help(w io.Writer) {

@@ -354,6 +354,7 @@ func TestSetGroupKeepsDescriptionAndDropsEmptiedMetadata(t *testing.T) {
 	cfg := config.New()
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "prod"}
 	cfg.Connections["tmp"] = config.Connection{Alias: "tmp", Group: "scratch"}
+	cfg.Groups = []config.Group{{Name: "staging"}, {Name: "data"}}
 	tr.seed(t, cfg)
 	for _, mv := range [][2]string{{"web", "staging"}, {"db", "data"}, {"tmp", ""}} {
 		if err := tr.cat.SetGroup(mv[0], mv[1]); err != nil {
@@ -422,5 +423,69 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	}
 	if !slices.Equal(snap.Collapsed, []string{"prod"}) {
 		t.Errorf("collapsed = %v, want [prod]", snap.Collapsed)
+	}
+}
+
+func TestSetGroupRefusesAGroupWithNoRecord(t *testing.T) {
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroup("web", "nowhere"); !errors.Is(err, ErrUnknownGroup) {
+		t.Fatalf("err = %v, want ErrUnknownGroup", err)
+	}
+	got := tr.config(t)
+	if web := got.Connections["web"]; web.Group != "prod" {
+		t.Errorf("web = %+v, want it left in prod", web)
+	}
+	if got.GroupIndex("nowhere") >= 0 {
+		t.Error("a refused move must not create the group")
+	}
+}
+
+func TestGroupOutlivesItsLastMemberInStoredOrder(t *testing.T) {
+	tr := newTree(t, true, "Host web\nHost db\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "zeta"}, {Name: "prod"}, {Name: "alpha"}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	cfg.Connections["db"] = config.Connection{Alias: "db", Group: "alpha"}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroup("web", "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Group{{Name: "zeta"}, {Name: "prod"}, {Name: "alpha"}}; !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v, empty ones included", snap.Groups, want)
+	}
+}
+
+func TestSaveRefusesAnAllDigitGroup(t *testing.T) {
+	tr := newTree(t, true, "")
+	err := tr.cat.Save("", Spec{Alias: "api", Group: "42", Managed: true, Host: Host{HostName: "h"}})
+	if !errors.Is(err, config.ErrGroupName) {
+		t.Fatalf("err = %v, want ErrGroupName", err)
+	}
+	if _, ok := tr.hosts(t)["api"]; ok {
+		t.Error("a refused Save must not write the Host block")
+	}
+}
+
+func TestSaveIntoANewGroupAddsItsRecordLast(t *testing.T) {
+	tr := newTree(t, true, "Host mine\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "zeta"}}
+	tr.seed(t, cfg)
+	if err := tr.cat.Save("mine", Spec{Alias: "mine", Group: "alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Group{{Name: "zeta"}, {Name: "alpha"}}; !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
 	}
 }
