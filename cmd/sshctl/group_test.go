@@ -48,15 +48,21 @@ func groupList(t *testing.T, a *app) []string {
 	return names
 }
 
-func TestGroupListShowsNumberNameAndMemberCount(t *testing.T) {
+func TestGroupListShowsNumberNameMemberCountAndDotfiles(t *testing.T) {
 	a, out := groupTree(t, "")
+	if err := a.catalog().SetGroupDotfiles("prod", "https://example.com/dots.git"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.catalog().SetGroupDotfiles("data", config.DotfilesNone); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.execute([]string{"group", "list"}); err != nil {
 		t.Fatal(err)
 	}
 	want := "" +
-		"1  prod                 2\n" +
-		"2  empty                0\n" +
-		"3  data                 1\n"
+		"1  prod                 2  https://example.com/dots.git\n" +
+		"2  empty                0  unset\n" +
+		"3  data                 1  none (Provision refused)\n"
 	if out.String() != want {
 		t.Errorf("group list:\n%s\nwant:\n%s", out.String(), want)
 	}

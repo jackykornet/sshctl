@@ -67,7 +67,7 @@ Commands:
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
   remove <alias>               Remove sshctl metadata
-  group list                   List Groups with their number and member count
+  group list                   List Groups: number, name, members, dotfiles
   group add <name>             Create a Group
   group rename <old> <new>     Rename a Group, moving its Connections
   group delete <name> [--yes]  Delete a Group; its Connections become ungrouped

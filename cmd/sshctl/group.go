@@ -57,7 +57,8 @@ func (a *app) groupCommand(args []string) error {
 	return errors.New("usage: sshctl " + groupUsage)
 }
 
-// groupList prints each Group's number, name and member count.
+// groupList prints each Group's number, name, member count and dotfiles
+// setting.
 func (a *app) groupList() error {
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -65,7 +66,7 @@ func (a *app) groupList() error {
 	}
 	members := memberCounts(snap)
 	for i, g := range snap.Groups {
-		fmt.Fprintf(a.out, "%-2d %-20s %d\n", i+1, g.Name, members[g.Name])
+		fmt.Fprintf(a.out, "%-2d %-20s %-2d %s\n", i+1, g.Name, members[g.Name], describeDotfiles(g.Dotfiles))
 	}
 	return nil
 }

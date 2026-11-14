@@ -82,6 +82,34 @@ func TestRenameGroupMovesMembersAndKeepsPositionAndCollapsed(t *testing.T) {
 	}
 }
 
+// A Group's dotfiles setting is part of its record (ADR-0003): it follows a
+// rename and goes with a delete, so a new Group reusing the name starts unset.
+func TestGroupDotfilesFollowRenameAndGoWithDelete(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.addGroups(t, "prod", "data")
+	if err := tr.cat.SetGroupDotfiles("prod", "https://example.com/dots.git"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetGroupDotfiles("data", config.DotfilesNone); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.RenameGroup("prod", "live"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.DeleteGroup("data"); err != nil {
+		t.Fatal(err)
+	}
+	tr.addGroups(t, "data")
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Group{{Name: "live", Dotfiles: "https://example.com/dots.git"}, {Name: "data"}}
+	if !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
+	}
+}
+
 func TestDeleteGroupLeavesMembersUngroupedAndKeepsHostBlocks(t *testing.T) {
 	tr := newTree(t, true, "")
 	if err := tr.cat.AddGroup("prod"); err != nil {
