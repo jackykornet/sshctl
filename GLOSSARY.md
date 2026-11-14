@@ -36,6 +36,20 @@ _Avoid_: Folder, tag, category
 The 20 most recently opened Connections, most recent first. A Connection is opened when a Workspace Session for it starts or when `sshctl connect` runs it.
 _Avoid_: Recents, log
 
+## Setting up a host
+
+**Bootstrap**:
+Making a Connection reachable with the user's own key: installing the Selected identity's public key on the host, proving that the key alone logs in, and then pointing a Managed connection's Host block at that key. It never changes the host's SSH server settings and never includes Provision.
+_Avoid_: Setup, onboard, copy-id
+
+**Provision**:
+Applying the user's dotfiles to a Connection's host, which in turn installs the tools the dotfiles ask for, without root and only inside the remote user's home. It happens only when the user chooses it for that Connection.
+_Avoid_: Setup, personalize, deploy
+
+**Harden**:
+Changing a host's SSH server settings, such as turning off password login, so that the change undoes itself if the user would be locked out. It needs root and is never part of Bootstrap or Provision.
+_Avoid_: Lock down, secure
+
 ## Workspace
 
 **Workspace**:
