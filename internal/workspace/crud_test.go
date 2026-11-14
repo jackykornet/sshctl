@@ -247,3 +247,40 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 		t.Error("the mouse must not act behind an open form")
 	}
 }
+
+func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
+	f := &fakeStore{entries: storeEntries()}
+	m := newStoreModel(t, f)
+	load := m.opts.Load
+	loads := 0
+	m.opts.Load = func() (Snapshot, error) { loads++; return load() }
+	m.st.SetCursor("web")
+	press(m, text("a")...)
+	fill(m, "api", "10.0.0.9")
+	for _, k := range "nar" {
+		press(m, keyPrefix, tea.KeyPressMsg{Code: k, Text: string(k)})
+	}
+	if n := len(m.st.Get("web").Sessions); n != 0 {
+		t.Errorf("^B n opened %d Sessions behind the form", n)
+	}
+	if loads != 0 {
+		t.Errorf("^B r reloaded %d times behind the form", loads)
+	}
+	if m.form == nil {
+		t.Fatal("the form should still be open")
+	}
+	if s := m.form.spec(); s.Alias != "api" || s.Host.HostName != "10.0.0.9" {
+		t.Fatalf("form lost its contents: %+v", s)
+	}
+	f.included = true
+	press(m, keyCtrlS)
+	if m.form != nil || !reflect.DeepEqual(f.saves, []string{"→api"}) {
+		t.Fatalf("saving after prefix keys: form = %+v saves = %v", m.form, f.saves)
+	}
+	press(m, text("a")...)
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyEscape})
+	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.form != nil {
+		t.Fatal("Esc should still close the form")
+	}
+}
