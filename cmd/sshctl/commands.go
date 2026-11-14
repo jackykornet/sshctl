@@ -69,6 +69,7 @@ Commands:
   key list|use|add             List, select, or register keys
   agent ensure                 Inspect SSH agent and optionally add default key
   known-hosts list|remove      Show or remove known hosts
+  bootstrap <alias>            Install your key on the host and use it
   provision <alias>            Apply your dotfiles to the host with chezmoi
   provision default [<url|none>|--unset]
                                Show or set the global dotfiles repo
@@ -93,6 +94,8 @@ func usage(command string) string {
 		return "known-hosts list | remove <host>"
 	case "provision":
 		return provisionUsage
+	case "bootstrap":
+		return bootstrapUsage
 	case "config":
 		return "config show"
 	default:
@@ -139,6 +142,8 @@ func (a *app) execute(args []string) error {
 		return a.knownHosts(args[1:])
 	case "provision":
 		return a.provisionCommand(args[1:])
+	case "bootstrap":
+		return a.bootstrapCommand(args[1:])
 	case "config":
 		if len(args) > 1 && args[1] == "show" {
 			return a.showConfig()
