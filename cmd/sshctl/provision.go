@@ -11,7 +11,7 @@ import (
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
-const provisionUsage = "provision <alias> | provision default [<url|none> | --unset]"
+const provisionUsage = "provision <alias> | provision default [<url|none> | --unset] [--group <name>]"
 
 func (a *app) provisionCommand(args []string) error {
 	if len(args) > 0 && args[0] == "default" {
@@ -46,22 +46,56 @@ func (a *app) provision(alias string) error {
 	return a.runSSH(ctx, openssh.RemoteArgs(alias, key, provisionScript(repo)), nil)
 }
 
-// provisionDefault lists, sets or unsets the global dotfiles repo.
+const provisionDefaultUsage = "usage: sshctl provision default [<url|none> | --unset] [--group <name>]"
+
+// provisionDefault lists the dotfiles settings, or sets or unsets the
+// global one or, with --group, a Group's.
 func (a *app) provisionDefault(args []string) error {
-	switch {
-	case len(args) == 0:
-		repo, err := a.catalog().Dotfiles()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(a.out, "global:", describeDotfiles(repo))
-		return nil
-	case len(args) == 1 && args[0] == "--unset":
-		return a.catalog().SetDotfiles("")
-	case len(args) == 1 && !strings.HasPrefix(args[0], "-") && args[0] != "":
-		return a.catalog().SetDotfiles(args[0])
+	if len(args) == 0 {
+		return a.listDotfiles()
 	}
-	return errors.New("usage: sshctl provision default [<url|none> | --unset]")
+	var repo, group string
+	unset, grouped := false, false
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--unset" && !unset:
+			unset = true
+		case arg == "--group" && !grouped && i+1 < len(args) && args[i+1] != "":
+			grouped = true
+			i++
+			group = args[i]
+		case arg != "" && !strings.HasPrefix(arg, "-") && repo == "":
+			repo = arg
+		default:
+			return errors.New(provisionDefaultUsage)
+		}
+	}
+	if unset == (repo != "") {
+		return errors.New(provisionDefaultUsage)
+	}
+	if grouped {
+		return a.catalog().SetGroupDotfiles(group, repo)
+	}
+	return a.catalog().SetDotfiles(repo)
+}
+
+// listDotfiles prints the global dotfiles setting, then each Group's in
+// the user's order.
+func (a *app) listDotfiles() error {
+	cat := a.catalog()
+	repo, err := cat.Dotfiles()
+	if err != nil {
+		return err
+	}
+	snap, err := cat.Snapshot()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.out, "global:", describeDotfiles(repo))
+	for _, g := range snap.Groups {
+		fmt.Fprintf(a.out, "group %s: %s\n", g.Name, describeDotfiles(g.Dotfiles))
+	}
+	return nil
 }
 
 func describeDotfiles(repo string) string {

@@ -29,7 +29,7 @@ func (a *app) runWorkspace() error {
 		Catalog:         catalog.New(a.cfgPath, a.legacy, a.ssh),
 		Command:         a.sessionCommand,
 		PrefixKey:       a.cfg.Workspace.PrefixKey,
-		ListWidth:       a.cfg.Workspace.ListWidth,
+		ListWidth:       a.cfg.ListWidth,
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 		Notice:          strings.Join(a.cfg.Notices, "; "),
 	})
