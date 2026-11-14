@@ -9,7 +9,7 @@ sshctl is one Go module (Go 1.25) with a single binary. Domain terms (Connection
 - `internal/config`: the versioned JSON config (Connection metadata, Selected identity, History, `workspace` settings) and migration from legacy files.
 - `internal/openssh`: everything that runs or reads OpenSSH: ssh_config aliases (following `Include`), `ssh` argv (`ConnectArgs`), `ssh-add`, `ssh-keygen -R`.
 - `internal/platform`: opens a new OS terminal window running `ssh` for `group connect`.
-- `internal/workspace`: the Workspace TUI (Bubble Tea v2). `state.go` is the pure State; `model.go` the Bubble Tea Model and prefix commands; `view.go` rendering; `term.go` the only importer of `charmbracelet/x/vt`; `sessions.go` the Session lifecycle (open, end, reconnect, close; the only writer of a Session's live/ended fields, owner of its runner); `runner.go` a Session's process in a pseudo-terminal (go-pty, ConPTY on Windows).
+- `internal/workspace`: the Workspace TUI (Bubble Tea v2). `state.go` is the pure State; `model.go` the Bubble Tea Model; `keys.go` the key bindings, declared once with their context and help text, which drive both key handling and the help screen; `view.go` rendering; `term.go` the only importer of `charmbracelet/x/vt`; `sessions.go` the Session lifecycle (open, end, reconnect, close; the only writer of a Session's live/ended fields, owner of its runner); `runner.go` a Session's process in a pseudo-terminal (go-pty, ConPTY on Windows).
 
 ## Build, Test, and Development Commands
 
