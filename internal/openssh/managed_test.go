@@ -242,3 +242,116 @@ func TestSaveHostNeedsConfigToIncludeManagedFile(t *testing.T) {
 		t.Fatalf("after AddInclude: %v", err)
 	}
 }
+
+// linkIntoSource moves the file at path into a separate source directory, as
+// chezmoi does, and leaves a symlink to it at path. It skips the test where
+// the OS cannot make symlinks (unprivileged Windows).
+func linkIntoSource(t *testing.T, path, content string) (target string) {
+	t.Helper()
+	target = filepath.Join(t.TempDir(), filepath.Base(path))
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("cannot make symlinks here: %v", err)
+	}
+	return target
+}
+
+func assertSymlink(t *testing.T, path string) {
+	t.Helper()
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink: %v, %v", path, fi, err)
+	}
+}
+
+func TestSaveHostWritesThroughSymlinkedManagedFile(t *testing.T) {
+	c := includingClient(t, "")
+	target := linkIntoSource(t, c.ManagedPath(), "")
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "10.0.0.1"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertSymlink(t, c.ManagedPath())
+	aliases, err := HostAliases(target)
+	if err != nil || !reflect.DeepEqual(aliases, []string{"web"}) {
+		t.Fatalf("target aliases = %v (%v)", aliases, err)
+	}
+	entries, _ := os.ReadDir(c.SSHDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("temp file left next to the link: %s", e.Name())
+		}
+	}
+}
+
+func TestAddIncludeWritesThroughSymlinkedConfig(t *testing.T) {
+	c := managedClient(t)
+	original := "Host mine\n  HostName example.com\n"
+	target := linkIntoSource(t, c.SSHConfig, original)
+	if err := c.AddInclude(); err != nil {
+		t.Fatal(err)
+	}
+	assertSymlink(t, c.SSHConfig)
+	b, _ := os.ReadFile(target)
+	if !strings.Contains(string(b), IncludeLine) || !strings.HasSuffix(string(b), original) {
+		t.Errorf("target not updated:\n%s", b)
+	}
+	if backup, _ := os.ReadFile(c.SSHConfig + ".sshctl-backup"); string(backup) != original {
+		t.Errorf("backup = %q", backup)
+	}
+}
+
+func TestSaveHostRefusesDanglingSymlink(t *testing.T) {
+	c := includingClient(t, "")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone", ManagedFile), c.ManagedPath()); err != nil {
+		t.Skipf("cannot make symlinks here: %v", err)
+	}
+	err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "w"}})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") || !strings.Contains(err.Error(), c.ManagedPath()) {
+		t.Fatalf("SaveHost through dangling link = %v, want a clear error", err)
+	}
+	assertSymlink(t, c.ManagedPath())
+}
+
+// ADR-0004: a Host block synced between machines must name keys from "~".
+func TestSaveHostWritesIdentityFileUnderHomeWithTilde(t *testing.T) {
+	tests := []struct {
+		name, home, identity, want string
+	}{
+		{"posix home", "/home/jo", "/home/jo/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"posix home with trailing slash", "/home/jo/", "/home/jo/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"windows home", `C:\Users\Jo`, `C:\Users\Jo\.ssh\id_ed25519`, "~/.ssh/id_ed25519"},
+		{"windows home, other case and slashes", `C:\Users\Jo`, `c:/users/jo/.ssh/id work`, "~/.ssh/id work"},
+		{"already tilde", "/home/jo", "~/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"outside home", "/home/jo", "/etc/ssh/key", "/etc/ssh/key"},
+		{"sibling of home", "/home/jo", "/home/joe/.ssh/key", "/home/joe/.ssh/key"},
+		{"windows outside home", `C:\Users\Jo`, `D:\keys\id_rsa`, `D:\keys\id_rsa`},
+		{"relative", "/home/jo", "keys/id", "keys/id"},
+		{"home itself", "/home/jo", "/home/jo", "/home/jo"},
+		{"posix is case-sensitive", "/home/jo", "/home/Jo/.ssh/key", "/home/Jo/.ssh/key"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := includingClient(t, "")
+			c.Home = tt.home
+			if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "h", IdentityFile: tt.identity}}); err != nil {
+				t.Fatal(err)
+			}
+			hosts, err := c.ManagedHosts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hosts[0].IdentityFile; got != tt.want {
+				t.Fatalf("IdentityFile = %q, want %q", got, tt.want)
+			}
+			// Saving the stored form again, as editing the Connection does, keeps it.
+			if err := c.SaveHost("web", hosts[0]); err != nil {
+				t.Fatal(err)
+			}
+			again, _ := c.ManagedHosts()
+			if got := again[0].IdentityFile; got != tt.want {
+				t.Fatalf("after saving again IdentityFile = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

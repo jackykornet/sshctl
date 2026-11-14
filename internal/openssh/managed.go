@@ -3,6 +3,7 @@ package openssh
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -130,6 +131,7 @@ func (c *Client) SaveHost(old string, h Host) error {
 			return fmt.Errorf("%s: %w", old, ErrUnknownHost)
 		}
 	}
+	h.IdentityFile = HomeRelative(h.IdentityFile, c.home())
 	if err := h.Validate(); err != nil {
 		return err
 	}
@@ -157,6 +159,39 @@ func (c *Client) SaveHost(old string, h Host) error {
 		hosts[i] = h
 	}
 	return c.writeManaged(hosts)
+}
+
+func (c *Client) home() string {
+	if c.Home != "" {
+		return c.Home
+	}
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// HomeRelative returns path as "~/…" when it is an absolute path inside
+// home, and unchanged otherwise. OpenSSH expands "~" on Windows, Linux and
+// macOS, so a Host block synced between machines keeps naming the same key
+// (ADR-0004).
+//
+// A Windows home (one with a drive letter or a \\server share) matches
+// regardless of case and of / versus \; any other home matches exactly. The
+// result always uses /, which OpenSSH reads on Windows too.
+func HomeRelative(path, home string) string {
+	windows := len(home) >= 2 && home[1] == ':' || strings.HasPrefix(home, `\\`)
+	p := path
+	if windows {
+		p = strings.ReplaceAll(p, `\`, "/")
+		home = strings.ReplaceAll(home, `\`, "/")
+	}
+	home = strings.TrimRight(home, "/")
+	if home == "" || len(p) <= len(home)+1 || p[len(home)] != '/' {
+		return path
+	}
+	if prefix := p[:len(home)]; prefix != home && !(windows && strings.EqualFold(prefix, home)) {
+		return path
+	}
+	return "~/" + p[len(home)+1:]
 }
 
 // DeleteHost removes alias's block from the managed file.
@@ -279,9 +314,15 @@ func (c *Client) AddInclude() error {
 }
 
 // writeAtomic replaces path through a temporary file in the same directory,
-// so an interrupted write never leaves it truncated.
+// so an interrupted write never leaves it truncated. When path is a symlink
+// (chezmoi can link it into its source directory, see ADR-0004) the write
+// goes to the symlink's target and the symlink stays.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	path, err := resolveSymlink(path)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
@@ -300,6 +341,22 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// resolveSymlink returns the file a save to path should replace: path itself,
+// or the final target when path is a symlink. A symlink to nothing is an error,
+// so the save does not silently replace the link with a plain file.
+func resolveSymlink(path string) (string, error) {
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		dest, _ := os.Readlink(path)
+		return "", fmt.Errorf("%s is a symlink to %s, which does not exist", path, dest)
+	}
+	return target, err
 }
 
 // splitQuoted is splitDirective with double-quoted arguments, which OpenSSH
