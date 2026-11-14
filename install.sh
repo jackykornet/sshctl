@@ -7,14 +7,6 @@ INSTALL_DIR="/usr/local/bin"
 
 echo "Installing sshctl..."
 
-# Check dependencies
-for CMD in curl tar; do
-    command -v "$CMD" >/dev/null 2>&1 || {
-        echo "Missing dependency: $CMD"
-        exit 1
-    }
-done
-
 # Detect architecture
 case "$(uname -m)" in
     x86_64|amd64) ARCH="amd64" ;;
@@ -25,7 +17,7 @@ case "$(uname -m)" in
         ;;
 esac
 
-# Find latest Linux release
+# Get latest release download URL
 API="https://api.github.com/repos/${REPO}/releases/latest"
 
 DOWNLOAD_URL=$(curl -fsSL "$API" |
@@ -42,30 +34,30 @@ fi
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "Downloading: $DOWNLOAD_URL"
+echo "Downloading $DOWNLOAD_URL"
 
 curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/sshctl.tar.gz"
 
 # Extract archive
 tar -xzf "$TMP_DIR/sshctl.tar.gz" -C "$TMP_DIR"
 
-# Find executable (versioned filename supported)
-BINARY=$(find "$TMP_DIR" -type f -name "sshctl*" ! -name "*.tar.gz" | head -n 1)
+# Find the versioned executable
+BINARY=$(find "$TMP_DIR" -maxdepth 1 -type f \
+    -name "sshctl_*_linux_${ARCH}" | head -n 1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "Could not find sshctl executable."
-    echo "Archive contents:"
-    find "$TMP_DIR" -type f
+    echo "Executable not found in archive!"
     exit 1
 fi
 
-chmod +x "$BINARY"
-
-# Install
+# Install executable
 sudo install -m 755 "$BINARY" "$INSTALL_DIR/sshctl"
 
 echo ""
-echo "Successfully installed sshctl!"
-echo "Installed at: $INSTALL_DIR/sshctl"
+echo "================================"
+echo "sshctl installed successfully!"
+echo "================================"
+echo ""
+echo "Location: $INSTALL_DIR/sshctl"
 echo ""
 echo "Run: sshctl --help"
