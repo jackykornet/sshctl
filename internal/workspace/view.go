@@ -33,7 +33,7 @@ func (m *Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "sshctl"
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
-		!m.scrolling && !m.help && m.confirm == nil && !m.filtering && m.moving == nil && m.drag == nil && m.form == nil {
+		!m.scrolling && m.modal == nil && !m.filtering && m.drag == nil {
 		if x, y, visible := r.term.Cursor(); visible {
 			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
 		}
@@ -47,7 +47,7 @@ func (m *Model) render() string {
 		return ""
 	}
 	mainH := m.h - 1
-	if m.help {
+	if _, ok := m.modal.(helpScreen); ok {
 		// Help covers the whole Workspace without resizing the Sessions under it.
 		lines := make([]string, 0, m.h)
 		for _, l := range m.helpLines() {
@@ -276,8 +276,8 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 }
 
 func (m *Model) renderPane(w, h int) []string {
-	if m.form != nil {
-		return m.renderForm(w, h)
+	if f := m.form(); f != nil {
+		return f.render(w, h)
 	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
@@ -338,11 +338,13 @@ func (m *Model) helpLines() []string {
 
 func (m *Model) renderStatus(w int) string {
 	var left string
+	modalStatus, ok := "", false
+	if m.modal != nil {
+		modalStatus, ok = m.modal.status()
+	}
 	switch {
-	case m.confirm != nil:
-		left = m.confirm.question
-	case m.moving != nil:
-		left = fmt.Sprintf("move %s to group: %s█  Enter move · empty for none · Esc cancel", m.moving.alias, string(m.moving.group))
+	case ok:
+		left = modalStatus
 	case m.drag != nil && m.drag.moving:
 		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
 		if m.drag.ok {
@@ -364,7 +366,7 @@ func (m *Model) renderStatus(w int) string {
 	default:
 		left = m.sessionStatus()
 	}
-	if m.prefix {
+	if m.prefix || m.modal != nil && m.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
 	p := keyHint(m.opts.PrefixKey)

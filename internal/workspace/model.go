@@ -63,18 +63,7 @@ const (
 	focusPane
 )
 
-type confirmation struct {
-	question string
-	yes      func(*Model) tea.Cmd
-}
-
 type clearStatusMsg struct{ id int }
-
-// moveInput is the status-line prompt asking which group to move alias to.
-type moveInput struct {
-	alias string
-	group []rune
-}
 
 // drag is a Connection held down with the left mouse button in the list.
 type drag struct {
@@ -96,14 +85,11 @@ type Model struct {
 	sessions  *sessions
 	w, h      int
 	focus     focus
-	prefix    bool
+	prefix    bool // armed outside modals; a modal keeps its own
 	filtering bool
 	scrolling bool
 	hideList  bool
-	help      bool
-	confirm   *confirmation
-	moving    *moveInput
-	form      *connForm
+	modal     modal // gets input before anything else; see modal
 	drag      *drag
 	status    string
 	statusErr bool
@@ -181,9 +167,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
 	case tea.PasteMsg:
-		if r := m.liveRunner(); r != nil && m.focus == focusPane && m.confirm == nil && m.moving == nil && m.form == nil {
-			r.term.Paste(msg.Content)
-		}
+		m.paste(msg.Content)
 	case tea.KeyPressMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
@@ -223,34 +207,23 @@ func (m *Model) liveRunner() *runner {
 	return r
 }
 
+// paste sends pasted text to the modal, else the filter being typed, else
+// the live Session when the terminal has focus.
+func (m *Model) paste(text string) {
+	switch r := m.liveRunner(); {
+	case m.modal != nil:
+		m.modal.paste(text)
+	case m.filtering:
+		m.st.SetFilter(string(pasteLine([]rune(m.st.Filter()), text)))
+	case r != nil && m.focus == focusPane:
+		r.term.Paste(text)
+	}
+}
+
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
-	if c := m.confirm; c != nil {
-		m.confirm = nil
-		if k == "y" || k == "Y" {
-			return c.yes(m)
-		}
-		return nil
-	}
-	if m.help {
-		m.help = false
-		return nil
-	}
-	if m.moving != nil {
-		return m.moveKey(msg)
-	}
-	if m.form != nil {
-		// Prefix commands would act on the Workspace hidden behind the
-		// form, so the prefix key and the key after it are swallowed.
-		switch {
-		case m.prefix:
-			m.prefix = false
-		case k == m.opts.PrefixKey:
-			m.prefix = true
-		default:
-			return m.formKey(msg)
-		}
-		return nil
+	if m.modal != nil {
+		return m.modal.key(m, msg)
 	}
 	if m.prefix {
 		m.prefix = false
@@ -372,14 +345,9 @@ func (m *Model) filterKey(msg tea.KeyPressMsg) {
 		m.st.SetFilter("")
 	case "enter":
 		m.filtering = false
-	case "backspace":
-		f := []rune(m.st.Filter())
-		if len(f) > 0 {
-			m.st.SetFilter(string(f[:len(f)-1]))
-		}
 	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			m.st.SetFilter(m.st.Filter() + msg.Text)
+		if f, ok := editLine([]rune(m.st.Filter()), msg); ok {
+			m.st.SetFilter(string(f))
 		}
 	}
 }
@@ -431,7 +399,7 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 	case "r":
 		return m.refresh()
 	case "?":
-		m.help = true
+		m.openModal(helpScreen{})
 	case "q":
 		return m.quit()
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -612,7 +580,7 @@ func (m *Model) closeTab() tea.Cmd {
 	if sess.Ended {
 		return doClose(m)
 	}
-	m.confirm = &confirmation{question: fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), yes: doClose}
+	m.ask(fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), doClose)
 	return nil
 }
 
@@ -625,10 +593,7 @@ func (m *Model) quit() tea.Cmd {
 	if n == 1 {
 		noun = "session"
 	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun),
-		yes:      func(*Model) tea.Cmd { return tea.Quit },
-	}
+	m.ask(fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun), func(*Model) tea.Cmd { return tea.Quit })
 	return nil
 }
 
@@ -672,29 +637,7 @@ func (m *Model) startMove() tea.Cmd {
 	if c == nil {
 		return m.setStatus("no connection to move", false)
 	}
-	m.moving = &moveInput{alias: c.Alias, group: []rune(c.Group)}
-	return nil
-}
-
-func (m *Model) moveKey(msg tea.KeyPressMsg) tea.Cmd {
-	in := m.moving
-	switch msg.String() {
-	case "esc", "ctrl+c":
-		m.moving = nil
-	case "enter":
-		m.moving = nil
-		return m.moveTo(in.alias, string(in.group))
-	case "backspace":
-		if len(in.group) > 0 {
-			in.group = in.group[:len(in.group)-1]
-		}
-	case "ctrl+u":
-		in.group = nil
-	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			in.group = append(in.group, []rune(msg.Text)...)
-		}
-	}
+	m.openModal(&moveInput{alias: c.Alias, group: []rune(c.Group)})
 	return nil
 }
 
@@ -727,6 +670,9 @@ func (m *Model) setStatus(s string, isErr bool) tea.Cmd {
 }
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
+	if m.modal != nil {
+		return nil
+	}
 	mm := msg.Mouse()
 	if m.drag != nil {
 		switch msg.(type) {
@@ -737,7 +683,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			return m.drop(mm)
 		}
 	}
-	if mm.Y >= m.h-1 || m.help || m.confirm != nil || m.moving != nil || m.form != nil {
+	if mm.Y >= m.h-1 {
 		return nil
 	}
 	lw := m.listWidth()
