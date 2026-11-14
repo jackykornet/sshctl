@@ -179,8 +179,10 @@ func (c *Catalog) RecordOpen(alias string) error {
 // ErrUnknownGroup and changes nothing.
 func (c *Catalog) SetGroup(alias, group string) error {
 	return c.update(func(cfg *config.Config) error {
-		if group != "" && cfg.GroupIndex(group) < 0 {
-			return fmt.Errorf("%q: %w", group, ErrUnknownGroup)
+		if group != "" {
+			if err := knownGroup(cfg, group); err != nil {
+				return err
+			}
 		}
 		cfg.SetMetadata(alias, cfg.Connections[alias].Description, group)
 		return nil
@@ -261,7 +263,8 @@ func (c *Catalog) update(change func(*config.Config) error) error {
 // Host block is written, and the Host block is put back when the config
 // cannot be written. Save returns an *IncludeError when ssh_config must
 // first Include sshctl's file, and refuses a Group name config.CheckGroupName
-// refuses. A Group with no record gets one, after the others.
+// refuses and, with ErrUnknownGroup, a Group with no record (AddGroup
+// creates one).
 func (c *Catalog) Save(old string, s Spec) error {
 	if s.Group != "" {
 		if err := config.CheckGroupName(s.Group); err != nil {
@@ -271,6 +274,11 @@ func (c *Catalog) Save(old string, s Spec) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return err
+	}
+	if s.Group != "" {
+		if err := knownGroup(cfg, s.Group); err != nil {
+			return err
+		}
 	}
 	undo := func() error { return nil }
 	if s.Managed || old != s.Alias {
