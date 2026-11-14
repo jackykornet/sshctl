@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -21,7 +22,8 @@ func (a *app) bootstrapCommand(args []string) error {
 }
 
 // bootstrap makes alias reachable with the Selected identity (see Bootstrap
-// in GLOSSARY.md), in four steps:
+// in GLOSSARY.md), in four steps. With no Selected identity it first
+// generates a key and selects it (generateIdentity).
 //
 //  1. For a Managed connection, write HostName, User and Port into its Host
 //     block, as ssh resolves them now, so they no longer depend on defaults.
@@ -48,16 +50,18 @@ func (a *app) bootstrap(alias string) error {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
 	}
 	e := snap.Entries[i]
+	ctx := context.Background()
 	key := snap.Identity
 	if key == "" {
-		return errors.New("no Selected identity to install; choose one with: sshctl key use <private-key-path>")
+		if key, err = a.generateIdentity(ctx); err != nil {
+			return err
+		}
 	}
 	pub, err := os.ReadFile(key + ".pub")
 	if err != nil {
 		return fmt.Errorf("the Selected identity's public key: %w", err)
 	}
 	shown := openssh.HomeRelative(key, a.home())
-	ctx := context.Background()
 	fmt.Fprintf(a.out, "Bootstrapping %s with %s\n", alias, shown)
 
 	if e.Managed {
@@ -107,6 +111,22 @@ func (a *app) bootstrap(alias string) error {
 	}
 	fmt.Fprintf(a.out, "Done. Set IdentityFile %s in %s's Host block.\n", shown, alias)
 	return nil
+}
+
+// generateIdentity creates a new ed25519 key in ~/.ssh, never overwriting
+// one, and makes it the Selected identity. ssh-keygen runs in the user's
+// terminal, so it asks for a passphrase there.
+func (a *app) generateIdentity(ctx context.Context) (string, error) {
+	fmt.Fprintln(a.out, "There is no Selected identity, so sshctl creates an ed25519 key; ssh-keygen asks for a passphrase (leave it empty for none).")
+	key, err := openssh.GenerateKey(ctx, a.runSSH, filepath.Join(a.home(), ".ssh"))
+	if err != nil {
+		return "", err
+	}
+	if err := a.catalog().SetIdentity(key); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(a.out, "%s is now the Selected identity.\n", openssh.HomeRelative(key, a.home()))
+	return key, nil
 }
 
 // completeEndpoint is Bootstrap's first step: it fills the HostName, User

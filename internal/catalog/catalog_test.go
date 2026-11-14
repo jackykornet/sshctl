@@ -417,6 +417,22 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	}
 }
 
+func TestSetIdentitySelectsTheKey(t *testing.T) {
+	tr := newTree(t, true, "")
+	for _, key := range []string{"/k/id_ed25519", ""} {
+		if err := tr.cat.SetIdentity(key); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := tr.cat.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Identity != key {
+			t.Errorf("identity = %q, want %q", snap.Identity, key)
+		}
+	}
+}
+
 func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}}); err != nil {
