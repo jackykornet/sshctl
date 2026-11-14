@@ -26,212 +26,213 @@ const (
 // prefixSelf stands for the prefix key itself in a binding's keys.
 const prefixSelf = "<prefix>"
 
+// An action carries out a command for msg, the key that was pressed.
+type action func(m *Model, msg tea.KeyPressMsg) tea.Cmd
+
+// A boundKey is one key of a binding and what it does, so a binding whose
+// keys differ (up and down, add and edit) needs no second look at the key.
+type boundKey struct {
+	key string
+	run action
+}
+
 // A binding is one Workspace command: the keys that run it in each context,
 // and its help text. Key handling and the help screen both read bindings.
 type binding struct {
-	keys [numContexts][]string
+	keys [numContexts][]boundKey
 	help string
-	// run carries out the command for msg, a key the binding has in the
-	// context it was pressed in.
-	run func(m *Model, msg tea.KeyPressMsg) tea.Cmd
 }
 
 // bindings lists every Workspace key binding, in help-screen order.
 var bindings = []binding{
 	{
-		keys: keysIn(inList, "up", "down", "k", "j"),
+		keys: each(inList, on("up", moveCursor(-1)), on("down", moveCursor(1)), on("k", moveCursor(-1)), on("j", moveCursor(1))),
 		help: "move the cursor",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			if k == "up" || k == "k" {
-				m.st.MoveCursor(-1)
-			} else {
-				m.st.MoveCursor(1)
-			}
-			return nil
-		},
 	},
 	{
-		keys: keysIn(inList, "enter", "space"),
+		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"),
 		help: "open or switch to a connection, or toggle a group",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() },
 	},
 	{
-		keys: keysIn(inList, "left", "right", "h", "l"),
+		keys: each(inList, on("left", collapse(true)), on("right", collapse(false)), on("h", collapse(true)), on("l", collapse(false))),
 		help: "on a group: collapse / expand it",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			r, ok := m.st.CursorRow()
-			switch {
-			case !ok:
-			case k == "left" || k == "h":
-				if m.st.grouped() {
-					m.st.SetCursorGroup(r.Group)
-					return m.setCollapsed(r.Group, true)
-				}
-			case r.Header():
-				return m.setCollapsed(r.Group, false)
-			}
-			return nil
-		},
 	},
 	{
-		keys: keysIn(inList, "/"),
+		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.filtering = true; return nil }, "/"),
 		help: "filter the connection list",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.filtering = true; return nil },
 	},
 	{
-		keys: keysIn(inList, "esc"),
+		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil }, "esc"),
 		help: "clear the filter",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil },
 	},
 	{
-		keys: merge(keysIn(inAny, "alt+left", "alt+right"), keysIn(inPrefix, "left", "right")),
+		keys: merge(
+			each(inAny, on("alt+left", selectTab(-1)), on("alt+right", selectTab(1))),
+			each(inPrefix, on("left", selectTab(-1)), on("right", selectTab(1))),
+		),
 		help: "previous / next tab",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			if strings.HasSuffix(k, "left") {
-				m.selectTab(-1)
-			} else {
-				m.selectTab(1)
-			}
-			return nil
-		},
 	},
 	{
-		keys: keysIn(inPrefix, "1", "2", "3", "4", "5", "6", "7", "8", "9"),
+		keys: keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			m.st.SelectTabIndex(int(msg.String()[0] - '1'))
+			m.scrolling = false
+			return nil
+		}, "1", "2", "3", "4", "5", "6", "7", "8", "9"),
 		help: "switch to tab 1-9",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			m.st.SelectTabIndex(int(k[0] - '1'))
-			m.scrolling = false
-			return nil
-		},
 	},
 	{
-		keys: keysIn(inAny, "alt+up", "alt+down"),
+		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
 		help: "previous / next open connection",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			if k == "alt+up" {
-				m.st.CycleActive(-1)
-			} else {
-				m.st.CycleActive(1)
-			}
-			m.scrolling = false
-			return nil
-		},
 	},
 	{
-		keys: keysIn(inPrefix, "n", "c"),
+		keys: each(inPrefix, on("n", newTab(false)), on("c", newTab(true))),
 		help: "new tab for the active connection (c runs claude)",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			target := m.st.Active()
-			if target == nil {
-				target = m.st.Cursor()
-			}
-			if target == nil {
-				return nil
-			}
-			return m.open(target.Alias, k == "c")
-		},
 	},
 	{
-		keys: keysIn(inPrefix, "g"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
 		help: "open the connection's group as tabs",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() },
 	},
 	{
-		keys: keysIn(inPrefix, "m"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() }, "m"),
 		help: "move a connection to a group (or drag it)",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() },
 	},
 	{
-		keys: merge(keysIn(inList, "a", "e", "d"), keysIn(inPrefix, "a", "e", "d")),
+		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
 		help: "add / edit / delete a connection",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			k := msg.String()
-			switch k {
-			case "a":
-				return m.startAdd()
-			case "e":
-				return m.startEdit()
-			}
-			return m.deleteConnection()
-		},
 	},
 	{
-		keys: merge(keysIn(inPrefix, "w"), keysIn(inEnded, "x")),
+		keys: merge(keysIn(inPrefix, closeTab, "w"), keysIn(inEnded, closeTab, "x")),
 		help: "close tab (x on an ended tab)",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() },
 	},
 	{
-		keys: keysIn(inEnded, "r"),
+		keys: keysIn(inEnded, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }, "r"),
 		help: "on an ended tab: reconnect",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() },
 	},
 	{
-		keys: keysIn(inPrefix, "tab"),
-		help: "move focus between list and terminal",
-		run: func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if m.focus == focusList && m.st.Active() != nil {
 				m.focus = focusPane
 			} else {
 				m.focus = focusList
 			}
 			return nil
-		},
+		}, "tab"),
+		help: "move focus between list and terminal",
 	},
 	{
-		keys: keysIn(inPrefix, "["),
-		help: "scroll back (mouse wheel also scrolls)",
-		run: func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if _, r := m.currentRunner(); r != nil {
 				m.scrolling = true
 				m.focus = focusPane
 			}
 			return nil
-		},
+		}, "["),
+		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
-		keys: keysIn(inPrefix, "b"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b"),
 		help: "hide or show the connection list",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil },
 	},
 	{
-		keys: keysIn(inPrefix, "r"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "r"),
 		help: "refresh connections from ssh_config",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") },
 	},
 	{
-		keys: keysIn(inPrefix, prefixSelf),
-		help: "send the prefix key to the session",
-		run: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+		keys: keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			if r := m.liveRunner(); r != nil && m.focus == focusPane {
 				r.term.SendKey(msg)
 			}
 			return nil
-		},
+		}, prefixSelf),
+		help: "send the prefix key to the session",
 	},
 	{
-		keys: keysIn(inPrefix, "?"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(helpScreen{}); return nil }, "?"),
 		help: "show this help",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(helpScreen{}); return nil },
 	},
 	{
-		keys: merge(keysIn(inList, "q", "ctrl+c"), keysIn(inPrefix, "q")),
+		keys: merge(keysIn(inList, quit, "q", "ctrl+c"), keysIn(inPrefix, quit, "q")),
 		help: "quit",
-		run:  func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.quit() },
 	},
 }
 
-func keysIn(ctx keyContext, keys ...string) (out [numContexts][]string) {
+// crud is the add, edit and delete keys, bound alike in two contexts.
+var crud = []boundKey{
+	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startAdd() }),
+	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startEdit() }),
+	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteConnection() }),
+}
+
+func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
+func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
+
+func moveCursor(delta int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.MoveCursor(delta); return nil }
+}
+
+func selectTab(delta int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.selectTab(delta); return nil }
+}
+
+func cycleActive(delta int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		m.st.CycleActive(delta)
+		m.scrolling = false
+		return nil
+	}
+}
+
+// collapse collapses the group under the cursor (from a header or one of its
+// members), or expands it from its header.
+func collapse(collapsed bool) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		r, ok := m.st.CursorRow()
+		switch {
+		case !ok:
+		case collapsed:
+			if m.st.grouped() {
+				m.st.SetCursorGroup(r.Group)
+				return m.setCollapsed(r.Group, true)
+			}
+		case r.Header():
+			return m.setCollapsed(r.Group, false)
+		}
+		return nil
+	}
+}
+
+// newTab opens a Session for the Active connection, or the one under the
+// cursor, running claude when claude is set.
+func newTab(claude bool) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		target := m.st.Active()
+		if target == nil {
+			target = m.st.Cursor()
+		}
+		if target == nil {
+			return nil
+		}
+		return m.open(target.Alias, claude)
+	}
+}
+
+func on(key string, run action) boundKey { return boundKey{key: key, run: run} }
+
+// keysIn binds keys in ctx, all to run.
+func keysIn(ctx keyContext, run action, keys ...string) (out [numContexts][]boundKey) {
+	for _, k := range keys {
+		out[ctx] = append(out[ctx], on(k, run))
+	}
+	return out
+}
+
+// each binds keys in ctx, each to its own action.
+func each(ctx keyContext, keys ...boundKey) (out [numContexts][]boundKey) {
 	out[ctx] = keys
 	return out
 }
 
-func merge(a, b [numContexts][]string) [numContexts][]string {
+func merge(a, b [numContexts][]boundKey) [numContexts][]boundKey {
 	for i := range a {
 		a[i] = append(a[i], b[i]...)
 	}
@@ -245,8 +246,10 @@ func (m *Model) runBinding(ctx keyContext, msg tea.KeyPressMsg) (tea.Cmd, bool) 
 		k = prefixSelf
 	}
 	for _, b := range bindings {
-		if slices.Contains(b.keys[ctx], k) {
-			return b.run(m, msg), true
+		for _, bk := range b.keys[ctx] {
+			if bk.key == k {
+				return bk.run(m, msg), true
+			}
 		}
 	}
 	return nil, false
@@ -255,9 +258,13 @@ func (m *Model) runBinding(ctx keyContext, msg tea.KeyPressMsg) (tea.Cmd, bool) 
 // bindingLabel is b's keys as the help screen shows them, one group per context.
 func (m *Model) bindingLabel(b binding) string {
 	var parts []string
-	for ctx, keys := range b.keys {
-		if len(keys) == 0 {
+	for ctx, bound := range b.keys {
+		if len(bound) == 0 {
 			continue
+		}
+		keys := make([]string, len(bound))
+		for i, bk := range bound {
+			keys[i] = bk.key
 		}
 		label := keyNames(keys, m.opts.PrefixKey)
 		if keyContext(ctx) == inPrefix {

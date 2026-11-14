@@ -36,11 +36,11 @@ func TestBindingsDoNotOverlap(t *testing.T) {
 	for _, ctx := range []keyContext{inAny, inList, inPrefix, inEnded} {
 		seen := map[string]string{}
 		for _, b := range bindings {
-			for _, k := range b.keys[ctx] {
-				if prev, ok := seen[k]; ok {
-					t.Errorf("key %q in context %d is bound to both %q and %q", k, ctx, prev, b.help)
+			for _, bk := range b.keys[ctx] {
+				if prev, ok := seen[bk.key]; ok {
+					t.Errorf("key %q in context %d is bound to both %q and %q", bk.key, ctx, prev, b.help)
 				}
-				seen[k] = b.help
+				seen[bk.key] = b.help
 			}
 		}
 	}
