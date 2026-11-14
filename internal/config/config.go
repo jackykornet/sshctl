@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -148,14 +149,26 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
+	return writeAtomic(path, append(b, '\n'), 0600)
+}
+
+// writeAtomic replaces path through a temporary file in the same directory,
+// so an interrupted write never leaves it truncated. When path is a symlink
+// (chezmoi can link it into its source directory, see ADR-0004) the write
+// goes to the symlink's target and the symlink stays.
+func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	path, err := resolveSymlink(path)
+	if err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
 	if err != nil {
 		return err
 	}
 	name := tmp.Name()
 	defer os.Remove(name)
-	if err = tmp.Chmod(0600); err == nil {
-		_, err = tmp.Write(append(b, '\n'))
+	if err = tmp.Chmod(mode); err == nil {
+		_, err = tmp.Write(data)
 	}
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
@@ -164,6 +177,22 @@ func Save(path string, c *Config) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// resolveSymlink returns the file a save to path should replace: path itself,
+// or the final target when path is a symlink. A symlink to nothing is an error,
+// so the save does not silently replace the link with a plain file.
+func resolveSymlink(path string) (string, error) {
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		dest, _ := os.Readlink(path)
+		return "", fmt.Errorf("%s is a symlink to %s, which does not exist", path, dest)
+	}
+	return target, err
 }
 
 func migrate(b []byte) (*Config, error) {

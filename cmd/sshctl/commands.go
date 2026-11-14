@@ -152,7 +152,8 @@ func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
 func (a *app) catalog() *catalog.Catalog { return catalog.New(a.cfgPath, a.legacy, a.ssh) }
 
 // list prints the Connections the Workspace lists: ssh_config's aliases, then
-// the Orphaned connections.
+// the Orphaned connections. When sshctl's hosts file is not Included in
+// ssh_config it adds a one-line hint on stderr.
 func (a *app) list() error {
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -174,6 +175,9 @@ func (a *app) list() error {
 			continue
 		}
 		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, strings.Join(label, " "))
+	}
+	if snap.Include != nil {
+		fmt.Fprintf(a.err, "hint: %s, so ssh cannot see sshctl's hosts; run sshctl to add it\n", snap.Include)
 	}
 	return nil
 }

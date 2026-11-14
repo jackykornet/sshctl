@@ -71,6 +71,33 @@ func TestSaveAddsManagedConnection(t *testing.T) {
 	}
 }
 
+func TestSaveStoresIdentityFileUnderHomeWithTilde(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.ssh.Home = filepath.Join(t.TempDir(), "jo")
+	key := filepath.Join(tr.ssh.Home, ".ssh", "id_ed25519")
+	if err := tr.cat.Save("", Spec{Alias: "api", Managed: true, Host: Host{HostName: "h", IdentityFile: key}}); err != nil {
+		t.Fatal(err)
+	}
+	entry := func() Entry {
+		t.Helper()
+		snap, err := tr.cat.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.Entries[0]
+	}
+	e := entry()
+	if e.Host.IdentityFile != "~/.ssh/id_ed25519" {
+		t.Fatalf("edit form would show IdentityFile %q, want ~/.ssh/id_ed25519", e.Host.IdentityFile)
+	}
+	if err := tr.cat.Save("api", Spec{Alias: e.Alias, Managed: true, Host: e.Host}); err != nil {
+		t.Fatal(err)
+	}
+	if got := entry().Host.IdentityFile; got != "~/.ssh/id_ed25519" {
+		t.Fatalf("after saving the edit unchanged IdentityFile = %q", got)
+	}
+}
+
 func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	tr := newTree(t, false, "Host mine\n  HostName example.com\n")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}})
@@ -422,5 +449,38 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	}
 	if !slices.Equal(snap.Collapsed, []string{"prod"}) {
 		t.Errorf("collapsed = %v, want [prod]", snap.Collapsed)
+	}
+}
+
+// A hosts file synced to a new machine is invisible to ssh until the user's
+// ssh_config Includes it (ADR-0004).
+func TestSnapshotReportsAnUnincludedHostsFile(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		included, hostFile bool
+		want               bool
+	}{
+		{"hosts file not included", false, true, true},
+		{"hosts file included", true, true, false},
+		{"no hosts file", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, tc.included, "Host user-box\n    HostName 10.0.0.1\n")
+			if tc.hostFile {
+				if err := os.WriteFile(tr.ssh.ManagedPath(), []byte("Host synced\n    HostName 10.0.0.2\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snap, err := tr.cat.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snap.Include != nil; got != tc.want {
+				t.Fatalf("Include = %+v, want set %v", snap.Include, tc.want)
+			}
+			if tc.want && snap.Include.Line != openssh.IncludeLine {
+				t.Fatalf("Include.Line = %q, want %q", snap.Include.Line, openssh.IncludeLine)
+			}
+		})
 	}
 }
