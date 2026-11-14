@@ -31,6 +31,7 @@ sshctl key add <private-key-path>
 sshctl agent ensure
 sshctl known-hosts list
 sshctl known-hosts remove <host>
+sshctl bootstrap <alias>
 sshctl provision <alias>
 sshctl provision default [<url|none> | --unset]
 sshctl config show
@@ -43,6 +44,17 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 `known-hosts remove` asks before invoking `ssh-keygen -R`, which handles hashed entries. `known-hosts list` displays the host field as stored (hashed names remain hashed).
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
+
+### Bootstrap
+
+`bootstrap <alias>` makes a Connection reachable with your selected key (`sshctl key use`), in your terminal:
+
+1. For a Connection in `sshctl_config`, it writes the HostName, User and Port that `ssh -G <alias>` resolves into its Host block, if they are missing.
+2. It adds the key's `.pub` to `~/.ssh/authorized_keys` on the host over plain `ssh <alias>` (no `ssh-copy-id`), so you type your password once. A key that is already there is not added again, and `~/.ssh` and the file are made private (700 and 600).
+3. It proves that the key alone logs in, with a fresh `ssh` that has BatchMode on and password login off.
+4. Only then does it set `IdentityFile` in the Host block, written as `~/.ssh/...` when the key is in your home directory.
+
+If the check in step 3 fails, nothing after step 1 changes and sshctl says why. A key with a passphrase must be in the agent for the check (`sshctl agent ensure`). A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. Bootstrap needs a selected key, never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
 
 ### Provision
 
