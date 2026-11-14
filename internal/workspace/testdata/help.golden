@@ -1,24 +1,24 @@
-                                                                                
   Keys  (press any key to close)                                                
                                                                                 
-  ↑/↓ Enter      move, open or switch to a connection                           
-  /              filter the connection list (Esc clears)                        
-  Alt+←/→        previous / next tab                                            
-  Alt+↑/↓        previous / next open connection                                
-  ^B n           new tab for the active connection                              
-  ^B c           new tab running claude on the remote host                      
-  Enter ←/→      on a group: collapse or expand it                              
-  ^B g           open the connection's group as tabs                            
-  ^B m           move a connection to a group (or drag it)                      
-  ^B a / e / d   add / edit / delete a connection (a, e, d in the list)         
-  ^B w           close tab                                                      
-  ^B ←/→  ^B 1-9 switch tab                                                     
-  ^B Tab         move focus between list and terminal                           
-  ^B [           scroll back (mouse wheel also scrolls)                         
-  r / x          on an ended tab: reconnect / close                             
-  ^B b           hide or show the connection list                               
-  ^B r           refresh connections from ssh_config                            
-  ^B ^B          send ^B to the session                                         
-  ^B q           quit                                                           
-                                                                                
+  ↑/↓/k/j          move the cursor                                              
+  Enter/Space      open or switch to a connection, or toggle a group            
+  ←/→/h/l          on a group: collapse / expand it                             
+  /                filter the connection list                                   
+  Esc              clear the filter                                             
+  Alt+←/→  ^B ←/→  previous / next tab                                          
+  ^B 1-9           switch to tab 1-9                                            
+  Alt+↑/↓          previous / next open connection                              
+  ^B n/c           new tab for the active connection (c runs claude)            
+  ^B g             open the connection's group as tabs                          
+  ^B m             move a connection to a group (or drag it)                    
+  a/e/d  ^B a/e/d  add / edit / delete a connection                             
+  ^B w  x          close tab (x on an ended tab)                                
+  r                on an ended tab: reconnect                                   
+  ^B Tab           move focus between list and terminal                         
+  ^B [             scroll back (mouse wheel also scrolls)                       
+  ^B b             hide or show the connection list                             
+  ^B r             refresh connections from ssh_config                          
+  ^B ^B            send the prefix key to the session                           
+  ^B ?             show this help                                               
+  q/^C  ^B q       quit                                                         
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

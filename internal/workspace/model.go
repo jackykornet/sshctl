@@ -220,8 +220,9 @@ func (m *Model) paste(text string) {
 	}
 }
 
+// key routes a key press: to the modal when one is open, then through the
+// bindings for the context the Workspace is in (see bindings).
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
-	k := msg.String()
 	if m.modal != nil {
 		return m.modal.key(m, msg)
 	}
@@ -229,25 +230,12 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.prefix = false
 		return m.prefixCommand(msg)
 	}
-	if k == m.opts.PrefixKey {
+	if msg.String() == m.opts.PrefixKey {
 		m.prefix = true
 		return nil
 	}
-	switch k {
-	case "alt+left":
-		m.selectTab(-1)
-		return nil
-	case "alt+right":
-		m.selectTab(1)
-		return nil
-	case "alt+up":
-		m.st.CycleActive(-1)
-		m.scrolling = false
-		return nil
-	case "alt+down":
-		m.st.CycleActive(1)
-		m.scrolling = false
-		return nil
+	if cmd, ok := m.runBinding(inAny, msg); ok {
+		return cmd
 	}
 	if m.filtering {
 		m.filterKey(msg)
@@ -256,36 +244,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if m.focus == focusPane {
 		return m.paneKey(msg)
 	}
-	switch k {
-	case "up", "k":
-		m.st.MoveCursor(-1)
-	case "down", "j":
-		m.st.MoveCursor(1)
-	case "enter", "space":
-		return m.enter()
-	case "left", "h":
-		if r, ok := m.st.CursorRow(); ok && m.st.grouped() {
-			m.st.SetCursorGroup(r.Group)
-			return m.setCollapsed(r.Group, true)
-		}
-	case "right", "l":
-		if r, ok := m.st.CursorRow(); ok && r.Header() {
-			return m.setCollapsed(r.Group, false)
-		}
-	case "a":
-		return m.startAdd()
-	case "e":
-		return m.startEdit()
-	case "d":
-		return m.deleteConnection()
-	case "/":
-		m.filtering = true
-	case "esc":
-		m.st.SetFilter("")
-	case "q", "ctrl+c":
-		return m.quit()
-	}
-	return nil
+	cmd, _ := m.runBinding(inList, msg)
+	return cmd
 }
 
 // paneKey handles a key while the terminal pane has focus: scroll mode keys,
@@ -300,13 +260,8 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if s.Ended {
-		switch msg.String() {
-		case "r":
-			return m.reconnect()
-		case "x":
-			return m.closeTab()
-		}
-		return nil
+		cmd, _ := m.runBinding(inEnded, msg)
+		return cmd
 	}
 	if r != nil {
 		r.scroll = 0
@@ -353,62 +308,11 @@ func (m *Model) filterKey(msg tea.KeyPressMsg) {
 }
 
 func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
-	k := msg.String()
-	switch k {
-	case m.opts.PrefixKey:
-		if r := m.liveRunner(); r != nil && m.focus == focusPane {
-			r.term.SendKey(msg)
-		}
-	case "n", "c":
-		target := m.st.Active()
-		if target == nil {
-			target = m.st.Cursor()
-		}
-		if target != nil {
-			return m.open(target.Alias, k == "c")
-		}
-	case "g":
-		return m.openGroup()
-	case "m":
-		return m.startMove()
-	case "a":
-		return m.startAdd()
-	case "e":
-		return m.startEdit()
-	case "d":
-		return m.deleteConnection()
-	case "w":
-		return m.closeTab()
-	case "left":
-		m.selectTab(-1)
-	case "right":
-		m.selectTab(1)
-	case "[":
-		if _, r := m.currentRunner(); r != nil {
-			m.scrolling = true
-			m.focus = focusPane
-		}
-	case "tab":
-		if m.focus == focusList && m.st.Active() != nil {
-			m.focus = focusPane
-		} else {
-			m.focus = focusList
-		}
-	case "b":
-		m.hideList = !m.hideList
-	case "r":
-		return m.refresh()
-	case "?":
-		m.openModal(helpScreen{})
-	case "q":
-		return m.quit()
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		m.st.SelectTabIndex(int(k[0] - '1'))
-		m.scrolling = false
-	default:
-		return m.setStatus(fmt.Sprintf("unknown command %s %s (%s ? for help)", keyHint(m.opts.PrefixKey), k, keyHint(m.opts.PrefixKey)), true)
+	if cmd, ok := m.runBinding(inPrefix, msg); ok {
+		return cmd
 	}
-	return nil
+	p := keyHint(m.opts.PrefixKey)
+	return m.setStatus(fmt.Sprintf("unknown command %s %s (%s ? for help)", p, msg.String(), p), true)
 }
 
 func (m *Model) selectTab(delta int) {
@@ -597,14 +501,19 @@ func (m *Model) quit() tea.Cmd {
 	return nil
 }
 
-func (m *Model) refresh() tea.Cmd {
+// reload reloads the connection list from disk, puts the cursor on alias
+// when it is set, and shows status.
+func (m *Model) reload(alias, status string) tea.Cmd {
 	snap, err := m.opts.Load()
 	if err != nil {
-		return m.setStatus("refresh: "+err.Error(), true)
+		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
 	m.identity = snap.Identity
-	return m.setStatus("connection list refreshed", false)
+	if alias != "" {
+		m.st.SetCursor(alias)
+	}
+	return m.setStatus(status, false)
 }
 
 // setCollapsed collapses or expands group and saves the collapsed groups.

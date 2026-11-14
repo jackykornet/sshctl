@@ -223,7 +223,7 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 	if f.old == "" {
 		verb = "added"
 	}
-	return m.reloadAfterEdit(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	return m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
 }
 
 // deleteConnection asks before deleting the target Connection: its Host
@@ -251,24 +251,9 @@ func (m *Model) deleteConnection() tea.Cmd {
 		if err := m.opts.DeleteConnection(alias); err != nil {
 			return m.setStatus("delete "+alias+": "+err.Error(), true)
 		}
-		return m.reloadAfterEdit("", "deleted "+alias)
+		return m.reload("", "deleted "+alias)
 	})
 	return nil
-}
-
-// reloadAfterEdit reloads the list from disk, puts the cursor on alias when
-// it is set, and shows status.
-func (m *Model) reloadAfterEdit(alias, status string) tea.Cmd {
-	snap, err := m.opts.Load()
-	if err != nil {
-		return m.setStatus("reload: "+err.Error(), true)
-	}
-	m.st.Reload(snap.Entries)
-	m.identity = snap.Identity
-	if alias != "" {
-		m.st.SetCursor(alias)
-	}
-	return m.setStatus(status, false)
 }
 
 // renderForm draws the connection form in a w×h pane.
