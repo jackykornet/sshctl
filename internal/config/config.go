@@ -35,6 +35,8 @@ type Workspace struct {
 	ListWidth int `json:"listWidth,omitempty"`
 	// ScrollbackLines is how many lines of history each tab keeps.
 	ScrollbackLines int `json:"scrollbackLines,omitempty"`
+	// CollapsedGroups lists the groups whose members the connection list hides.
+	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }

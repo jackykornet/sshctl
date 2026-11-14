@@ -1,0 +1,155 @@
+package openssh
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func managedClient(t *testing.T) *Client {
+	t.Helper()
+	dir := t.TempDir()
+	return &Client{SSHConfig: filepath.Join(dir, "config"), SSHDir: dir}
+}
+
+func TestSaveHostRoundTripsAndKeepsExtraOptions(t *testing.T) {
+	c := managedClient(t)
+	web := Host{Alias: "web", HostName: "10.0.0.1", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/id work"}
+	if err := c.SaveHost("", web); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveHost("", Host{Alias: "db", HostName: "db.internal"}); err != nil {
+		t.Fatal(err)
+	}
+	// The user adds an option by hand; sshctl must keep it on the next save.
+	b, _ := os.ReadFile(c.ManagedPath())
+	b = []byte(strings.Replace(string(b), "    Port 2222\n", "    Port 2222\n    ForwardAgent yes\n", 1))
+	if err := os.WriteFile(c.ManagedPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveHost("web", Host{Alias: "web2", HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.ManagedHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Host{
+		{Alias: "web2", HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work", Extra: []string{"ForwardAgent yes"}},
+		{Alias: "db", HostName: "db.internal"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("hosts = %+v\nwant    %+v", got, want)
+	}
+	aliases, err := HostAliases(c.ManagedPath())
+	if err != nil || !reflect.DeepEqual(aliases, []string{"web2", "db"}) {
+		t.Fatalf("OpenSSH-style aliases = %v (%v)", aliases, err)
+	}
+	if fi, _ := os.Stat(c.ManagedPath()); fi.Mode().Perm()&0o077 != 0 && os.PathSeparator == '/' {
+		t.Errorf("managed file mode = %v, want owner-only", fi.Mode().Perm())
+	}
+}
+
+func TestSaveHostRejectsDuplicatesAndUnknownHosts(t *testing.T) {
+	c := managedClient(t)
+	if err := c.SaveHost("", Host{Alias: "web", HostName: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveHost("", Host{Alias: "web", HostName: "b"}); err == nil {
+		t.Error("adding a second web should fail")
+	}
+	if err := c.SaveHost("nope", Host{Alias: "x", HostName: "b"}); !errors.Is(err, ErrUnknownHost) {
+		t.Errorf("err = %v, want ErrUnknownHost", err)
+	}
+	if err := c.DeleteHost("nope"); !errors.Is(err, ErrUnknownHost) {
+		t.Errorf("err = %v, want ErrUnknownHost", err)
+	}
+	if err := c.DeleteHost("web"); err != nil {
+		t.Fatal(err)
+	}
+	if hosts, _ := c.ManagedHosts(); len(hosts) != 0 {
+		t.Errorf("hosts = %v, want none", hosts)
+	}
+}
+
+func TestHostValidateRejectsValuesThatChangeTheConfig(t *testing.T) {
+	ok := Host{Alias: "web", HostName: "h"}
+	tests := []struct {
+		name string
+		edit func(*Host)
+	}{
+		{"no alias", func(h *Host) { h.Alias = "" }},
+		{"pattern alias", func(h *Host) { h.Alias = "web*" }},
+		{"two aliases", func(h *Host) { h.Alias = "a b" }},
+		{"option alias", func(h *Host) { h.Alias = "-oProxyCommand" }},
+		{"no hostname", func(h *Host) { h.HostName = "" }},
+		{"hostname with space", func(h *Host) { h.HostName = "h ProxyCommand x" }},
+		{"newline", func(h *Host) { h.User = "u\nProxyCommand x" }},
+		{"port text", func(h *Host) { h.Port = "ssh" }},
+		{"port range", func(h *Host) { h.Port = "70000" }},
+		{"quote in identity", func(h *Host) { h.IdentityFile = `a"b` }},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid host: %v", err)
+	}
+	for _, tt := range tests {
+		h := ok
+		tt.edit(&h)
+		if err := h.Validate(); err == nil {
+			t.Errorf("%s: want an error", tt.name)
+		}
+	}
+}
+
+func TestAddIncludeMakesConfigIncludeManagedFile(t *testing.T) {
+	c := managedClient(t)
+	if ok, err := c.IncludesManaged(); ok || err != nil {
+		t.Fatalf("missing config: includes = %v, %v", ok, err)
+	}
+	original := "Host mine\n  HostName example.com\n"
+	if err := os.WriteFile(c.SSHConfig, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.IncludesManaged(); ok {
+		t.Fatal("config without the Include should not count")
+	}
+	if err := c.AddInclude(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := c.IncludesManaged(); !ok || err != nil {
+		t.Fatalf("after AddInclude: includes = %v, %v", ok, err)
+	}
+	b, _ := os.ReadFile(c.SSHConfig)
+	if !strings.HasSuffix(string(b), original) {
+		t.Errorf("original config must follow the Include unchanged:\n%s", b)
+	}
+	if backup, _ := os.ReadFile(c.SSHConfig + ".sshctl-backup"); string(backup) != original {
+		t.Errorf("backup = %q", backup)
+	}
+	if err := c.SaveHost("", Host{Alias: "managed", HostName: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	aliases, err := c.Aliases()
+	if err != nil || !reflect.DeepEqual(aliases, []string{"managed", "mine"}) {
+		t.Fatalf("aliases = %v (%v)", aliases, err)
+	}
+}
+
+func TestIncludesManagedIgnoresIncludeInsideHostBlock(t *testing.T) {
+	c := managedClient(t)
+	if err := os.WriteFile(c.SSHConfig, []byte("Host x\n  Include sshctl_config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.IncludesManaged(); ok {
+		t.Fatal("an Include inside a Host block only applies to that host")
+	}
+	if err := os.WriteFile(c.SSHConfig, []byte("Include ~/.ssh/other "+filepath.Join(c.SSHDir, "sshctl_*")+"\nHost x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.IncludesManaged(); !ok {
+		t.Fatal("a top-level glob matching the managed file counts")
+	}
+}

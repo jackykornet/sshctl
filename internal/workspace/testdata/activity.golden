@@ -1,8 +1,8 @@
- ● prod-web • public site […│ db-main 1 •  db-main 2 ✕  db-main 3               
- ● db-main • postgres       │                                                   
-   old-box (missing)        │                                                   
-   staging [web]            │                                                   
-                            │                                                   
-                            │                                                   
+ ▾ web 2 ●1 •               │ db-main 1 •  db-main 2 ✕  db-main 3               
+   ● prod-web • public site │                                                   
+     staging                │                                                   
+ ▾ ungrouped 2 ●1 •         │                                                   
+   ● db-main • postgres     │                                                   
+     old-box (missing)      │                                                   
                             │                                                   
  db-main · tab 3/3 · connected · key: id_ed25519                      ^B ? help 

@@ -5,8 +5,12 @@ sshctl manages metadata about OpenSSH host aliases and gives a workspace for ope
 ## Connections and sessions
 
 **Connection**:
-One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. It never defines how to reach the host.
+One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. sshctl's metadata never defines how to reach the host; only a Host block does.
 _Avoid_: Server, host, profile
+
+**Managed connection**:
+A Connection whose Host block is in sshctl's own file, `~/.ssh/sshctl_config`, which the user's ssh_config Includes. The Workspace can add, edit, rename and delete it. Every other Connection's Host block belongs to the user, and sshctl only edits its description and group.
+_Avoid_: sshctl host, owned connection
 
 **Orphaned connection**:
 A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened.
@@ -23,6 +27,10 @@ _Avoid_: Connected, active (see Active connection)
 **Active connection**:
 The single Connection currently selected in the workspace, whose Sessions are shown as tabs.
 _Avoid_: Current, focused, selected connection
+
+**Group**:
+A name in a Connection's sshctl metadata that gathers it with other Connections. The connection list shows each group under a header that can be collapsed to hide its members. A Connection is in at most one group; one with none is **ungrouped**.
+_Avoid_: Folder, tag, category
 
 ## Workspace
 

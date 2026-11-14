@@ -46,26 +46,41 @@ Group launching starts a separate terminal for each saved connection. The CLI su
 
 Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the tabs of the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
 
-Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Open connections are marked green and move to the top of the list. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
+Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Open connections are marked green and keep their place in the list. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
 
 Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session):
 
 | Keys | Action |
 | --- | --- |
 | `↑`/`↓`, `Enter` | Move in the list, open or switch to a connection |
+| `Enter`/`Space`, `←`/`→` | On a group header: collapse or expand the group (`←` on a member collapses its group) |
 | `/` | Filter the list by alias, description, or group |
 | `Alt+←`/`Alt+→` | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
-| prefix `g` | Open every closed connection in the group of the Connection under the cursor (`group connect` still opens separate windows) |
+| prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
+| prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete a connection |
+| prefix `m` | Move the connection to a group: type an existing or new group name, or clear it to remove the connection from its group |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
 | prefix `b` / `r` | Hide the list / reload connections from disk |
 | prefix `?` / `q` | Help / quit |
 
-The mouse selects connections and tabs and scrolls history; full-screen programs such as `vim` receive mouse events when they ask for them. Hold Shift while dragging to select text with your own terminal. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
+### Adding, editing and deleting connections
+
+`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
+
+`e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
+
+### Groups
+
+Once any connection has a group, the list shows each group (alphabetically, with `ungrouped` last) under a header showing its member count, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Collapsed groups are remembered between runs.
+
+### Mouse and settings
+
+The mouse selects connections and tabs and scrolls history. Click a group header to collapse or expand it, and drag a connection onto any row of another group (its header or one of its members) to move it there. Release off the list to cancel. Group changes are saved to sshctl's metadata, the same as `sshctl edit`. Full-screen programs such as `vim` receive mouse events when they ask for them. Hold Shift while dragging to select text with your own terminal. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
 
 Optional settings go in a `workspace` object in the config file:
 
@@ -79,7 +94,7 @@ The Workspace needs Windows 10 version 1809 or newer for its pseudo-terminals; t
 
 The versioned JSON file is stored in the OS user config directory under `sshctl/config.json` (for example, `%AppData%\\sshctl\\config.json` on Windows and `~/.config/sshctl/config.json` on Linux). Files are written with owner-only permissions where supported. If `~/.sshctl/connections.json` or `~/.sshyeah/connections.json` exists and no new config exists, sshctl migrates recognized alias, description, and group fields and leaves the source untouched.
 
-Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh-agent` handle key use and in-memory caching. `config show` displays config paths and alias count without printing credentials or key contents.
+The only SSH config sshctl writes is `~/.ssh/sshctl_config` (owner-only), plus the one `Include` line it asks before adding to `~/.ssh/config`. It checks every value so a field cannot add other directives. Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh-agent` handle key use and in-memory caching. `config show` displays config paths and alias count without printing credentials or key contents.
 
 ## Platform support
 

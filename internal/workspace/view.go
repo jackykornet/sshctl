@@ -21,6 +21,7 @@ var (
 	boldStyle   = lipgloss.NewStyle().Bold(true)
 	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
 	unseenStyle = lipgloss.NewStyle().Bold(true)
+	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
 )
 
 // unseenMarker flags tabs and Connections with activity the user hasn't seen.
@@ -32,7 +33,7 @@ func (m *Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "sshctl"
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
-		!m.scrolling && !m.help && m.confirm == nil && !m.filtering {
+		!m.scrolling && !m.help && m.confirm == nil && !m.filtering && m.moving == nil && m.drag == nil && m.form == nil {
 		if x, y, visible := r.term.Cursor(); visible {
 			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
 		}
@@ -88,34 +89,33 @@ func (m *Model) renderList(w, h int) []string {
 		}
 		lines = append(lines, fit(f, w))
 	}
-	cursor := m.st.Cursor()
+	cursor := m.st.CursorIndex(rows)
 	active := m.st.Active()
-	for _, c := range rows[min(offset, len(rows)):] {
+	grouped := m.st.grouped()
+	for i, r := range rows[min(offset, len(rows)):] {
 		if len(lines) == h {
 			break
 		}
 		pointer := " "
-		if m.focus == focusList && c == cursor {
+		if m.focus == focusList && offset+i == cursor {
 			pointer = "›"
 		}
-		marker, name := "  ", c.Alias
-		switch {
-		case c.AllEnded():
-			marker, name = endedStyle.Render("● "), endedStyle.Render(c.Alias)
-		case c.Open():
-			marker, name = openStyle.Render("● "), openStyle.Render(c.Alias)
-		case c.Orphaned:
-			name = dimStyle.Render(c.Alias)
-		}
-		line := pointer + marker + name
-		if c.Unseen() {
-			line += " " + unseenStyle.Render(unseenMarker)
-		}
-		if extra := rowDetail(c); extra != "" {
-			line += " " + dimStyle.Render(extra)
+		var line string
+		highlight := false
+		if r.Header() {
+			line = pointer + m.headerLabel(r.Group)
+			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
+		} else {
+			line = pointer + connLabel(r.Conn, grouped)
+			highlight = r.Conn == active
 		}
 		line = fit(line, w)
-		if c == active {
+		switch {
+		case m.drag != nil && m.drag.moving && !r.Header() && r.Conn.Alias == m.drag.alias:
+			line = dimStyle.Render(ansi.Strip(line))
+		case m.drag != nil && m.drag.moving && m.drag.ok && r.Group == m.drag.target:
+			line = dropStyle.Render(ansi.Strip(line))
+		case highlight:
 			line = activeRow.Render(ansi.Strip(line))
 		}
 		lines = append(lines, line)
@@ -133,12 +133,68 @@ func (m *Model) renderList(w, h int) []string {
 	return lines
 }
 
-func rowDetail(c *Connection) string {
+// headerLabel is a group header: its fold marker, name and member count, then
+// how many members are open and whether any has unseen activity.
+func (m *Model) headerLabel(group string) string {
+	fold := "▾ "
+	if m.st.Collapsed(group) && m.st.Filter() == "" {
+		fold = "▸ "
+	}
+	name := boldStyle.Render(group)
+	if group == "" {
+		name = dimStyle.Render("ungrouped")
+	}
+	members := m.st.Members(group)
+	open, unseen := 0, false
+	for _, c := range members {
+		if c.Open() {
+			open++
+		}
+		unseen = unseen || c.Unseen()
+	}
+	line := fold + name + " " + dimStyle.Render(fmt.Sprint(len(members)))
+	if open > 0 {
+		line += " " + openStyle.Render(fmt.Sprintf("●%d", open))
+	}
+	if unseen {
+		line += " " + unseenStyle.Render(unseenMarker)
+	}
+	return line
+}
+
+// connLabel is a Connection row after the cursor pointer, indented under its
+// group header when the list is grouped.
+func connLabel(c *Connection, grouped bool) string {
+	marker, name := "  ", c.Alias
+	switch {
+	case c.AllEnded():
+		marker, name = endedStyle.Render("● "), endedStyle.Render(c.Alias)
+	case c.Open():
+		marker, name = openStyle.Render("● "), openStyle.Render(c.Alias)
+	case c.Orphaned:
+		name = dimStyle.Render(c.Alias)
+	}
+	line := marker + name
+	if grouped {
+		line = "  " + line
+	}
+	if c.Unseen() {
+		line += " " + unseenStyle.Render(unseenMarker)
+	}
+	if extra := rowDetail(c, grouped); extra != "" {
+		line += " " + dimStyle.Render(extra)
+	}
+	return line
+}
+
+// rowDetail is a Connection's description, or (missing) when it is orphaned.
+// The group is added only when the list has no group headers to show it.
+func rowDetail(c *Connection, grouped bool) string {
 	if c.Orphaned {
 		return "(missing)"
 	}
 	d := c.Description
-	if c.Group != "" {
+	if c.Group != "" && !grouped {
 		d = strings.TrimSpace(d + " [" + c.Group + "]")
 	}
 	return d
@@ -220,6 +276,9 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 }
 
 func (m *Model) renderPane(w, h int) []string {
+	if m.form != nil {
+		return m.renderForm(w, h)
+	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
 	var body []string
@@ -256,7 +315,10 @@ func (m *Model) helpLines() []string {
 		{"Alt+↑/↓", "previous / next open connection"},
 		{p + " n", "new tab for the active connection"},
 		{p + " c", "new tab running claude on the remote host"},
+		{"Enter ←/→", "on a group: collapse or expand it"},
 		{p + " g", "open the connection's group as tabs"},
+		{p + " m", "move a connection to a group (or drag it)"},
+		{p + " a / e / d", "add / edit / delete a connection (a, e, d in the list)"},
 		{p + " w", "close tab"},
 		{p + " ←/→  " + p + " 1-9", "switch tab"},
 		{p + " Tab", "move focus between list and terminal"},
@@ -279,6 +341,17 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case m.confirm != nil:
 		left = m.confirm.question
+	case m.moving != nil:
+		left = fmt.Sprintf("move %s to group: %s█  Enter move · empty for none · Esc cancel", m.moving.alias, string(m.moving.group))
+	case m.drag != nil && m.drag.moving:
+		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
+		if m.drag.ok {
+			to := m.drag.target
+			if to == "" {
+				to = "ungrouped"
+			}
+			left = fmt.Sprintf("move %s → %s · release to drop", m.drag.alias, to)
+		}
 	case m.status != "" && m.statusErr:
 		left = errStyle.Render(m.status)
 	case m.status != "":
