@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,9 +53,9 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	}
 	want := "" +
 		"web                      front end [prod]\n" +
-		"db                       \n" +
+		"db\n" +
 		"mid                      moved (orphaned)\n" +
-		"old                       [prod] (orphaned)\n" +
+		"old                      [prod] (orphaned)\n" +
 		"zz-gone                  retired (orphaned)\n"
 	if out.String() != want {
 		t.Errorf("list output:\n%s\nwant:\n%s", out.String(), want)
@@ -107,5 +108,69 @@ func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
 	got := loaded.Connections["buildbox"]
 	if got.Description != "development machine" || got.Group != "engineering" {
 		t.Fatalf("unexpected saved metadata: %#v", got)
+	}
+}
+
+// stale gives a an empty startup config, as when another terminal changed
+// the config after sshctl started.
+func stale(a *app) { a.cfg = config.New() }
+
+func load(t *testing.T, a *app) *config.Config {
+	t.Helper()
+	c, err := config.Load(a.cfgPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestConnectRecordsHistoryOnTheCurrentConfig(t *testing.T) {
+	cfg := config.New()
+	cfg.History = []string{"db"}
+	a, _ := cliTree(t, "Host web\n", cfg, "")
+	stale(a)
+	if err := a.recordHistory("web"); err != nil {
+		t.Fatal(err)
+	}
+	if got := load(t, a).History; !slices.Equal(got, []string{"web", "db"}) {
+		t.Errorf("History = %v, want [web db]", got)
+	}
+}
+
+func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
+	a, out := cliTree(t, "Host web\n", cfg, "\n\n")
+	stale(a)
+	if err := a.metadata([]string{"web"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Description [front end]: Group [prod]: ") {
+		t.Errorf("prompts = %q, want the current values", out.String())
+	}
+	if got := load(t, a).Connections["web"]; got.Description != "front end" || got.Group != "prod" {
+		t.Errorf("web = %#v, want its metadata unchanged", got)
+	}
+}
+
+func TestRemoveDeletesOnlyMetadata(t *testing.T) {
+	cfg := config.New()
+	cfg.Connections["api"] = config.Connection{Alias: "api", Group: "prod"}
+	a, _ := cliTree(t, openssh.IncludeLine+"\n", cfg, "")
+	if err := a.ssh.SaveHost("", openssh.Host{Alias: "api", Endpoint: openssh.Endpoint{HostName: "10.0.0.9"}}); err != nil {
+		t.Fatal(err)
+	}
+	stale(a)
+	if err := a.remove([]string{"api"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := load(t, a).Connections["api"]; ok {
+		t.Error("api's metadata should be removed")
+	}
+	if hosts, err := a.ssh.ManagedHosts(); err != nil || len(hosts) != 1 || hosts[0].Alias != "api" {
+		t.Errorf("Host blocks = %+v, %v; want api's kept", hosts, err)
+	}
+	if err := a.remove([]string{"api"}); err == nil || err.Error() != `no sshctl metadata for "api"` {
+		t.Errorf("removing again: err = %v", err)
 	}
 }

@@ -20,7 +20,7 @@ import (
 //     Workspace (after asking, when Sessions are live, and returning to the
 //     modal on no). Every other prefix command is swallowed: it would act
 //     on the Workspace hidden behind the modal, and opening help would
-//     replace the modal.
+//     replace the modal. The status line then says how to leave the modal.
 type modal interface {
 	key(m *Model, msg tea.KeyPressMsg) tea.Cmd
 	paste(text string)
@@ -99,17 +99,24 @@ func (helpScreen) status() (string, bool) { return "", false }
 func (helpScreen) prefixArmed() bool      { return false }
 
 // prefixGate is the prefix inside a modal that edits text; see modal.
-type prefixGate struct{ armed bool }
+type prefixGate struct {
+	armed bool
+	// swallowed is set from a swallowed prefix command until the next key,
+	// so the modal's status line can say how to leave it.
+	swallowed bool
+}
 
 // intercept handles msg when it is the prefix key or the key after it.
 func (g *prefixGate) intercept(m *Model, msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	k := msg.String()
+	g.swallowed = false
 	switch {
 	case g.armed:
 		g.armed = false
 		if k == "q" {
 			return m.quit(), true
 		}
+		g.swallowed = true
 		return nil, true
 	case k == m.opts.PrefixKey:
 		g.armed = true
@@ -146,7 +153,11 @@ func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 func (in *moveInput) paste(text string) { in.group = pasteLine(in.group, text) }
 
 func (in *moveInput) status() (string, bool) {
-	return fmt.Sprintf("move %s to group: %s█  Enter move · empty for none · Esc cancel", in.alias, string(in.group)), true
+	help := "Enter move · empty for none · Esc cancel"
+	if in.swallowed {
+		help = "move prompt open: Esc to cancel"
+	}
+	return fmt.Sprintf("move %s to group: %s█  %s", in.alias, string(in.group), help), true
 }
 
 // editLine applies a line-editing key to value: backspace deletes the last

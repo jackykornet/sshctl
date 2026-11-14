@@ -165,7 +165,12 @@ func (f *connForm) paste(text string) {
 	fl.value = pasteLine(fl.value, text)
 }
 
-func (f *connForm) status() (string, bool) { return "", false }
+func (f *connForm) status() (string, bool) {
+	if f.swallowed {
+		return "form open: Esc to cancel", true
+	}
+	return "", false
+}
 
 // saveForm saves the form through the Catalog and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config

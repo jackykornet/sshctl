@@ -76,11 +76,47 @@ func TestOtherPrefixCommandsDoNothingInLineModals(t *testing.T) {
 			for _, k := range []tea.KeyPressMsg{text("?")[0], keyPrefix, text("b")[0], text("m")[0], text("x")[0]} {
 				press(m, keyPrefix, k)
 			}
-			if got := screen(m); got != before {
+			if got := aboveStatus(screen(m)); got != aboveStatus(before) {
 				t.Fatalf("prefix commands changed the screen\n--- before ---\n%s\n--- after ---\n%s", before, got)
 			}
 		})
 	}
+}
+
+// aboveStatus is a screen without its last line, the status line.
+func aboveStatus(screen string) string {
+	return screen[:strings.LastIndex(screen, "\n")]
+}
+
+func TestSwallowedPrefixCommandSaysHowToLeaveTheModal(t *testing.T) {
+	for _, tt := range []struct {
+		name, hint string
+		open       func(m *Model)
+	}{
+		{"form", "form open: Esc to cancel", modals[0].open},
+		{"move prompt", "move prompt open: Esc to cancel", modals[1].open},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := newModalModel(t)
+			tt.open(m)
+			press(m, keyPrefix, text("n")[0])
+			if got := statusLine(m); !strings.Contains(got, tt.hint) {
+				t.Fatalf("status line = %q, want %q", got, tt.hint)
+			}
+			if tt.name == "move prompt" && !strings.Contains(statusLine(m), "move web to group: prod█") {
+				t.Errorf("the prompt should stay on the status line: %q", statusLine(m))
+			}
+			press(m, text("x")...)
+			if got := statusLine(m); strings.Contains(got, tt.hint) {
+				t.Errorf("the hint should go with the next key: %q", got)
+			}
+		})
+	}
+}
+
+func statusLine(m *Model) string {
+	s := screen(m)
+	return s[strings.LastIndex(s, "\n")+1:]
 }
 
 func TestMouseIsIgnoredWhileAModalIsOpen(t *testing.T) {
@@ -173,15 +209,19 @@ func TestPasteGoesToTheFilterBeingTyped(t *testing.T) {
 }
 
 func TestPasteBehindTheMovePromptNeverReachesTheSession(t *testing.T) {
-	// od prints the first byte the Session receives.
-	m, _ := newSessionModel(t, script{sh: `stty raw -echo; head -c 1 | od -An -c`})
+	// Each script prints what the Session receives first: one byte on
+	// POSIX, the first line on Windows.
+	m, _ := newSessionModel(t, script{
+		sh:  `stty raw -echo; printf 'got:%s\n' "$(head -c 1)"`,
+		cmd: `set /p x=& echo got:!x!& ping -n 30 127.0.0.1 >nul`,
+	})
 	press(m, keyEnter)
-	time.Sleep(200 * time.Millisecond) // let stty run before sending
+	time.Sleep(200 * time.Millisecond) // let stty or set /p start before sending
 	press(m, keyPrefix, text("m")[0])
 	m.Update(tea.PasteMsg{Content: "Z"})
-	press(m, keyEsc, text("k")[0])
-	pump(t, m, func() bool { return strings.Contains(screen(m), "   k") })
-	if strings.Contains(screen(m), "   Z") {
-		t.Fatalf("the paste reached the Session:\n%s", screen(m))
+	press(m, keyEsc, text("k")[0], keyEnter)
+	pump(t, m, func() bool { return strings.Contains(screen(m), "got:") })
+	if !strings.Contains(screen(m), "got:k") {
+		t.Fatalf("want got:k, the first key after the prompt closed; the paste reached the Session:\n%s", screen(m))
 	}
 }
