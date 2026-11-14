@@ -150,14 +150,21 @@ func (a *app) list() error {
 		return err
 	}
 	for _, e := range snap.Entries {
-		label := e.Description
+		var label []string
+		if e.Description != "" {
+			label = append(label, e.Description)
+		}
 		if e.Group != "" {
-			label += fmt.Sprintf(" [%s]", e.Group)
+			label = append(label, "["+e.Group+"]")
 		}
 		if e.Orphaned {
-			label += " (orphaned)"
+			label = append(label, "(orphaned)")
 		}
-		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, label)
+		if len(label) == 0 {
+			fmt.Fprintln(a.out, e.Alias)
+			continue
+		}
+		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, strings.Join(label, " "))
 	}
 	return nil
 }
@@ -181,18 +188,27 @@ func (a *app) connect(args []string) error {
 	return a.recordHistory(alias)
 }
 
-// recordHistory moves alias to the front of History, keeping the 20 most recent.
-func (a *app) recordHistory(alias string) error {
-	a.cfg.RecordOpen(alias)
-	return a.save()
-}
+// recordHistory records in History that alias was opened.
+func (a *app) recordHistory(alias string) error { return a.catalog().RecordOpen(alias) }
+
+// metadata adds or edits alias's description and group, prompting with the
+// values the config holds now.
 func (a *app) metadata(args []string, edit bool) error {
 	if len(args) != 1 {
 		return errors.New("usage: sshctl add|edit <alias>")
 	}
 	alias := args[0]
-	c, exists := a.cfg.Connections[alias]
-	if edit && !exists {
+	snap, err := a.catalog().Snapshot()
+	if err != nil {
+		return err
+	}
+	var c catalog.Entry
+	for _, e := range snap.Entries {
+		if e.Alias == alias {
+			c = e
+		}
+	}
+	if edit && c.Description == "" && c.Group == "" {
 		return fmt.Errorf("no sshctl metadata for %q", alias)
 	}
 	reader := bufio.NewReader(a.in)
@@ -220,11 +236,12 @@ func (a *app) remove(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: sshctl remove <alias>")
 	}
-	if _, ok := a.cfg.Connections[args[0]]; !ok {
+	// Only the metadata goes: a Host block, even sshctl's, stays.
+	err := a.catalog().DeleteMetadata(args[0])
+	if errors.Is(err, catalog.ErrNoMetadata) {
 		return fmt.Errorf("no sshctl metadata for %q", args[0])
 	}
-	delete(a.cfg.Connections, args[0])
-	return a.save()
+	return err
 }
 func (a *app) groupConnect(args []string) error {
 	if len(args) != 1 {
