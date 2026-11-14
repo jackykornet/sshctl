@@ -104,14 +104,14 @@ func TestSessionEndsAndReconnects(t *testing.T) {
 	if !m.st.Get("alpha").Open() {
 		t.Fatal("ended tab keeps the connection open")
 	}
-	old := m.runners[sess]
+	old := m.sessions.runner(sess)
 	press(m, text("r")...)
-	if sess.Ended || m.runners[sess] == old {
+	if sess.Ended || m.sessions.runner(sess) == old {
 		t.Fatal("r should start a new process in the same tab")
 	}
 	pump(t, m, func() bool { return sess.Ended })
 	press(m, text("x")...)
-	if m.st.Get("alpha").Open() || len(m.runners) != 0 {
+	if m.st.Get("alpha").Open() || m.sessions.runner(sess) != nil {
 		t.Fatal("x should close the ended tab and release its process")
 	}
 }
