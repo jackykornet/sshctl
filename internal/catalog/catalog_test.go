@@ -71,6 +71,33 @@ func TestSaveAddsManagedConnection(t *testing.T) {
 	}
 }
 
+func TestSaveStoresIdentityFileUnderHomeWithTilde(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.ssh.Home = filepath.Join(t.TempDir(), "jo")
+	key := filepath.Join(tr.ssh.Home, ".ssh", "id_ed25519")
+	if err := tr.cat.Save("", Spec{Alias: "api", Managed: true, Host: Host{HostName: "h", IdentityFile: key}}); err != nil {
+		t.Fatal(err)
+	}
+	entry := func() Entry {
+		t.Helper()
+		snap, err := tr.cat.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.Entries[0]
+	}
+	e := entry()
+	if e.Host.IdentityFile != "~/.ssh/id_ed25519" {
+		t.Fatalf("edit form would show IdentityFile %q, want ~/.ssh/id_ed25519", e.Host.IdentityFile)
+	}
+	if err := tr.cat.Save("api", Spec{Alias: e.Alias, Managed: true, Host: e.Host}); err != nil {
+		t.Fatal(err)
+	}
+	if got := entry().Host.IdentityFile; got != "~/.ssh/id_ed25519" {
+		t.Fatalf("after saving the edit unchanged IdentityFile = %q", got)
+	}
+}
+
 func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	tr := newTree(t, false, "Host mine\n  HostName example.com\n")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}})
