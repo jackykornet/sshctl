@@ -70,18 +70,7 @@ const (
 	focusPane
 )
 
-type confirmation struct {
-	question string
-	yes      func(*Model) tea.Cmd
-}
-
 type clearStatusMsg struct{ id int }
-
-// moveInput is the status-line prompt asking which group to move alias to.
-type moveInput struct {
-	alias string
-	group []rune
-}
 
 // drag is a Connection held down with the left mouse button in the list.
 type drag struct {
@@ -100,17 +89,14 @@ type Model struct {
 	st        *State
 	identity  string
 	ev        *events
-	runners   map[*Session]*runner
+	sessions  *sessions
 	w, h      int
 	focus     focus
-	prefix    bool
+	prefix    bool // armed outside modals; a modal keeps its own
 	filtering bool
 	scrolling bool
 	hideList  bool
-	help      bool
-	confirm   *confirmation
-	moving    *moveInput
-	form      *connForm
+	modal     modal // gets input before anything else; see modal
 	drag      *drag
 	status    string
 	statusErr bool
@@ -136,13 +122,16 @@ func New(opts Options) (*Model, error) {
 	for _, g := range opts.Collapsed {
 		st.SetCollapsed(g, true)
 	}
-	return &Model{
-		opts:     opts,
-		st:       st,
-		identity: snap.Identity,
-		ev:       newEvents(),
-		runners:  map[*Session]*runner{},
-	}, nil
+	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
+	m.sessions = &sessions{
+		st:         st,
+		ev:         m.ev,
+		command:    opts.Command,
+		scrollback: opts.ScrollbackLines,
+		size:       m.paneSize,
+		runners:    map[*Session]*runner{},
+	}
+	return m, nil
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -157,12 +146,7 @@ func Run(opts Options) error {
 	return err
 }
 
-func (m *Model) closeAll() {
-	for s, r := range m.runners {
-		r.close()
-		delete(m.runners, s)
-	}
-}
+func (m *Model) closeAll() { m.sessions.closeAll() }
 
 func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
@@ -181,35 +165,22 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.status = ""
 		}
 	case redrawMsg:
-		m.takeActivity()
+		m.sessions.takeActivity()
 		return m.ev.listen()
 	case sessionEndedMsg:
-		m.takeActivity()                  // its last output may not have been redrawn yet
-		if m.runners[msg.sess] == msg.r { // ignore a runner replaced by reconnect
-			msg.sess.Ended, msg.sess.ExitCode = true, msg.code
-		}
+		m.sessions.takeActivity() // its last output may not have been redrawn yet
+		m.sessions.ended(msg)
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
 	case tea.PasteMsg:
-		if r := m.liveRunner(); r != nil && m.focus == focusPane && m.confirm == nil && m.moving == nil && m.form == nil {
-			r.term.Paste(msg.Content)
-		}
+		m.paste(msg.Content)
 	case tea.KeyPressMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
 		return m.mouse(msg)
 	}
 	return nil
-}
-
-// takeActivity marks every Session whose process wrote output since the last call.
-func (m *Model) takeActivity() {
-	for sess, r := range m.runners {
-		if r.activity.Swap(false) {
-			m.st.MarkActivity(sess)
-		}
-	}
 }
 
 // paneSize is the size of the terminal area under the tab bar.
@@ -222,10 +193,7 @@ func (m *Model) syncSize() {
 	if m.w == 0 {
 		return
 	}
-	w, h := m.paneSize()
-	for _, r := range m.runners {
-		r.resize(w, h)
-	}
+	m.sessions.resize(m.paneSize())
 }
 
 // currentRunner returns the process behind the Active connection's current tab.
@@ -235,7 +203,7 @@ func (m *Model) currentRunner() (*Session, *runner) {
 		return nil, nil
 	}
 	s := c.CurrentSession()
-	return s, m.runners[s]
+	return s, m.sessions.runner(s)
 }
 
 func (m *Model) liveRunner() *runner {
@@ -246,34 +214,23 @@ func (m *Model) liveRunner() *runner {
 	return r
 }
 
+// paste sends pasted text to the modal, else the filter being typed, else
+// the live Session when the terminal has focus.
+func (m *Model) paste(text string) {
+	switch r := m.liveRunner(); {
+	case m.modal != nil:
+		m.modal.paste(text)
+	case m.filtering:
+		m.st.SetFilter(string(pasteLine([]rune(m.st.Filter()), text)))
+	case r != nil && m.focus == focusPane:
+		r.term.Paste(text)
+	}
+}
+
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
-	if c := m.confirm; c != nil {
-		m.confirm = nil
-		if k == "y" || k == "Y" {
-			return c.yes(m)
-		}
-		return nil
-	}
-	if m.help {
-		m.help = false
-		return nil
-	}
-	if m.moving != nil {
-		return m.moveKey(msg)
-	}
-	if m.form != nil {
-		// Prefix commands would act on the Workspace hidden behind the
-		// form, so the prefix key and the key after it are swallowed.
-		switch {
-		case m.prefix:
-			m.prefix = false
-		case k == m.opts.PrefixKey:
-			m.prefix = true
-		default:
-			return m.formKey(msg)
-		}
-		return nil
+	if m.modal != nil {
+		return m.modal.key(m, msg)
 	}
 	if m.prefix {
 		m.prefix = false
@@ -395,14 +352,9 @@ func (m *Model) filterKey(msg tea.KeyPressMsg) {
 		m.st.SetFilter("")
 	case "enter":
 		m.filtering = false
-	case "backspace":
-		f := []rune(m.st.Filter())
-		if len(f) > 0 {
-			m.st.SetFilter(string(f[:len(f)-1]))
-		}
 	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			m.st.SetFilter(m.st.Filter() + msg.Text)
+		if f, ok := editLine([]rune(m.st.Filter()), msg); ok {
+			m.st.SetFilter(string(f))
 		}
 	}
 }
@@ -454,7 +406,7 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 	case "r":
 		return m.refresh()
 	case "?":
-		m.help = true
+		m.openModal(helpScreen{})
 	case "q":
 		return m.quit()
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -502,20 +454,14 @@ func (m *Model) open(alias string, claude bool) tea.Cmd {
 func (m *Model) openSession(alias string, claude bool) error {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
-	sess, err := m.st.OpenSession(alias)
-	if err != nil {
+	if _, err := m.sessions.open(alias, claude); err != nil {
 		if errors.Is(err, ErrOrphaned) {
 			return errors.New(alias + " is missing from ssh_config")
 		}
-		return err
-	}
-	sess.Claude = claude
-	if err := m.start(alias, sess); err != nil {
-		m.st.CloseCurrent()
 		if m.st.Active() == nil {
 			m.focus = focusList
 		}
-		return &startError{alias, err}
+		return err
 	}
 	m.focus, m.scrolling = focusPane, false
 	if first && m.opts.OnOpen != nil {
@@ -608,44 +554,18 @@ func countConnections(n int) string {
 	return fmt.Sprintf("%d connections", n)
 }
 
-// start runs the Session's process, replacing any previous one.
-func (m *Model) start(alias string, sess *Session) error {
-	if m.opts.Command == nil {
-		return nil
-	}
-	argv, err := m.opts.Command(alias, sess.Claude)
-	if err != nil {
-		return err
-	}
-	w, h := m.paneSize()
-	r, err := startRunner(argv, w, h, m.opts.ScrollbackLines, sess, m.ev)
-	if err != nil {
-		return err
-	}
-	if old := m.runners[sess]; old != nil {
-		old.close()
-	}
-	m.runners[sess] = r
-	return nil
-}
-
 // reconnect starts a new process in the current tab after its Session ended.
 func (m *Model) reconnect() tea.Cmd {
 	c := m.st.Active()
-	if c == nil {
+	if c == nil || !c.CurrentSession().Ended {
 		return nil
 	}
-	sess := c.CurrentSession()
-	if !sess.Ended {
-		return nil
+	if err := m.sessions.reconnect(c.CurrentSession()); err != nil {
+		if errors.Is(err, ErrOrphaned) {
+			return m.setStatus(c.Alias+" is missing from ssh_config", true)
+		}
+		return m.setStatus(err.Error(), true)
 	}
-	if c.Orphaned {
-		return m.setStatus(c.Alias+" is missing from ssh_config", true)
-	}
-	if err := m.start(c.Alias, sess); err != nil {
-		return m.setStatus(c.Alias+": "+err.Error(), true)
-	}
-	sess.Ended, sess.ExitCode = false, 0
 	m.scrolling = false
 	return nil
 }
@@ -657,12 +577,7 @@ func (m *Model) closeTab() tea.Cmd {
 	}
 	sess := c.CurrentSession()
 	doClose := func(m *Model) tea.Cmd {
-		if s := m.st.CloseCurrent(); s != nil {
-			if r := m.runners[s]; r != nil {
-				r.close()
-				delete(m.runners, s)
-			}
-		}
+		m.sessions.closeCurrent()
 		m.scrolling = false
 		if m.st.Active() == nil {
 			m.focus = focusList
@@ -672,7 +587,7 @@ func (m *Model) closeTab() tea.Cmd {
 	if sess.Ended {
 		return doClose(m)
 	}
-	m.confirm = &confirmation{question: fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), yes: doClose}
+	m.ask(fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), doClose)
 	return nil
 }
 
@@ -685,10 +600,7 @@ func (m *Model) quit() tea.Cmd {
 	if n == 1 {
 		noun = "session"
 	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun),
-		yes:      func(*Model) tea.Cmd { return tea.Quit },
-	}
+	m.ask(fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun), func(*Model) tea.Cmd { return tea.Quit })
 	return nil
 }
 
@@ -732,29 +644,7 @@ func (m *Model) startMove() tea.Cmd {
 	if c == nil {
 		return m.setStatus("no connection to move", false)
 	}
-	m.moving = &moveInput{alias: c.Alias, group: []rune(c.Group)}
-	return nil
-}
-
-func (m *Model) moveKey(msg tea.KeyPressMsg) tea.Cmd {
-	in := m.moving
-	switch msg.String() {
-	case "esc", "ctrl+c":
-		m.moving = nil
-	case "enter":
-		m.moving = nil
-		return m.moveTo(in.alias, string(in.group))
-	case "backspace":
-		if len(in.group) > 0 {
-			in.group = in.group[:len(in.group)-1]
-		}
-	case "ctrl+u":
-		in.group = nil
-	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			in.group = append(in.group, []rune(msg.Text)...)
-		}
-	}
+	m.openModal(&moveInput{alias: c.Alias, group: []rune(c.Group)})
 	return nil
 }
 
@@ -787,6 +677,9 @@ func (m *Model) setStatus(s string, isErr bool) tea.Cmd {
 }
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
+	if m.modal != nil {
+		return nil
+	}
 	mm := msg.Mouse()
 	if m.drag != nil {
 		switch msg.(type) {
@@ -797,7 +690,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			return m.drop(mm)
 		}
 	}
-	if mm.Y >= m.h-1 || m.help || m.confirm != nil || m.moving != nil || m.form != nil {
+	if mm.Y >= m.h-1 {
 		return nil
 	}
 	lw := m.listWidth()

@@ -29,6 +29,12 @@ func (r *recorder) started() []string {
 	return out
 }
 
+// endSession delivers the message sess's runner sends when its process exits
+// with code, as if the process had just ended.
+func endSession(m *Model, sess *Session, code int) {
+	m.Update(sessionEndedMsg{sess: sess, r: m.sessions.runner(sess), code: code})
+}
+
 // newRecordingModel returns an 80x12 Workspace over entries whose fake
 // Command records each call and runs the test binary with no tests, a process
 // that exits at once on every platform. Command fails for the aliases in fail.

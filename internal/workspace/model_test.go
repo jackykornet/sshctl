@@ -120,7 +120,7 @@ func TestActivityMarkersGolden(t *testing.T) {
 	m.st.MarkActivity(prod.Sessions[0])
 	m.st.MarkActivity(db.Sessions[0])
 	m.st.MarkActivity(db.Sessions[1])
-	m.st.EndSession("db-main", 2, 1)
+	endSession(m, db.Sessions[1], 1)
 	m.st.MarkActivity(db.Sessions[2]) // shown: never marked
 	golden(t, "activity", m)
 
@@ -153,10 +153,10 @@ func TestQuitConfirmsWhenSessionsAreLive(t *testing.T) {
 	}
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
-	if cmd := press(m, keyPrefix, text("q")[0]); cmd != nil || m.confirm == nil {
+	if cmd := press(m, keyPrefix, text("q")[0]); cmd != nil || m.confirm() == nil {
 		t.Fatal("quit with a live session should ask first")
 	}
-	if cmd := press(m, text("n")...); cmd != nil || m.confirm != nil {
+	if cmd := press(m, text("n")...); cmd != nil || m.confirm() != nil {
 		t.Fatal("answering n should cancel")
 	}
 	press(m, keyPrefix, text("q")[0])
@@ -170,7 +170,7 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
 	press(m, keyPrefix, text("w")[0])
-	if m.confirm == nil {
+	if m.confirm() == nil {
 		t.Fatal("closing a live tab should ask first")
 	}
 	press(m, text("y")...)
@@ -179,9 +179,9 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	}
 	press(m, keyEnter)
 	c := m.st.Active()
-	m.st.EndSession(c.Alias, c.CurrentSession().N, 1)
+	endSession(m, c.CurrentSession(), 1)
 	press(m, keyPrefix, text("w")[0])
-	if m.confirm != nil || m.st.Active() != nil {
+	if m.confirm() != nil || m.st.Active() != nil {
 		t.Fatal("closing an ended tab should not ask")
 	}
 }
