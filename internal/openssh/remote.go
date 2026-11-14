@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Runner runs an ssh command line. Its standard output goes to out, or to
+// Runner runs an OpenSSH command line (ssh, or ssh-keygen in GenerateKey). Its standard output goes to out, or to
 // the terminal when out is nil; standard input and error are the terminal.
 // Tests replace it so they never start the real ssh.
 type Runner func(ctx context.Context, argv []string, out io.Writer) error
