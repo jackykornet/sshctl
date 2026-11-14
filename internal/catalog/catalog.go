@@ -117,7 +117,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
+	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.DefaultKey, Collapsed: cfg.CollapsedGroups}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -190,7 +190,7 @@ func (c *Catalog) SetGroup(alias, group string) error {
 // SetCollapsed saves groups as the groups the Workspace shows collapsed.
 func (c *Catalog) SetCollapsed(groups []string) error {
 	return c.update(func(cfg *config.Config) error {
-		cfg.Workspace.CollapsedGroups = groups
+		cfg.CollapsedGroups = groups
 		return nil
 	})
 }
