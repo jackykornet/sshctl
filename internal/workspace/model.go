@@ -139,6 +139,9 @@ func New(opts Options) (*Model, error) {
 	if opts.Notice != "" {
 		m.status = opts.Notice
 	}
+	if snap.Include != nil {
+		m.offerInclude(snap.Include)
+	}
 	return m, nil
 }
 

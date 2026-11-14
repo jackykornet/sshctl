@@ -19,7 +19,8 @@ type commandCall struct {
 // (with identity and startCollapsed) or fails with loadErr. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
-// the deleted alias) on the next Snapshot. The catalog's own rules are
+// the deleted alias) on the next Snapshot. Snapshot reports include, the
+// Include ssh_config lacks, until AddInclude is called. The catalog's own rules are
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
@@ -28,6 +29,7 @@ type fakeCatalog struct {
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
+	include        *IncludeError
 
 	loads     int
 	opened    []string    // RecordOpen aliases
@@ -45,6 +47,9 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed}
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
+	}
+	if f.includes == 0 {
+		snap.Include = f.include
 	}
 	return snap, f.loadErr
 }
