@@ -32,6 +32,10 @@ _Avoid_: Current, focused, selected connection
 A named, ordered set of Connections that exists from when the user creates it until they delete it, even with no members. It keeps its place in the connection list, whether it is collapsed, and its dotfiles repo for Provision (or that Provision is ruled out). A Connection is in at most one group; one with none is **ungrouped**, and deleting a group leaves its Connections ungrouped.
 _Avoid_: Folder, tag, category
 
+**Group number**:
+A Group's current position in the connection list, counting from 1, shown in its header; 0 stands for ungrouped. It changes when Groups are reordered or deleted, which is why a group name may not be only digits.
+_Avoid_: Group ID, index
+
 **History**:
 The 20 most recently opened Connections, most recent first. A Connection is opened when a Workspace Session for it starts or when `sshctl connect` runs it.
 _Avoid_: Recents, log
