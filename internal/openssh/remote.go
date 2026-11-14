@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -151,3 +152,64 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	defer l.mu.Unlock()
 	return l.w.Write(p)
 }
+
+// InstallKey adds the public key pub (one authorized_keys line) to the
+// remote user's ~/.ssh/authorized_keys on alias's host, over Run with
+// identity, unless a line with the same key is already there. It creates
+// ~/.ssh as needed and makes it and the file private to the user (700, 600).
+// ssh asks for a password on the terminal if no key logs in yet.
+func (c *Client) InstallKey(ctx context.Context, alias, identity, pub string, stderr io.Writer) (added bool, err error) {
+	script, err := installKeyScript(pub)
+	if err != nil {
+		return false, err
+	}
+	var out bytes.Buffer
+	if err := c.Run(ctx, alias, RemoteOptions{Identity: identity}, script, &out, stderr); err != nil {
+		return false, err
+	}
+	switch strings.TrimSpace(out.String()) {
+	case "added":
+		return true, nil
+	case "present":
+		return false, nil
+	}
+	return false, fmt.Errorf("unexpected reply from %s: %q", alias, out.String())
+}
+
+// installKeyScript is InstallKey's sh script for pub.
+func installKeyScript(pub string) (string, error) {
+	fields := strings.Fields(pub)
+	if len(fields) < 2 || !validKeyType(fields[0]) || !validBase64(fields[1]) || strings.ContainsAny(pub, "\r\n") {
+		return "", fmt.Errorf("%q is not an OpenSSH public key", pub)
+	}
+	line := strings.Join(fields, " ")
+	return `set -e
+umask 077
+d="$HOME/.ssh"
+f="$d/authorized_keys"
+mkdir -p "$d"
+chmod 700 "$d"
+touch "$f"
+chmod 600 "$f"
+if awk -v k=` + shellQuote(fields[1]) + ` '{ for (i = 1; i <= NF; i++) if ($i == k) found = 1 } END { exit !found }' "$f"; then
+	echo present
+	exit 0
+fi
+if [ -s "$f" ] && [ -n "$(tail -c 1 "$f")" ]; then
+	echo >>"$f"
+fi
+printf '%s\n' ` + shellQuote(line) + ` >>"$f"
+echo added
+`, nil
+}
+
+func validKeyType(s string) bool {
+	return s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789-.@") == ""
+}
+
+func validBase64(s string) bool {
+	return len(s) >= 4 && strings.Trim(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == ""
+}
+
+// shellQuote quotes s as one POSIX sh word.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
