@@ -13,6 +13,9 @@ import (
 type Client struct {
 	SSHConfig string
 	SSHDir    string
+	// Home is the user's home directory, under which SaveHost writes an
+	// IdentityFile as "~/…". Empty means os.UserHomeDir.
+	Home string
 }
 
 func New() (*Client, error) {
@@ -20,7 +23,7 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{SSHConfig: filepath.Join(home, ".ssh", "config"), SSHDir: filepath.Join(home, ".ssh")}, nil
+	return &Client{SSHConfig: filepath.Join(home, ".ssh", "config"), SSHDir: filepath.Join(home, ".ssh"), Home: home}, nil
 }
 
 // maxIncludeDepth matches OpenSSH's limit on nested Include directives.

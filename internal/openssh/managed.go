@@ -131,6 +131,7 @@ func (c *Client) SaveHost(old string, h Host) error {
 			return fmt.Errorf("%s: %w", old, ErrUnknownHost)
 		}
 	}
+	h.IdentityFile = HomeRelative(h.IdentityFile, c.home())
 	if err := h.Validate(); err != nil {
 		return err
 	}
@@ -158,6 +159,39 @@ func (c *Client) SaveHost(old string, h Host) error {
 		hosts[i] = h
 	}
 	return c.writeManaged(hosts)
+}
+
+func (c *Client) home() string {
+	if c.Home != "" {
+		return c.Home
+	}
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// HomeRelative returns path as "~/…" when it is an absolute path inside
+// home, and unchanged otherwise. OpenSSH expands "~" on Windows, Linux and
+// macOS, so a Host block synced between machines keeps naming the same key
+// (ADR-0004).
+//
+// A Windows home (one with a drive letter or a \\server share) matches
+// regardless of case and of / versus \; any other home matches exactly. The
+// result always uses /, which OpenSSH reads on Windows too.
+func HomeRelative(path, home string) string {
+	windows := len(home) >= 2 && home[1] == ':' || strings.HasPrefix(home, `\\`)
+	p := path
+	if windows {
+		p = strings.ReplaceAll(p, `\`, "/")
+		home = strings.ReplaceAll(home, `\`, "/")
+	}
+	home = strings.TrimRight(home, "/")
+	if home == "" || len(p) <= len(home)+1 || p[len(home)] != '/' {
+		return path
+	}
+	if prefix := p[:len(home)]; prefix != home && !(windows && strings.EqualFold(prefix, home)) {
+		return path
+	}
+	return "~/" + p[len(home)+1:]
 }
 
 // DeleteHost removes alias's block from the managed file.
