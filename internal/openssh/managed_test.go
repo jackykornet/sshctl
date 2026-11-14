@@ -242,3 +242,46 @@ func TestSaveHostNeedsConfigToIncludeManagedFile(t *testing.T) {
 		t.Fatalf("after AddInclude: %v", err)
 	}
 }
+
+// ADR-0004: a Host block synced between machines must name keys from "~".
+func TestSaveHostWritesIdentityFileUnderHomeWithTilde(t *testing.T) {
+	tests := []struct {
+		name, home, identity, want string
+	}{
+		{"posix home", "/home/jo", "/home/jo/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"posix home with trailing slash", "/home/jo/", "/home/jo/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"windows home", `C:\Users\Jo`, `C:\Users\Jo\.ssh\id_ed25519`, "~/.ssh/id_ed25519"},
+		{"windows home, other case and slashes", `C:\Users\Jo`, `c:/users/jo/.ssh/id work`, "~/.ssh/id work"},
+		{"already tilde", "/home/jo", "~/.ssh/id_ed25519", "~/.ssh/id_ed25519"},
+		{"outside home", "/home/jo", "/etc/ssh/key", "/etc/ssh/key"},
+		{"sibling of home", "/home/jo", "/home/joe/.ssh/key", "/home/joe/.ssh/key"},
+		{"windows outside home", `C:\Users\Jo`, `D:\keys\id_rsa`, `D:\keys\id_rsa`},
+		{"relative", "/home/jo", "keys/id", "keys/id"},
+		{"home itself", "/home/jo", "/home/jo", "/home/jo"},
+		{"posix is case-sensitive", "/home/jo", "/home/Jo/.ssh/key", "/home/Jo/.ssh/key"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := includingClient(t, "")
+			c.Home = tt.home
+			if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "h", IdentityFile: tt.identity}}); err != nil {
+				t.Fatal(err)
+			}
+			hosts, err := c.ManagedHosts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hosts[0].IdentityFile; got != tt.want {
+				t.Fatalf("IdentityFile = %q, want %q", got, tt.want)
+			}
+			// Saving the stored form again, as editing the Connection does, keeps it.
+			if err := c.SaveHost("web", hosts[0]); err != nil {
+				t.Fatal(err)
+			}
+			again, _ := c.ManagedHosts()
+			if got := again[0].IdentityFile; got != tt.want {
+				t.Fatalf("after saving again IdentityFile = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
