@@ -28,6 +28,10 @@ type Connection struct {
 // of the record: that is per machine, in Workspace.CollapsedGroups (ADR-0004).
 type Group struct {
 	Name string `json:"name"`
+	// Dotfiles is the dotfiles repo URL Provision applies to the Group's
+	// Connections, DotfilesNone to refuse Provision for them, or "" when
+	// unset, so the global Provision.Dotfiles applies.
+	Dotfiles string `json:"dotfiles,omitempty"`
 }
 
 type Config struct {

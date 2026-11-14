@@ -74,8 +74,8 @@ Commands:
   known-hosts list|remove      Show or remove known hosts
   bootstrap <alias>            Install your key on the host and use it
   provision <alias>            Apply your dotfiles to the host with chezmoi
-  provision default [<url|none>|--unset]
-                               Show or set the global dotfiles repo
+  provision default [<url|none>|--unset] [--group <name>]
+                               Show or set the global or a Group's dotfiles repo
   config show                  Show paths and relevant SSH settings
 
 Use sshctl <command> --help for command usage where available.
@@ -127,6 +127,9 @@ func (a *app) execute(args []string) error {
 	case "remove":
 		return a.remove(args[1:])
 	case "group":
+		// HOOK(#33 for #24): `group list` shows each Group's dotfiles
+		// setting as a column, with describeDotfiles(g.Dotfiles) from
+		// provision.go (catalog.Snapshot().Groups carries Dotfiles).
 		if len(args) > 1 && args[1] == "connect" {
 			return a.groupConnect(args[2:])
 		}
