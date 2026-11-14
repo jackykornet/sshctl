@@ -425,7 +425,7 @@ func confirm(in io.Reader) bool {
 	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
 }
 func (a *app) showConfig() error {
-	fmt.Fprintf(a.out, "sshctl config: %s\nOpenSSH config: %s\nKnown hosts: %s\nDefault key override: %s\n", a.cfgPath, a.ssh.SSHConfig, openssh.KnownHostsPath(), a.cfg.DefaultKey)
+	fmt.Fprintf(a.out, "sshctl config: %s\nsshctl state: %s\nOpenSSH config: %s\nKnown hosts: %s\nDefault key override: %s\n", a.cfgPath, config.StatePath(a.cfgPath), a.ssh.SSHConfig, openssh.KnownHostsPath(), a.cfg.DefaultKey)
 	settings, err := a.ssh.SafeSettings()
 	if err != nil {
 		return err
