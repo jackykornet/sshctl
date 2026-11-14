@@ -17,12 +17,7 @@ import (
 )
 
 // Host is how OpenSSH reaches a Managed connection.
-type Host struct {
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
-}
+type Host = openssh.Endpoint
 
 // Spec is a Connection as it is to be saved.
 type Spec struct {
@@ -68,7 +63,7 @@ type IncludeError struct {
 	Config string
 }
 
-func (e *IncludeError) Error() string { return e.Config + " does not contain " + e.Line }
+func (e *IncludeError) Error() string { return openssh.MissingInclude(e.Config, e.Line) }
 
 // Catalog reads and writes Connections in sshctl's config file and
 // ssh_config.
@@ -115,7 +110,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 		e := Entry{Alias: alias, Description: m.Description, Group: m.Group}
 		if h, ok := managed[alias]; ok {
 			e.Managed = true
-			e.Host = Host{HostName: h.HostName, User: h.User, Port: h.Port, IdentityFile: h.IdentityFile}
+			e.Host = h.Endpoint
 		}
 		snap.Entries = append(snap.Entries, e)
 	}
@@ -211,7 +206,7 @@ func (c *Catalog) saveHost(old string, s Spec) (undo func() error, err error) {
 			}
 		}
 	}
-	h := openssh.Host{Alias: s.Alias, HostName: s.Host.HostName, User: s.Host.User, Port: s.Host.Port, IdentityFile: s.Host.IdentityFile}
+	h := openssh.Host{Alias: s.Alias, Endpoint: s.Host}
 	switch err := c.saveHostBlock(old, h); {
 	case errors.Is(err, openssh.ErrNotIncluded):
 		return nil, &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}

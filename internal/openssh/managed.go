@@ -20,13 +20,19 @@ const IncludeLine = "Include " + ManagedFile
 const managedHeader = "# Managed by sshctl. Add, edit and delete these hosts in the sshctl Workspace.\n" +
 	"# Other options you add inside a Host block are kept; comments are not."
 
-// Host is one Host block in the managed file.
-type Host struct {
-	Alias        string
+// Endpoint is how OpenSSH reaches a host: the directives sshctl writes in a
+// Host block.
+type Endpoint struct {
 	HostName     string
 	User         string
 	Port         string
 	IdentityFile string
+}
+
+// Host is one Host block in the managed file.
+type Host struct {
+	Alias string
+	Endpoint
 	// Extra holds the block's other directive lines, kept as written.
 	Extra []string
 }
@@ -44,7 +50,11 @@ func (e *AliasExistsError) Error() string { return e.Alias + " already exists in
 // ErrNotIncluded is returned when saving a Host block while the user's
 // ssh_config does not Include the managed file, so OpenSSH would not read
 // it. AddInclude fixes it.
-var ErrNotIncluded = errors.New("ssh_config does not contain " + IncludeLine)
+var ErrNotIncluded = errors.New(MissingInclude("ssh_config", IncludeLine))
+
+// MissingInclude says that the ssh_config file config lacks the Include
+// directive line, as ErrNotIncluded does.
+func MissingInclude(config, line string) string { return config + " does not contain " + line }
 
 func (c *Client) sshDir() string {
 	if c.SSHDir != "" {

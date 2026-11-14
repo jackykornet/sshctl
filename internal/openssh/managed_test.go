@@ -18,11 +18,11 @@ func managedClient(t *testing.T) *Client {
 
 func TestSaveHostRoundTripsAndKeepsExtraOptions(t *testing.T) {
 	c := includingClient(t, "")
-	web := Host{Alias: "web", HostName: "10.0.0.1", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/id work"}
+	web := Host{Alias: "web", Endpoint: Endpoint{HostName: "10.0.0.1", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/id work"}}
 	if err := c.SaveHost("", web); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SaveHost("", Host{Alias: "db", HostName: "db.internal"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "db", Endpoint: Endpoint{HostName: "db.internal"}}); err != nil {
 		t.Fatal(err)
 	}
 	// The user adds an option by hand; sshctl must keep it on the next save.
@@ -31,7 +31,7 @@ func TestSaveHostRoundTripsAndKeepsExtraOptions(t *testing.T) {
 	if err := os.WriteFile(c.ManagedPath(), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SaveHost("web", Host{Alias: "web2", HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work"}); err != nil {
+	if err := c.SaveHost("web", Host{Alias: "web2", Endpoint: Endpoint{HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work"}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := c.ManagedHosts()
@@ -39,8 +39,8 @@ func TestSaveHostRoundTripsAndKeepsExtraOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Host{
-		{Alias: "web2", HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work", Extra: []string{"ForwardAgent yes"}},
-		{Alias: "db", HostName: "db.internal"},
+		{Alias: "web2", Endpoint: Endpoint{HostName: "10.0.0.2", IdentityFile: "~/.ssh/id work"}, Extra: []string{"ForwardAgent yes"}},
+		{Alias: "db", Endpoint: Endpoint{HostName: "db.internal"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("hosts = %+v\nwant    %+v", got, want)
@@ -56,14 +56,14 @@ func TestSaveHostRoundTripsAndKeepsExtraOptions(t *testing.T) {
 
 func TestSaveHostRejectsDuplicatesAndUnknownHosts(t *testing.T) {
 	c := includingClient(t, "")
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "a"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	var exists *AliasExistsError
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "b"}); !errors.As(err, &exists) {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "b"}}); !errors.As(err, &exists) {
 		t.Errorf("adding a second web: err = %v, want an AliasExistsError", err)
 	}
-	if err := c.SaveHost("nope", Host{Alias: "x", HostName: "b"}); !errors.Is(err, ErrUnknownHost) {
+	if err := c.SaveHost("nope", Host{Alias: "x", Endpoint: Endpoint{HostName: "b"}}); !errors.Is(err, ErrUnknownHost) {
 		t.Errorf("err = %v, want ErrUnknownHost", err)
 	}
 	if err := c.DeleteHost("nope"); !errors.Is(err, ErrUnknownHost) {
@@ -78,7 +78,7 @@ func TestSaveHostRejectsDuplicatesAndUnknownHosts(t *testing.T) {
 }
 
 func TestHostValidateRejectsValuesThatChangeTheConfig(t *testing.T) {
-	ok := Host{Alias: "web", HostName: "h"}
+	ok := Host{Alias: "web", Endpoint: Endpoint{HostName: "h"}}
 	tests := []struct {
 		name string
 		edit func(*Host)
@@ -131,7 +131,7 @@ func TestAddIncludeMakesConfigIncludeManagedFile(t *testing.T) {
 	if backup, _ := os.ReadFile(c.SSHConfig + ".sshctl-backup"); string(backup) != original {
 		t.Errorf("backup = %q", backup)
 	}
-	if err := c.SaveHost("", Host{Alias: "managed", HostName: "m"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "managed", Endpoint: Endpoint{HostName: "m"}}); err != nil {
 		t.Fatal(err)
 	}
 	aliases, err := c.Aliases()
@@ -169,7 +169,7 @@ func includingClient(t *testing.T, config string) *Client {
 
 func TestSaveHostRefusesAliasInUsersConfig(t *testing.T) {
 	c := includingClient(t, "Host mine\n  HostName example.com\n")
-	err := c.SaveHost("", Host{Alias: "mine", HostName: "other"})
+	err := c.SaveHost("", Host{Alias: "mine", Endpoint: Endpoint{HostName: "other"}})
 	var exists *AliasExistsError
 	if !errors.As(err, &exists) || exists.Alias != "mine" {
 		t.Fatalf("err = %v, want an AliasExistsError for mine", err)
@@ -187,10 +187,10 @@ func TestSaveHostRefusesAliasInIncludedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c.SSHDir, "conf.d", "team"), []byte("Host bastion\n  HostName b.example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "w"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "w"}}); err != nil {
 		t.Fatal(err)
 	}
-	err := c.SaveHost("web", Host{Alias: "bastion", HostName: "w"})
+	err := c.SaveHost("web", Host{Alias: "bastion", Endpoint: Endpoint{HostName: "w"}})
 	var exists *AliasExistsError
 	if !errors.As(err, &exists) || exists.Alias != "bastion" {
 		t.Fatalf("renaming onto an included alias: err = %v, want an AliasExistsError for bastion", err)
@@ -199,24 +199,24 @@ func TestSaveHostRefusesAliasInIncludedFile(t *testing.T) {
 
 func TestSaveHostKeepingItsAliasIsNotADuplicate(t *testing.T) {
 	c := includingClient(t, "Host mine\n  HostName example.com\n")
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "a"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	if aliases, _ := c.Aliases(); !slices.Contains(aliases, "web") {
 		t.Fatalf("aliases = %v, want web read through the Include", aliases)
 	}
-	if err := c.SaveHost("web", Host{Alias: "web", HostName: "b", Port: "2222"}); err != nil {
+	if err := c.SaveHost("web", Host{Alias: "web", Endpoint: Endpoint{HostName: "b", Port: "2222"}}); err != nil {
 		t.Fatalf("saving web as web: %v", err)
 	}
 	got, _ := c.ManagedHosts()
-	if want := []Host{{Alias: "web", HostName: "b", Port: "2222"}}; !reflect.DeepEqual(got, want) {
+	if want := []Host{{Alias: "web", Endpoint: Endpoint{HostName: "b", Port: "2222"}}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("hosts = %+v, want %+v", got, want)
 	}
 }
 
 func TestSaveHostRefusesInvalidValuesBeforeWriting(t *testing.T) {
 	c := includingClient(t, "")
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "h ProxyCommand x"}); err == nil {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "h ProxyCommand x"}}); err == nil {
 		t.Fatal("want an error for a hostname that injects a directive")
 	}
 	if _, err := os.Stat(c.ManagedPath()); !os.IsNotExist(err) {
@@ -229,7 +229,7 @@ func TestSaveHostNeedsConfigToIncludeManagedFile(t *testing.T) {
 	if err := os.WriteFile(c.SSHConfig, []byte("Host mine\n  HostName example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "w"}); !errors.Is(err, ErrNotIncluded) {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "w"}}); !errors.Is(err, ErrNotIncluded) {
 		t.Fatalf("err = %v, want ErrNotIncluded", err)
 	}
 	if _, err := os.Stat(c.ManagedPath()); !os.IsNotExist(err) {
@@ -238,7 +238,7 @@ func TestSaveHostNeedsConfigToIncludeManagedFile(t *testing.T) {
 	if err := c.AddInclude(); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SaveHost("", Host{Alias: "web", HostName: "w"}); err != nil {
+	if err := c.SaveHost("", Host{Alias: "web", Endpoint: Endpoint{HostName: "w"}}); err != nil {
 		t.Fatalf("after AddInclude: %v", err)
 	}
 }

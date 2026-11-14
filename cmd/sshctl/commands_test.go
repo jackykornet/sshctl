@@ -157,7 +157,7 @@ func TestRemoveDeletesOnlyMetadata(t *testing.T) {
 	cfg := config.New()
 	cfg.Connections["api"] = config.Connection{Alias: "api", Group: "prod"}
 	a, _ := cliTree(t, openssh.IncludeLine+"\n", cfg, "")
-	if err := a.ssh.SaveHost("", openssh.Host{Alias: "api", HostName: "10.0.0.9"}); err != nil {
+	if err := a.ssh.SaveHost("", openssh.Host{Alias: "api", Endpoint: openssh.Endpoint{HostName: "10.0.0.9"}}); err != nil {
 		t.Fatal(err)
 	}
 	stale(a)
