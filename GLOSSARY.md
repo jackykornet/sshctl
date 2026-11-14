@@ -29,7 +29,7 @@ The single Connection currently selected in the workspace, whose Sessions are sh
 _Avoid_: Current, focused, selected connection
 
 **Group**:
-A name in a Connection's sshctl metadata that gathers it with other Connections. The connection list shows each group under a header that can be collapsed to hide its members. A Connection is in at most one group; one with none is **ungrouped**.
+A named, ordered set of Connections that exists from when the user creates it until they delete it, even with no members. It keeps its place in the connection list, whether it is collapsed, and its dotfiles repo for Provision (or that Provision is ruled out). A Connection is in at most one group; one with none is **ungrouped**, and deleting a group leaves its Connections ungrouped.
 _Avoid_: Folder, tag, category
 
 **History**:
