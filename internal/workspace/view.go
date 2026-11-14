@@ -217,7 +217,10 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	styles := make([]lipgloss.Style, len(c.Sessions))
 	for i, s := range c.Sessions {
 		label := fmt.Sprintf("%s %d", c.Alias, s.N)
-		if s.Claude {
+		switch {
+		case s.Action != "":
+			label += " " + string(s.Action)
+		case s.Claude:
 			label += " claude"
 		}
 		marker, style := tabState(s)
@@ -318,7 +321,7 @@ func (m *Model) helpLines() []string {
 		labels[i] = m.bindingLabel(b)
 		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	lines := []string{"  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)"), ""}
+	lines := []string{"  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)")}
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
 		lines = append(lines, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))

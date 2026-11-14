@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -28,10 +30,10 @@ func (a *app) provisionCommand(args []string) error {
 // after that, a failure is the script's, with its exit code.
 func (a *app) provision(alias string) error {
 	repo, err := a.catalog().ProvisionRepo(alias)
-	switch {
-	case errors.Is(err, catalog.ErrNoDotfiles):
-		return fmt.Errorf("%w; set one with: sshctl provision default <url>", err)
-	case err != nil:
+	if errors.Is(err, catalog.ErrNoDotfiles) {
+		repo, err = a.askDotfiles(alias, err)
+	}
+	if err != nil {
 		return err
 	}
 	ctx := context.Background()
@@ -44,6 +46,63 @@ func (a *app) provision(alias string) error {
 	}
 	fmt.Fprintf(a.out, "Provisioning %s with %s\n", alias, repo)
 	return a.runSSH(ctx, openssh.RemoteArgs(alias, key, provisionScript(repo)), nil)
+}
+
+// askDotfiles asks for the dotfiles repo when none applies to alias (noRepo
+// is the catalog's ErrNoDotfiles), then whether to save it as the global
+// setting, as the setting of alias's Group (offered only when it has one),
+// or not at all. It reads a plain terminal, so it works in a Workspace tab
+// too. Without an answer it returns noRepo with a hint and saves nothing.
+func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
+	cat := a.catalog()
+	snap, err := cat.Snapshot()
+	if err != nil {
+		return "", err
+	}
+	group := ""
+	for _, e := range snap.Entries {
+		if e.Alias == alias && slices.ContainsFunc(snap.Groups, func(g catalog.Group) bool { return g.Name == e.Group }) {
+			group = e.Group
+		}
+	}
+	unanswered := fmt.Errorf("%w; set one with: sshctl provision default <url>", noRepo)
+	in := bufio.NewReader(a.in)
+	fmt.Fprint(a.out, "Dotfiles repo URL: ")
+	repo, ok := readAnswer(in)
+	if !ok || repo == "" {
+		fmt.Fprintln(a.out)
+		return "", unanswered
+	}
+	choices := "(g)lobal, (o)nce"
+	if group != "" {
+		choices = "(g)lobal, (r) group " + group + ", (o)nce"
+	}
+	for {
+		fmt.Fprintf(a.out, "Save for: %s: ", choices)
+		choice, ok := readAnswer(in)
+		if !ok {
+			fmt.Fprintln(a.out)
+			return "", unanswered
+		}
+		switch {
+		case choice == "g":
+			return repo, cat.SetDotfiles(repo)
+		case choice == "r" && group != "":
+			return repo, cat.SetGroupDotfiles(group, repo)
+		case choice == "o":
+			return repo, nil
+		}
+	}
+}
+
+// readAnswer reads one line of input, trimmed; ok is false at the end of
+// input with nothing typed.
+func readAnswer(in *bufio.Reader) (string, bool) {
+	line, err := in.ReadString('\n')
+	if err != nil && line == "" {
+		return "", false
+	}
+	return strings.TrimSpace(line), true
 }
 
 const provisionDefaultUsage = "usage: sshctl provision default [<url|none> | --unset] [--group <name>]"

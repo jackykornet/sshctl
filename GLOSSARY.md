@@ -43,7 +43,7 @@ _Avoid_: Recents, log
 ## Setting up a host
 
 **Bootstrap**:
-Making a Connection reachable with the user's own key: installing the Selected identity's public key on the host, proving that the key alone logs in, and then pointing a Managed connection's Host block at that key. It never changes the host's SSH server settings and never includes Provision.
+Making a Connection reachable with the user's own key: installing the Selected identity's public key on the host, proving that the key alone logs in, and then pointing a Managed connection's Host block at that key. With no Selected identity, it first generates a key and makes it the Selected identity. It never changes the host's SSH server settings and never includes Provision.
 _Avoid_: Setup, onboard, copy-id
 
 **Provision**:

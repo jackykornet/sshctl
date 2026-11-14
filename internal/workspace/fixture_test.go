@@ -12,7 +12,7 @@ import (
 
 type commandCall struct {
 	alias  string
-	claude bool
+	launch Launch
 }
 
 // fakeCatalog stands in for the Connection catalog. Snapshot lists entries
@@ -125,8 +125,8 @@ func newRecordingModel(t *testing.T, entries []Entry, fail ...string) (*Model, *
 	r := &recorder{fakeCatalog: &fakeCatalog{entries: entries}}
 	m, err := New(Options{
 		Catalog: r.fakeCatalog,
-		Command: func(alias string, claude bool) ([]string, error) {
-			r.calls = append(r.calls, commandCall{alias, claude})
+		Command: func(alias string, l Launch) ([]string, error) {
+			r.calls = append(r.calls, commandCall{alias, l})
 			for _, f := range fail {
 				if f == alias {
 					return nil, errors.New("no route to host")

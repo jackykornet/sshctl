@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -87,6 +88,11 @@ var bindings = []binding{
 	{
 		keys: each(inPrefix, on("n", newTab(false)), on("c", newTab(true))),
 		help: "new tab for the active connection (c runs claude)",
+	},
+	{
+		// Each sshctl Action on a Connection runs in its own labelled tab.
+		keys: each(inPrefix, on("i", actionTab(ActionBootstrap))),
+		help: "bootstrap the connection in its own tab",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
@@ -212,7 +218,19 @@ func newTab(claude bool) action {
 		if target == nil {
 			return nil
 		}
-		return m.open(target.Alias, claude)
+		return m.open(target.Alias, Launch{Claude: claude})
+	}
+}
+
+// actionTab runs a in a new tab of the Active connection, or of the one
+// under the cursor while the list has focus.
+func actionTab(a Action) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		target := m.moveTarget()
+		if target == nil {
+			return m.setStatus(fmt.Sprintf("no connection to %s", a), false)
+		}
+		return m.open(target.Alias, Launch{Action: a})
 	}
 }
 

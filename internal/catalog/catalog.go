@@ -197,6 +197,15 @@ func (c *Catalog) SetCollapsed(groups []string) error {
 	})
 }
 
+// SetIdentity makes key (a private key path) the Selected identity; ""
+// leaves the choice of keys to OpenSSH.
+func (c *Catalog) SetIdentity(key string) error {
+	return c.update(func(cfg *config.Config) error {
+		cfg.DefaultKey = key
+		return nil
+	})
+}
+
 // Dotfiles returns the global dotfiles setting: a repo URL,
 // config.DotfilesNone, or "" when unset.
 func (c *Catalog) Dotfiles() (string, error) {
