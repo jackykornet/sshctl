@@ -155,11 +155,15 @@ func TestSaveRefusesToRenameOrWriteTheUsersHostBlock(t *testing.T) {
 	if err == nil || err.Error() != "mine is defined outside sshctl and cannot be renamed here" {
 		t.Errorf("renaming: err = %v", err)
 	}
-	if err := tr.cat.Save("mine", Spec{Alias: "mine", Managed: true, Host: Host{HostName: "x"}}); err == nil {
-		t.Error("a Spec claiming the user's Host block is managed must not write it")
+	err = tr.cat.Save("mine", Spec{Alias: "mine", Managed: true, Host: Host{HostName: "x"}})
+	if err == nil || err.Error() != "mine's Host block is defined outside sshctl; only its description and group can be edited here" {
+		t.Errorf("a Spec claiming the user's Host block is managed: err = %v", err)
 	}
 	if err := tr.cat.Save("", Spec{Alias: "mine", Managed: true, Host: Host{HostName: "x"}}); err == nil || err.Error() != "mine already exists in ssh_config" {
 		t.Errorf("adding an alias ssh_config already has: err = %v", err)
+	}
+	if err := tr.cat.Save("gone", Spec{Alias: "gone2", Description: "x"}); err == nil || err.Error() != "gone has no Host block in ssh_config to rename" {
+		t.Errorf("renaming an alias ssh_config lacks: err = %v", err)
 	}
 	if len(tr.hosts(t)) != 0 || len(tr.config(t).Connections) != 0 {
 		t.Error("nothing should be written")
@@ -229,17 +233,85 @@ func TestDeleteMetadataKeepsTheManagedHostBlock(t *testing.T) {
 	}
 }
 
-func TestFailedHostBlockWriteLeavesMetadataAndHistory(t *testing.T) {
-	tr := renamable(t)
-	if err := tr.cat.Save("api", Spec{Alias: "mine", Group: "prod", Managed: true, Host: Host{HostName: "h"}}); err == nil {
-		t.Fatal("renaming onto the user's alias should fail")
-	}
+// unchanged fails unless tr still holds what renamable wrote.
+func (tr *tree) unchanged(t *testing.T) {
+	t.Helper()
 	got := tr.config(t)
 	if c, ok := got.Connections["api"]; !ok || c.Group != "prod" || len(got.Connections) != 1 {
 		t.Errorf("metadata = %+v, want only api's, unchanged", got.Connections)
 	}
 	if !slices.Equal(got.History, []string{"api"}) {
 		t.Errorf("History = %v, want [api]", got.History)
+	}
+	if hosts := tr.hosts(t); len(hosts) != 1 || hosts["api"].HostName != "h" {
+		t.Errorf("Host blocks = %+v, want only api's, unchanged", hosts)
+	}
+}
+
+func TestRefusedHostBlockLeavesMetadataAndHistory(t *testing.T) {
+	tr := renamable(t)
+	if err := tr.cat.Save("api", Spec{Alias: "mine", Group: "prod", Managed: true, Host: Host{HostName: "h"}}); err == nil {
+		t.Fatal("renaming onto the user's alias should fail")
+	}
+	tr.unchanged(t)
+}
+
+func TestFailedHostBlockWriteLeavesMetadataAndHistory(t *testing.T) {
+	tr := renamable(t)
+	tr.cat.saveHostBlock = func(string, openssh.Host) error { return errors.New("disk full") }
+	err := tr.cat.Save("api", Spec{Alias: "api2", Description: "API", Group: "staging", Managed: true, Host: Host{HostName: "h2"}})
+	if err == nil || err.Error() != "disk full" {
+		t.Fatalf("err = %v, want the Host block write's error", err)
+	}
+	tr.unchanged(t)
+}
+
+func TestSaveEditsManagedConnectionKeepingItsOtherDirectives(t *testing.T) {
+	tr := renamable(t)
+	f, err := os.OpenFile(tr.ssh.ManagedPath(), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("    ForwardAgent yes\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := tr.cat.Save("api", Spec{Alias: "api", Description: "API", Group: "staging", Managed: true, Host: Host{HostName: "h2", User: "deploy"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := tr.hosts(t)["api"]
+	if h.HostName != "h2" || h.User != "deploy" || !slices.Equal(h.Extra, []string{"ForwardAgent yes"}) {
+		t.Errorf("api Host block = %+v, want h2, deploy and ForwardAgent kept", h)
+	}
+	got := tr.config(t)
+	if c := got.Connections["api"]; c.Description != "API" || c.Group != "staging" {
+		t.Errorf("api metadata = %+v", c)
+	}
+	if !slices.Equal(got.History, []string{"api"}) {
+		t.Errorf("History = %v, want [api]", got.History)
+	}
+}
+
+func TestDeleteLeavesTheUsersHostBlockWhenIncluded(t *testing.T) {
+	tr := renamable(t)
+	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(tr.ssh.SSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.Delete("mine"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tr.config(t).Connections["mine"]; ok {
+		t.Error("mine's metadata should be deleted")
+	}
+	if b, _ := os.ReadFile(tr.ssh.SSHConfig); string(b) != string(before) {
+		t.Errorf("the user's ssh_config changed:\n%s", b)
+	}
+	if hosts := tr.hosts(t); len(hosts) != 1 || hosts["api"].HostName != "h" {
+		t.Errorf("Host blocks = %+v, want only api's, unchanged", hosts)
 	}
 }
 

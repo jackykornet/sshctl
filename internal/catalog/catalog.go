@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -75,14 +76,16 @@ type Catalog struct {
 	configPath string
 	legacy     []string
 	ssh        *openssh.Client
-	// saveConfig writes the sshctl config; tests make it fail.
-	saveConfig func(string, *config.Config) error
+	// saveConfig writes the sshctl config and saveHostBlock a Host block in
+	// sshctl's ssh_config file; tests make them fail.
+	saveConfig    func(string, *config.Config) error
+	saveHostBlock func(old string, h openssh.Host) error
 }
 
 // New returns the Connection catalog over the sshctl config at configPath
 // (migrated from legacy when missing) and ssh.
 func New(configPath string, legacy []string, ssh *openssh.Client) *Catalog {
-	return &Catalog{configPath: configPath, legacy: legacy, ssh: ssh, saveConfig: config.Save}
+	return &Catalog{configPath: configPath, legacy: legacy, ssh: ssh, saveConfig: config.Save, saveHostBlock: ssh.SaveHost}
 }
 
 // Snapshot reads ssh_config's aliases and sshctl metadata fresh from disk,
@@ -209,11 +212,11 @@ func (c *Catalog) saveHost(old string, s Spec) (undo func() error, err error) {
 		}
 	}
 	h := openssh.Host{Alias: s.Alias, HostName: s.Host.HostName, User: s.Host.User, Port: s.Host.Port, IdentityFile: s.Host.IdentityFile}
-	switch err := c.ssh.SaveHost(old, h); {
+	switch err := c.saveHostBlock(old, h); {
 	case errors.Is(err, openssh.ErrNotIncluded):
 		return nil, &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
 	case errors.Is(err, openssh.ErrUnknownHost):
-		return nil, fmt.Errorf("%s is defined outside sshctl and cannot be renamed here", old)
+		return nil, c.notManaged(old, s.Alias)
 	case err != nil:
 		return nil, err
 	}
@@ -221,6 +224,21 @@ func (c *Catalog) saveHost(old string, s Spec) (undo func() error, err error) {
 		return func() error { return c.ssh.DeleteHost(s.Alias) }, nil
 	}
 	return func() error { return c.ssh.SaveHost(s.Alias, prev) }, nil
+}
+
+// notManaged explains why old's Host block, which is not in sshctl's file,
+// cannot be saved as alias's.
+func (c *Catalog) notManaged(old, alias string) error {
+	aliases, err := c.ssh.Aliases()
+	switch {
+	case err != nil:
+		return err
+	case !slices.Contains(aliases, old):
+		return fmt.Errorf("%s has no Host block in ssh_config to rename", old)
+	case old != alias:
+		return fmt.Errorf("%s is defined outside sshctl and cannot be renamed here", old)
+	}
+	return fmt.Errorf("%s's Host block is defined outside sshctl; only its description and group can be edited here", old)
 }
 
 // Delete removes alias's Host block when sshctl manages it, and its sshctl
