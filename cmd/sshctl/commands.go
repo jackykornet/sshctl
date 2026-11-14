@@ -24,6 +24,8 @@ type app struct {
 	legacy   []string
 	cfg      *config.Config
 	ssh      *openssh.Client
+	// runSSH runs remote commands over ssh; tests replace it.
+	runSSH openssh.Runner
 }
 
 func run(args []string, in io.Reader, out, errOut io.Writer) error {
@@ -44,7 +46,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	a := &app{in: in, out: out, err: errOut, cfgPath: p, legacy: legacy, cfg: c, ssh: s}
+	a := &app{in: in, out: out, err: errOut, cfgPath: p, legacy: legacy, cfg: c, ssh: s, runSSH: openssh.Run}
 	if startWorkspace {
 		return a.runWorkspace()
 	}
@@ -67,6 +69,9 @@ Commands:
   key list|use|add             List, select, or register keys
   agent ensure                 Inspect SSH agent and optionally add default key
   known-hosts list|remove      Show or remove known hosts
+  provision <alias>            Apply your dotfiles to the host with chezmoi
+  provision default [<url|none>|--unset]
+                               Show or set the global dotfiles repo
   config show                  Show paths and relevant SSH settings
 
 Use sshctl <command> --help for command usage where available.
@@ -86,6 +91,8 @@ func usage(command string) string {
 		return "agent ensure"
 	case "known-hosts":
 		return "known-hosts list | remove <host>"
+	case "provision":
+		return provisionUsage
 	case "config":
 		return "config show"
 	default:
@@ -130,6 +137,8 @@ func (a *app) execute(args []string) error {
 		}
 	case "known-hosts":
 		return a.knownHosts(args[1:])
+	case "provision":
+		return a.provisionCommand(args[1:])
 	case "config":
 		if len(args) > 1 && args[1] == "show" {
 			return a.showConfig()
@@ -143,7 +152,8 @@ func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
 func (a *app) catalog() *catalog.Catalog { return catalog.New(a.cfgPath, a.legacy, a.ssh) }
 
 // list prints the Connections the Workspace lists: ssh_config's aliases, then
-// the Orphaned connections.
+// the Orphaned connections. When sshctl's hosts file is not Included in
+// ssh_config it adds a one-line hint on stderr.
 func (a *app) list() error {
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -165,6 +175,9 @@ func (a *app) list() error {
 			continue
 		}
 		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, strings.Join(label, " "))
+	}
+	if snap.Include != nil {
+		fmt.Fprintf(a.err, "hint: %s, so ssh cannot see sshctl's hosts; run sshctl to add it\n", snap.Include)
 	}
 	return nil
 }

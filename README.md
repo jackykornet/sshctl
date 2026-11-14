@@ -31,6 +31,8 @@ sshctl key add <private-key-path>
 sshctl agent ensure
 sshctl known-hosts list
 sshctl known-hosts remove <host>
+sshctl provision <alias>
+sshctl provision default [<url|none> | --unset]
 sshctl config show
 ```
 
@@ -41,6 +43,20 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 `known-hosts remove` asks before invoking `ssh-keygen -R`, which handles hashed entries. `known-hosts list` displays the host field as stored (hashed names remain hashed).
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
+
+### Provision
+
+`provision <alias>` applies your dotfiles to the Connection's host with [chezmoi](https://www.chezmoi.io/), in your terminal over `ssh <alias>` (with the selected key's `-i`). If chezmoi is already on the host (on `PATH` or in `~/.local/bin`), it runs `chezmoi update --apply`. Otherwise it installs chezmoi into `~/.local/bin` with chezmoi's install script, fetched with `curl -fsLS` or, when curl is missing, `wget -qO-`, and runs `init --apply <repo>`; that is the same as running `sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply <repo>` on the host. Provision runs only chezmoi: anything else, such as installing tools with mise, is up to your dotfiles. It never uses sudo and writes only inside the remote home. It never runs on its own and is not part of connecting.
+
+Provision stops before changing anything when no repo is set, when the setting is `none`, when the host has no POSIX `sh`, or when it has neither curl nor wget. A failure while applying, such as a tool failing to build, is shown as it happens and sshctl exits with its exit code. The POSIX check is a separate ssh connection, so a host you log in to with a password asks for it twice.
+
+The repo is a global setting in sshctl's config: `provision default <url>` sets it, `provision default none` refuses Provision for every Connection, `provision default --unset` clears it, and `provision default` with no arguments shows it:
+
+```text
+sshctl provision default https://github.com/you/dotfiles.git
+sshctl provision default
+global: https://github.com/you/dotfiles.git
+```
 
 ## Workspace
 

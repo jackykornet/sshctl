@@ -1,149 +1,153 @@
 package openssh
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"testing"
 )
 
-// fakeRemote is a stand-in for ssh: sh runs on POSIX, cmd on Windows, in
-// place of the whole ssh command line, which is recorded in argv.
-type fakeRemote struct{ sh, cmd string }
-
-func (f fakeRemote) client(argv *[]string) *Client {
-	return &Client{Exec: func(ctx context.Context, args []string) *exec.Cmd {
-		*argv = args
-		if runtime.GOOS == "windows" {
-			return exec.CommandContext(ctx, "cmd.exe", "/d", "/q", "/s", "/c", f.cmd)
+func TestRemoteArgsRunsTheScriptWithSh(t *testing.T) {
+	for _, tc := range []struct {
+		key, script string
+		want        []string
+	}{
+		{"", "echo hi", []string{"ssh", "web", "sh -c 'echo hi'"}},
+		{"/k/id", "echo 'it'", []string{"ssh", "-i", "/k/id", "web", `sh -c 'echo '\''it'\'''`}},
+	} {
+		if got := RemoteArgs("web", tc.key, tc.script); !slices.Equal(got, tc.want) {
+			t.Errorf("RemoteArgs(%q) = %q, want %q", tc.script, got, tc.want)
 		}
-		return exec.CommandContext(ctx, "sh", "-c", f.sh)
-	}}
+	}
 }
 
-func TestRunPassesOutputWithoutTheShellMarker(t *testing.T) {
-	// The fake host reads the script and answers as POSIX sh would.
-	var argv []string
-	c := fakeRemote{
-		sh:  `cat >/dev/null; echo motd; echo ` + posixMarker + `; echo hello`,
-		cmd: `echo motd& echo ` + posixMarker + `& echo hello`,
-	}.client(&argv)
-	var out bytes.Buffer
-	if err := c.Run(context.Background(), "web", RemoteOptions{Identity: "/k/id"}, "echo hello", &out, &out); err != nil {
+// TestRemoteArgsQuotingSurvivesALoginShell runs the command ssh would hand
+// the remote login shell through a local sh.
+func TestRemoteArgsQuotingSurvivesALoginShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX sh")
+	}
+	argv := RemoteArgs("web", "", `printf '%s|' "a b" 'c'"'"'d' $((1+1))`)
+	out, err := exec.Command("sh", "-c", argv[len(argv)-1]).Output()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := normalize(out.String()); got != "motd\nhello\n" {
-		t.Errorf("output = %q (raw %q), want motd and hello without the marker", got, out.String())
-	}
-	if want := []string{"ssh", "-i", "/k/id", "web", "sh", "-s"}; !reflect.DeepEqual(argv, want) {
-		t.Errorf("argv = %q, want %q", argv, want)
+	if got, want := string(out), "a b|c'd|2|"; got != want {
+		t.Errorf("remote output = %q, want %q", got, want)
 	}
 }
 
-func TestRunReportsAHostWithoutPOSIXShell(t *testing.T) {
-	var argv []string
-	c := fakeRemote{
-		sh:  `echo "sh: command not found" >&2; exit 127`,
-		cmd: `echo 'sh' is not recognized as an internal or external command 1>&2& exit /b 1`,
-	}.client(&argv)
-	var out bytes.Buffer
-	err := c.Run(context.Background(), "win", RemoteOptions{}, "true", &out, &out)
-	if !errors.Is(err, ErrNoPOSIXShell) {
-		t.Fatalf("err = %v, want ErrNoPOSIXShell", err)
+// fakeSSH is a Runner that records argv and answers with output and err.
+type fakeSSH struct {
+	calls  [][]string
+	output string
+	err    error
+}
+
+func (f *fakeSSH) run(_ context.Context, argv []string, out io.Writer) error {
+	f.calls = append(f.calls, argv)
+	if out != nil {
+		fmt.Fprint(out, f.output)
+	}
+	return f.err
+}
+
+type exitErr int
+
+func (e exitErr) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitErr) ExitCode() int { return int(e) }
+
+func TestCheckPOSIX(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		output  string
+		err     error
+		wantErr error
+	}{
+		{"sh answers", "sshctl-posix-2\n", nil, nil},
+		{"no sh", "sh: command not found\n", exitErr(127), ErrNoPOSIX},
+		{"not POSIX", "sshctl-posix-$((1+1))\n", nil, ErrNoPOSIX},
+		{"ssh fails", "", exitErr(255), exitErr(255)},
+		{"no ssh", "", exec.ErrNotFound, exec.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeSSH{output: tc.output, err: tc.err}
+			err := CheckPOSIX(context.Background(), f.run, "web", "/k/id")
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("err = %v, want %v", err, tc.wantErr)
+			}
+			want := []string{"ssh", "-i", "/k/id", "web", "sh -c 'echo sshctl-posix-$((1+1))'"}
+			if len(f.calls) != 1 || !slices.Equal(f.calls[0], want) {
+				t.Errorf("ran %q, want %q", f.calls, want)
+			}
+		})
 	}
 }
 
-func TestRunReportsAFailedConnectionAsSuch(t *testing.T) {
-	var argv []string
-	c := fakeRemote{
-		sh:  `echo "Permission denied (publickey)." >&2; exit 255`,
-		cmd: `echo Permission denied (publickey).1>&2& exit /b 255`,
-	}.client(&argv)
-	var out bytes.Buffer
-	err := c.Run(context.Background(), "web", RemoteOptions{Identity: "/k/id", KeyOnly: true}, "", &out, &out)
-	if err == nil || errors.Is(err, ErrNoPOSIXShell) {
-		t.Fatalf("err = %v, want a connection failure", err)
-	}
-	if !ConnectFailed(err) {
-		t.Errorf("ConnectFailed(%v) = false, want true", err)
-	}
-	want := []string{"ssh", "-i", "/k/id", "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
-		"-o", "KbdInteractiveAuthentication=no", "-o", "PreferredAuthentications=publickey", "-o", "IdentitiesOnly=yes",
-		"web", "sh", "-s"}
-	if !reflect.DeepEqual(argv, want) {
-		t.Errorf("argv = %q\nwant %q", argv, want)
-	}
-}
-
-// normalize turns Windows line endings into "\n".
-func normalize(s string) string {
-	return string(bytes.ReplaceAll([]byte(s), []byte("\r\n"), []byte("\n")))
-}
-
-// localHost is a Client whose ssh runs the script with the local sh, in a
-// fresh home directory standing in for the remote user's.
-func localHost(t *testing.T) (*Client, string) {
+// localHost is a Runner that hands the remote command, as ssh would hand it
+// to the login shell, to a local sh in a fresh home standing in for the
+// remote user's. It returns that home.
+func localHost(t *testing.T) (Runner, string) {
 	t.Helper()
-	sh, err := exec.LookPath("sh")
-	if err != nil {
-		t.Skip("no sh to stand in for the host")
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on a POSIX host")
 	}
 	home := t.TempDir()
-	return &Client{Exec: func(ctx context.Context, argv []string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, sh, "-s")
+	return func(ctx context.Context, argv []string, out io.Writer) error {
+		cmd := exec.CommandContext(ctx, "sh", "-c", argv[len(argv)-1])
 		cmd.Env = append(os.Environ(), "HOME="+home)
-		return cmd
-	}}, home
+		cmd.Stdout, cmd.Stderr = out, os.Stderr
+		return cmd.Run()
+	}, home
 }
 
 const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ0ZXN0a2V5 jo@laptop"
 
 func TestInstallKeyAddsTheKeyOnceWithSafePermissions(t *testing.T) {
-	c, home := localHost(t)
+	run, home := localHost(t)
 	ssh := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(ssh, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// An existing file without a final newline must not run into the key.
-	other := "ssh-rsa AAAAB3NzaC1yc2E other@box"
-	if err := os.WriteFile(filepath.Join(ssh, "authorized_keys"), []byte(other), 0o644); err != nil {
+	// An existing file without a final newline must not run into the key,
+	// and a longer blob that starts like ours is another key.
+	other := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ0ZXN0a2V5more other@box"
+	keys := filepath.Join(ssh, "authorized_keys")
+	if err := os.WriteFile(keys, []byte(other), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var errOut bytes.Buffer
-	added, err := c.InstallKey(context.Background(), "web", "", testKey, &errOut)
+	added, err := InstallKey(context.Background(), run, "web", "/k/id", testKey)
 	if err != nil || !added {
-		t.Fatalf("first install: added = %v, err = %v (%s)", added, err, errOut.String())
+		t.Fatalf("first install: added = %v, err = %v", added, err)
 	}
 	// The same key with another comment is the same key.
-	added, err = c.InstallKey(context.Background(), "web", "", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ0ZXN0a2V5 renamed", &errOut)
+	added, err = InstallKey(context.Background(), run, "web", "/k/id", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ0ZXN0a2V5 renamed")
 	if err != nil || added {
 		t.Fatalf("second install: added = %v, err = %v, want already there", added, err)
 	}
-	b, err := os.ReadFile(filepath.Join(ssh, "authorized_keys"))
+	b, err := os.ReadFile(keys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := other + "\n" + testKey + "\n"; string(b) != want {
 		t.Errorf("authorized_keys = %q, want %q", b, want)
 	}
-	if runtime.GOOS != "windows" {
-		for path, want := range map[string]os.FileMode{ssh: 0o700, filepath.Join(ssh, "authorized_keys"): 0o600} {
-			if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
-				t.Errorf("%s mode = %v (%v), want %v", path, fi.Mode().Perm(), err, want)
-			}
+	for path, want := range map[string]os.FileMode{ssh: 0o700, keys: 0o600} {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: mode %v (%v), want %v", path, fi.Mode().Perm(), err, want)
 		}
 	}
 }
 
 func TestInstallKeyCreatesTheSSHDirectory(t *testing.T) {
-	c, home := localHost(t)
-	if added, err := c.InstallKey(context.Background(), "web", "", testKey, nil); err != nil || !added {
+	run, home := localHost(t)
+	if added, err := InstallKey(context.Background(), run, "web", "", testKey); err != nil || !added {
 		t.Fatalf("added = %v, err = %v", added, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(home, ".ssh", "authorized_keys")); err != nil || string(b) != testKey+"\n" {
@@ -151,43 +155,72 @@ func TestInstallKeyCreatesTheSSHDirectory(t *testing.T) {
 	}
 }
 
-func TestInstallKeyRefusesWhatIsNotAPublicKey(t *testing.T) {
-	c := &Client{Exec: func(context.Context, []string) *exec.Cmd {
-		t.Fatal("ssh must not start")
-		return nil
-	}}
-	for _, key := range []string{"", "ssh-ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----", "ssh-ed25519 AAAA'; rm -rf ~ #"} {
-		if _, err := c.InstallKey(context.Background(), "web", "", key, nil); err == nil {
-			t.Errorf("InstallKey(%q) succeeded, want an error", key)
-		}
+func TestInstallKeyLogsInWithTheSelectedIdentity(t *testing.T) {
+	f := &fakeSSH{output: "sshctl-posix-2\nsshctl-key-added\n"}
+	if _, err := InstallKey(context.Background(), f.run, "web", "/k/id", testKey); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 1 || !slices.Equal(f.calls[0][:4], []string{"ssh", "-i", "/k/id", "web"}) {
+		t.Errorf("ran %q, want one ssh -i /k/id web", f.calls)
 	}
 }
 
-func TestCheckKeyOnlyLogsInWithTheKeyAlone(t *testing.T) {
-	var argv []string
-	c := fakeRemote{sh: `echo ` + posixMarker, cmd: `echo ` + posixMarker}.client(&argv)
-	if err := c.CheckKeyOnly(context.Background(), "web", "/k/id", nil); err != nil {
-		t.Fatal(err)
+func TestInstallKeyFailsWithoutChangingAnything(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		output  string
+		err     error
+		wantErr error
+	}{
+		{"no sh", "sh: command not found\n", exitErr(127), ErrNoPOSIX},
+		{"ssh fails", "", exitErr(255), exitErr(255)},
+		{"script fails", "sshctl-posix-2\n", exitErr(1), exitErr(1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeSSH{output: tc.output, err: tc.err}
+			added, err := InstallKey(context.Background(), f.run, "web", "", testKey)
+			if added || !errors.Is(err, tc.wantErr) {
+				t.Errorf("added = %v, err = %v, want %v", added, err, tc.wantErr)
+			}
+		})
 	}
-	if !slices.Contains(argv, "BatchMode=yes") || !slices.Contains(argv, "PasswordAuthentication=no") || !slices.Contains(argv, "/k/id") {
-		t.Errorf("argv = %q, want key-only options and the key", argv)
+}
+
+func TestInstallKeyRefusesWhatIsNotAPublicKey(t *testing.T) {
+	f := &fakeSSH{}
+	for _, key := range []string{"", "ssh-ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----", "ssh-ed25519 AAAA'; rm -rf ~ #"} {
+		if _, err := InstallKey(context.Background(), f.run, "web", "", key); err == nil {
+			t.Errorf("InstallKey(%q) succeeded, want an error", key)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("ssh ran %q, want nothing", f.calls)
+	}
+}
+
+func TestCheckKeyOnlyAllowsNothingButTheKey(t *testing.T) {
+	f := &fakeSSH{err: exitErr(255)}
+	if err := CheckKeyOnly(context.Background(), f.run, "web", "/k/id"); !errors.Is(err, exitErr(255)) {
+		t.Errorf("err = %v, want ssh's failure", err)
+	}
+	want := []string{"ssh", "-i", "/k/id", "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no", "-o", "PreferredAuthentications=publickey", "-o", "IdentitiesOnly=yes",
+		"web", "exit 0"}
+	if len(f.calls) != 1 || !slices.Equal(f.calls[0], want) {
+		t.Errorf("ran %q\nwant %q", f.calls, want)
 	}
 }
 
 func TestResolveReadsTheEndpointFromSSH(t *testing.T) {
-	var argv []string
-	c := fakeRemote{
-		sh:  `printf 'host web\nhostname 10.0.0.5\nuser deploy\nport 2222\nidentityfile ~/.ssh/id_rsa\n'`,
-		cmd: `echo host web& echo hostname 10.0.0.5& echo user deploy& echo port 2222`,
-	}.client(&argv)
-	got, err := c.Resolve(context.Background(), "web")
+	f := &fakeSSH{output: "host web\nhostname 10.0.0.5\nuser deploy\nport 2222\nidentityfile ~/.ssh/id_rsa\n"}
+	got, err := Resolve(context.Background(), f.run, "web")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := (Endpoint{HostName: "10.0.0.5", User: "deploy", Port: "2222"}); got != want {
 		t.Errorf("Resolve = %+v, want %+v", got, want)
 	}
-	if want := []string{"ssh", "-G", "web"}; !reflect.DeepEqual(argv, want) {
-		t.Errorf("argv = %q, want %q", argv, want)
+	if want := []string{"ssh", "-G", "web"}; len(f.calls) != 1 || !slices.Equal(f.calls[0], want) {
+		t.Errorf("ran %q, want %q", f.calls, want)
 	}
 }

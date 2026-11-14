@@ -16,9 +16,6 @@ type Client struct {
 	// Home is the user's home directory, under which SaveHost writes an
 	// IdentityFile as "~/…". Empty means os.UserHomeDir.
 	Home string
-	// Exec returns the process for an ssh command line; nil runs it as is.
-	// Tests replace it so that real ssh never starts.
-	Exec func(ctx context.Context, argv []string) *exec.Cmd
 }
 
 func New() (*Client, error) {

@@ -53,6 +53,10 @@ type Snapshot struct {
 	Identity string
 	// Collapsed lists the groups the Workspace shows collapsed.
 	Collapsed []string
+	// Include is set when sshctl's hosts file exists but the user's
+	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
+	// on a new machine the file was synced to (ADR-0004). AddInclude fixes it.
+	Include *IncludeError
 }
 
 // IncludeError is returned by Save when the user's ssh_config does not yet
@@ -103,6 +107,9 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 		managed[h.Alias] = h
 	}
 	snap := Snapshot{Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
+	if snap.Include, err = c.missingInclude(); err != nil {
+		return Snapshot{}, err
+	}
 	seen := map[string]bool{}
 	for _, alias := range aliases {
 		seen[alias] = true
@@ -128,6 +135,26 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	return snap, nil
 }
 
+// missingInclude returns the Include the user's ssh_config lacks when
+// sshctl's hosts file exists, and nil when there is no such file or it is
+// already Included.
+func (c *Catalog) missingInclude() (*IncludeError, error) {
+	if _, err := os.Stat(c.ssh.ManagedPath()); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	included, err := c.ssh.IncludesManaged()
+	if err != nil || included {
+		return nil, err
+	}
+	return c.includeError(), nil
+}
+
+func (c *Catalog) includeError() *IncludeError {
+	return &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
+}
+
 // RecordOpen records in History that alias was opened.
 func (c *Catalog) RecordOpen(alias string) error {
 	return c.update(func(cfg *config.Config) { cfg.RecordOpen(alias) })
@@ -143,6 +170,44 @@ func (c *Catalog) SetGroup(alias, group string) error {
 // SetCollapsed saves groups as the groups the Workspace shows collapsed.
 func (c *Catalog) SetCollapsed(groups []string) error {
 	return c.update(func(cfg *config.Config) { cfg.Workspace.CollapsedGroups = groups })
+}
+
+// Dotfiles returns the global dotfiles setting: a repo URL,
+// config.DotfilesNone, or "" when unset.
+func (c *Catalog) Dotfiles() (string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return "", err
+	}
+	return cfg.Provision.Dotfiles, nil
+}
+
+// SetDotfiles saves the global dotfiles setting ("" unsets it).
+func (c *Catalog) SetDotfiles(repo string) error {
+	return c.update(func(cfg *config.Config) { cfg.Provision.Dotfiles = repo })
+}
+
+var (
+	// ErrNoDotfiles is returned by ProvisionRepo when no dotfiles repo is set.
+	ErrNoDotfiles = errors.New("no dotfiles repo is set")
+	// ErrProvisionRefused is returned by ProvisionRepo when the setting
+	// that applies is config.DotfilesNone.
+	ErrProvisionRefused = errors.New("Provision is refused by the dotfiles setting none")
+)
+
+// ProvisionRepo returns the dotfiles repo Provision applies to alias's host.
+// In v1 that is the global setting.
+func (c *Catalog) ProvisionRepo(alias string) (string, error) {
+	repo, err := c.Dotfiles()
+	switch {
+	case err != nil:
+		return "", err
+	case repo == "":
+		return "", ErrNoDotfiles
+	case repo == config.DotfilesNone:
+		return "", ErrProvisionRefused
+	}
+	return repo, nil
 }
 
 // update loads the sshctl config, applies change and saves it.
@@ -209,7 +274,7 @@ func (c *Catalog) saveHost(old string, s Spec) (undo func() error, err error) {
 	h := openssh.Host{Alias: s.Alias, Endpoint: s.Host}
 	switch err := c.saveHostBlock(old, h); {
 	case errors.Is(err, openssh.ErrNotIncluded):
-		return nil, &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
+		return nil, c.includeError()
 	case errors.Is(err, openssh.ErrUnknownHost):
 		return nil, c.notManaged(old, s.Alias)
 	case err != nil:

@@ -26,6 +26,18 @@ type Config struct {
 	Keys        []string              `json:"keys,omitempty"`
 	DefaultKey  string                `json:"defaultKey,omitempty"`
 	Workspace   Workspace             `json:"workspace,omitzero"`
+	Provision   Provision             `json:"provision,omitzero"`
+}
+
+// DotfilesNone is the dotfiles setting that refuses Provision.
+const DotfilesNone = "none"
+
+// Provision holds the settings Provision reads. They are the same on every
+// machine, so they belong with the synced settings (ADR-0004).
+type Provision struct {
+	// Dotfiles is the global dotfiles repo URL, DotfilesNone to refuse
+	// Provision, or "" when unset.
+	Dotfiles string `json:"dotfiles,omitempty"`
 }
 
 // Workspace holds optional settings for the full-screen Workspace. Zero values mean defaults.
