@@ -13,6 +13,9 @@ import (
 type Client struct {
 	SSHConfig string
 	SSHDir    string
+	// Exec returns the process for an ssh command line; nil runs it as is.
+	// Tests replace it so that real ssh never starts.
+	Exec func(ctx context.Context, argv []string) *exec.Cmd
 }
 
 func New() (*Client, error) {
