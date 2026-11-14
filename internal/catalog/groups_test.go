@@ -62,7 +62,7 @@ func TestRenameGroupMovesMembersAndKeepsPositionAndCollapsed(t *testing.T) {
 	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "staging"}, {Name: "data"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "staging"}
 	cfg.Connections["db"] = config.Connection{Alias: "db", Group: "data"}
-	cfg.Workspace.CollapsedGroups = []string{"staging", "data"}
+	cfg.CollapsedGroups = []string{"staging", "data"}
 	tr.seed(t, cfg)
 	if err := tr.cat.RenameGroup("staging", "stage"); err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func TestRenameGroupMovesMembersAndKeepsPositionAndCollapsed(t *testing.T) {
 	if db := got.Connections["db"]; db.Group != "data" {
 		t.Errorf("db = %+v, want it left in data", db)
 	}
-	if want := []string{"stage", "data"}; !slices.Equal(got.Workspace.CollapsedGroups, want) {
-		t.Errorf("collapsed = %v, want %v", got.Workspace.CollapsedGroups, want)
+	if want := []string{"stage", "data"}; !slices.Equal(got.CollapsedGroups, want) {
+		t.Errorf("collapsed = %v, want %v", got.CollapsedGroups, want)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestDeleteGroupLeavesMembersUngroupedAndKeepsHostBlocks(t *testing.T) {
 	if tmp, ok := got.Connections["tmp"]; ok {
 		t.Errorf("tmp = %+v, want no metadata left", tmp)
 	}
-	if want := []string{"data"}; !slices.Equal(got.Workspace.CollapsedGroups, want) {
-		t.Errorf("collapsed = %v, want %v", got.Workspace.CollapsedGroups, want)
+	if want := []string{"data"}; !slices.Equal(got.CollapsedGroups, want) {
+		t.Errorf("collapsed = %v, want %v", got.CollapsedGroups, want)
 	}
 	if hosts := tr.hosts(t); len(hosts) != 2 {
 		t.Errorf("Host blocks = %v, want api and tmp kept", hosts)

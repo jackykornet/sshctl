@@ -34,7 +34,7 @@ func groupTree(t *testing.T, in string) (*app, *bytes.Buffer) {
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "prod"}
 	cfg.Connections["db"] = config.Connection{Alias: "db", Group: "prod"}
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "data"}
-	cfg.Workspace.CollapsedGroups = []string{"prod", "data"}
+	cfg.CollapsedGroups = []string{"prod", "data"}
 	return cliTree(t, "Host web\nHost db\nHost loose\n", cfg, in)
 }
 
@@ -89,8 +89,8 @@ func TestGroupRenameKeepsMembersPositionAndCollapsed(t *testing.T) {
 	if web, db := cfg.Connections["web"], cfg.Connections["db"]; web.Group != "live" || db.Group != "live" || web.Description != "site" {
 		t.Errorf("web, db = %+v, %+v, want both in live", web, db)
 	}
-	if want := []string{"live", "data"}; !slices.Equal(cfg.Workspace.CollapsedGroups, want) {
-		t.Errorf("collapsed = %v, want %v", cfg.Workspace.CollapsedGroups, want)
+	if want := []string{"live", "data"}; !slices.Equal(cfg.CollapsedGroups, want) {
+		t.Errorf("collapsed = %v, want %v", cfg.CollapsedGroups, want)
 	}
 	for _, args := range [][]string{{"live", "data"}, {"live", "12"}, {"nowhere", "x"}, {"live"}} {
 		if err := a.execute(append([]string{"group", "rename"}, args...)); err == nil {
@@ -151,8 +151,8 @@ func TestGroupDeleteAsksThenLeavesMembersUngrouped(t *testing.T) {
 			if web := cfg.Connections["web"]; web.Group != "" || web.Description != "site" {
 				t.Errorf("web = %+v, want it ungrouped keeping its description", web)
 			}
-			if !slices.Equal(cfg.Workspace.CollapsedGroups, []string{"data"}) {
-				t.Errorf("collapsed = %v, want [data]", cfg.Workspace.CollapsedGroups)
+			if !slices.Equal(cfg.CollapsedGroups, []string{"data"}) {
+				t.Errorf("collapsed = %v, want [data]", cfg.CollapsedGroups)
 			}
 			snap, err := a.catalog().Snapshot()
 			if err != nil {

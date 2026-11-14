@@ -79,8 +79,8 @@ Commands:
   known-hosts list|remove      Show or remove known hosts
   bootstrap <alias>            Install your key on the host and use it
   provision <alias>            Apply your dotfiles to the host with chezmoi
-  provision default [<url|none>|--unset]
-                               Show or set the global dotfiles repo
+  provision default [<url|none>|--unset] [--group <name>]
+                               Show or set the global or a Group's dotfiles repo
   config show                  Show paths and relevant SSH settings
 
 Use sshctl <command> --help for command usage where available.
@@ -437,7 +437,7 @@ func confirm(in io.Reader) bool {
 	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
 }
 func (a *app) showConfig() error {
-	fmt.Fprintf(a.out, "sshctl config: %s\nOpenSSH config: %s\nKnown hosts: %s\nDefault key override: %s\n", a.cfgPath, a.ssh.SSHConfig, openssh.KnownHostsPath(), a.cfg.DefaultKey)
+	fmt.Fprintf(a.out, "sshctl config: %s\nsshctl state: %s\nOpenSSH config: %s\nKnown hosts: %s\nDefault key override: %s\n", a.cfgPath, config.StatePath(a.cfgPath), a.ssh.SSHConfig, openssh.KnownHostsPath(), a.cfg.DefaultKey)
 	settings, err := a.ssh.SafeSettings()
 	if err != nil {
 		return err
