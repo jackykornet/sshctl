@@ -85,10 +85,10 @@ func TestLayoutGolden(t *testing.T) {
 	t.Run("initial", func(t *testing.T) {
 		golden(t, "initial", newTestModel(t, 80, 10))
 	})
-	t.Run("open connection moves to top", func(t *testing.T) {
+	t.Run("open connection stays in its group", func(t *testing.T) {
 		m := newTestModel(t, 80, 10)
-		press(m, keyDown, keyDown, keyEnter) // prod-web
-		press(m, keyPrefix, text("n")[0])    // second tab
+		press(m, keyDown, keyEnter)       // prod-web, under the web header
+		press(m, keyPrefix, text("n")[0]) // second tab
 		golden(t, "open", m)
 	})
 	t.Run("filter", func(t *testing.T) {
@@ -98,11 +98,12 @@ func TestLayoutGolden(t *testing.T) {
 	})
 	t.Run("narrow terminal hides list", func(t *testing.T) {
 		m := newTestModel(t, 50, 6)
+		m.st.SetCursor("db-main")
 		press(m, keyEnter)
 		golden(t, "narrow", m)
 	})
 	t.Run("help", func(t *testing.T) {
-		m := newTestModel(t, 80, 20)
+		m := newTestModel(t, 80, 24)
 		press(m, keyPrefix, text("?")[0])
 		golden(t, "help", m)
 	})
@@ -110,9 +111,10 @@ func TestLayoutGolden(t *testing.T) {
 
 func TestActivityMarkersGolden(t *testing.T) {
 	m := newTestModel(t, 80, 8)
-	press(m, keyDown, keyDown, keyEnter) // prod-web 1
+	press(m, keyDown, keyEnter) // prod-web 1
 	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab})
-	press(m, keyDown, keyEnter) // db-main 1
+	m.st.SetCursor("db-main")
+	press(m, keyEnter) // db-main 1
 	press(m, keyPrefix, text("n")[0], keyPrefix, text("n")[0])
 	prod, db := m.st.Get("prod-web"), m.st.Get("db-main")
 	m.st.MarkActivity(prod.Sessions[0])
@@ -129,6 +131,7 @@ func TestActivityMarkersGolden(t *testing.T) {
 
 func TestTabBarScrollsToCurrentTab(t *testing.T) {
 	m := newTestModel(t, 70, 6)
+	m.st.SetCursor("db-main")
 	press(m, keyEnter) // db-main 1
 	for range 6 {
 		press(m, keyPrefix, text("n")[0])
@@ -148,6 +151,7 @@ func TestQuitConfirmsWhenSessionsAreLive(t *testing.T) {
 	if cmd := press(m, text("q")...); !isQuit(cmd) {
 		t.Fatal("q with no sessions should quit immediately")
 	}
+	m.st.SetCursor("db-main")
 	press(m, keyEnter)
 	if cmd := press(m, keyPrefix, text("q")[0]); cmd != nil || m.confirm == nil {
 		t.Fatal("quit with a live session should ask first")
@@ -163,6 +167,7 @@ func TestQuitConfirmsWhenSessionsAreLive(t *testing.T) {
 
 func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	m := newTestModel(t, 80, 10)
+	m.st.SetCursor("db-main")
 	press(m, keyEnter)
 	press(m, keyPrefix, text("w")[0])
 	if m.confirm == nil {
@@ -183,7 +188,8 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 
 func TestEnterOnOrphanedConnectionShowsError(t *testing.T) {
 	m := newTestModel(t, 80, 10)
-	press(m, keyDown, keyEnter) // old-box
+	m.st.SetCursor("old-box")
+	press(m, keyEnter)
 	if m.st.Active() != nil || !m.statusErr || !strings.Contains(m.status, "missing") {
 		t.Fatalf("status = %q, active = %v", m.status, m.st.Active())
 	}
@@ -191,10 +197,12 @@ func TestEnterOnOrphanedConnectionShowsError(t *testing.T) {
 
 func TestClickOpenConnectionActivatesIt(t *testing.T) {
 	m := newTestModel(t, 80, 10)
-	press(m, keyEnter)                                     // opens db-main (row 0), focus moves to the pane
+	m.st.SetCursor("db-main")
+	press(m, keyEnter)                                     // opens db-main (row 4), focus moves to the pane
 	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}) // focus back to the list
-	press(m, keyDown, keyDown, keyEnter)                   // opens prod-web (row 1), now active
-	m.Update(tea.MouseClickMsg{X: 3, Y: 0, Button: tea.MouseLeft})
+	m.st.SetCursor("prod-web")
+	press(m, keyEnter) // opens prod-web (row 1), now active
+	m.Update(tea.MouseClickMsg{X: 3, Y: 4, Button: tea.MouseLeft})
 	if m.st.Active().Alias != "db-main" || m.focus != focusPane {
 		t.Fatalf("active = %s focus = %v", m.st.Active().Alias, m.focus)
 	}

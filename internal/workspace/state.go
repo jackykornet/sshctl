@@ -5,6 +5,7 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -16,6 +17,10 @@ type Entry struct {
 	Group       string
 	// Orphaned is true when sshctl metadata exists but the Host alias is gone.
 	Orphaned bool
+	// Managed is true when the Host block is in sshctl's own ssh_config file,
+	// so the Workspace can edit Host and delete the block.
+	Managed bool
+	Host    Host
 }
 
 // Session is one tab of a Connection.
@@ -89,19 +94,49 @@ func (c *Connection) CurrentSession() *Session {
 // ErrOrphaned is returned when opening a Connection whose Host alias is gone.
 var ErrOrphaned = errors.New("missing from ssh_config")
 
+// Row is one line of the connection list: a group header or a Connection.
+type Row struct {
+	// Group is the header's group, or the Connection's group. "" is the
+	// ungrouped section.
+	Group string
+	// Conn is nil for a group header.
+	Conn *Connection
+}
+
+// Header reports whether the row is a group header.
+func (r Row) Header() bool { return r.Conn == nil }
+
+// rowKey identifies a row across rebuilds of the list: a header by its group,
+// a Connection by its alias.
+type rowKey struct {
+	header bool
+	name   string
+}
+
+func keyOf(r Row) rowKey {
+	if r.Header() {
+		return rowKey{true, r.Group}
+	}
+	return rowKey{false, r.Conn.Alias}
+}
+
 // State holds the Workspace's connection list and Sessions, independent of rendering.
 type State struct {
-	conns  map[string]*Connection
-	loaded map[string]bool // aliases returned by the last Reload
-	seq    int
-	active string
-	cursor string
-	filter string
+	conns     map[string]*Connection
+	loaded    map[string]bool // aliases returned by the last Reload
+	collapsed map[string]bool
+	// showUngrouped lists the ungrouped header even when it has no members,
+	// so a Connection can be dragged out of its group.
+	showUngrouped bool
+	seq           int
+	active        string
+	cursor        rowKey
+	filter        string
 }
 
 // NewState builds a State from loaded entries.
 func NewState(entries []Entry) *State {
-	s := &State{conns: map[string]*Connection{}}
+	s := &State{conns: map[string]*Connection{}, collapsed: map[string]bool{}}
 	s.Reload(entries)
 	return s
 }
@@ -132,11 +167,88 @@ func (s *State) Reload(entries []Entry) {
 	s.fixCursor()
 }
 
-// Rows returns the connection list in display order: open Connections in the
-// order they were opened, then the rest alphabetically. The filter hides only
-// Connections that are not open.
-func (s *State) Rows() []*Connection {
-	return s.rows(s.matches)
+// Rows returns the connection list in display order. Without any groups it
+// is every Connection alphabetically. With groups, each group (alphabetically,
+// the ungrouped section last) is a header followed by its members
+// alphabetically, unless the group is collapsed. Opening a Connection never
+// moves it. The filter hides Connections that are not open, and groups left
+// with no rows; while filtering, every group is shown expanded.
+func (s *State) Rows() []Row {
+	conns := s.ordered()
+	if !s.grouped() {
+		var rows []Row
+		for _, c := range conns {
+			if c.Open() || s.matches(c) {
+				rows = append(rows, Row{Conn: c})
+			}
+		}
+		return rows
+	}
+	filtering := s.filter != ""
+	var rows []Row
+	for i := 0; i < len(conns); {
+		group := conns[i].Group
+		var members []Row
+		for ; i < len(conns) && conns[i].Group == group; i++ {
+			if c := conns[i]; c.Open() || s.matches(c) {
+				members = append(members, Row{Group: group, Conn: c})
+			}
+		}
+		if filtering && len(members) == 0 {
+			continue
+		}
+		rows = append(rows, Row{Group: group})
+		if filtering || !s.collapsed[group] {
+			rows = append(rows, members...)
+		}
+	}
+	if s.showUngrouped && !filtering && (len(conns) == 0 || conns[len(conns)-1].Group != "") {
+		rows = append(rows, Row{})
+	}
+	return rows
+}
+
+// ordered returns every Connection sorted by group (alphabetically, ungrouped
+// last), then by alias.
+func (s *State) ordered() []*Connection {
+	out := make([]*Connection, 0, len(s.conns))
+	for _, c := range s.conns {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Group != b.Group {
+			if a.Group == "" || b.Group == "" {
+				return b.Group == ""
+			}
+			return a.Group < b.Group
+		}
+		return a.Alias < b.Alias
+	})
+	return out
+}
+
+// grouped reports whether any Connection is in a group, which is when the
+// list shows group headers.
+func (s *State) grouped() bool {
+	for _, c := range s.conns {
+		if c.Group != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Members returns every Connection in group alphabetically, ignoring the
+// filter and whether the group is collapsed.
+func (s *State) Members(group string) []*Connection {
+	var out []*Connection
+	for _, c := range s.ordered() {
+		if c.Group == group {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // GroupToOpen returns the Connections that opening group would open: its
@@ -146,29 +258,50 @@ func (s *State) GroupToOpen(group string) []*Connection {
 		return nil
 	}
 	var out []*Connection
-	for _, c := range s.rows(func(c *Connection) bool { return c.Group == group }) {
-		if c.Group == group && !c.Open() && !c.Orphaned {
+	for _, c := range s.Members(group) {
+		if !c.Open() && !c.Orphaned {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-// rows lists open Connections in the order they were opened, then the closed
-// Connections that keep returns true for, alphabetically.
-func (s *State) rows(keep func(*Connection) bool) []*Connection {
-	var open, closed []*Connection
-	for _, c := range s.conns {
-		switch {
-		case c.Open():
-			open = append(open, c)
-		case keep(c):
-			closed = append(closed, c)
-		}
+// Collapsed reports whether group's members are hidden.
+func (s *State) Collapsed(group string) bool { return s.collapsed[group] }
+
+// SetCollapsed hides or shows group's members. A cursor on a hidden member
+// moves to the group's header.
+func (s *State) SetCollapsed(group string, collapsed bool) {
+	if collapsed {
+		s.collapsed[group] = true
+	} else {
+		delete(s.collapsed, group)
 	}
-	sort.Slice(open, func(i, j int) bool { return open[i].openedSeq < open[j].openedSeq })
-	sort.Slice(closed, func(i, j int) bool { return closed[i].Alias < closed[j].Alias })
-	return append(open, closed...)
+	s.fixCursor()
+}
+
+// CollapsedGroups returns the collapsed groups alphabetically.
+func (s *State) CollapsedGroups() []string {
+	out := make([]string, 0, len(s.collapsed))
+	for g := range s.collapsed {
+		out = append(out, g)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SetGroup moves alias into group; "" takes it out of its group.
+func (s *State) SetGroup(alias, group string) {
+	if c := s.conns[alias]; c != nil {
+		c.Group = group
+		s.fixCursor()
+	}
+}
+
+// ShowUngrouped lists the ungrouped header even when it has no members.
+func (s *State) ShowUngrouped(show bool) {
+	s.showUngrouped = show
+	s.fixCursor()
 }
 
 func (s *State) matches(c *Connection) bool {
@@ -190,8 +323,35 @@ func (s *State) Get(alias string) *Connection { return s.conns[alias] }
 // Active returns the Active connection, or nil when none is selected.
 func (s *State) Active() *Connection { return s.conns[s.active] }
 
-// Cursor returns the Connection under the list cursor, or nil.
-func (s *State) Cursor() *Connection { return s.conns[s.cursor] }
+// Cursor returns the Connection under the list cursor, or nil when the
+// cursor is on a group header or the list is empty.
+func (s *State) Cursor() *Connection {
+	if s.cursor.header {
+		return nil
+	}
+	return s.conns[s.cursor.name]
+}
+
+// CursorRow returns the row under the list cursor; ok is false when the list is empty.
+func (s *State) CursorRow() (r Row, ok bool) {
+	if s.cursor.header {
+		return Row{Group: s.cursor.name}, true
+	}
+	if c := s.conns[s.cursor.name]; c != nil {
+		return Row{Group: c.Group, Conn: c}, true
+	}
+	return Row{}, false
+}
+
+// CursorIndex returns the cursor's index in rows, or -1.
+func (s *State) CursorIndex(rows []Row) int {
+	for i, r := range rows {
+		if keyOf(r) == s.cursor {
+			return i
+		}
+	}
+	return -1
+}
 
 // Filter returns the current list filter.
 func (s *State) Filter() string { return s.filter }
@@ -208,16 +368,24 @@ func (s *State) MoveCursor(delta int) {
 	if len(rows) == 0 {
 		return
 	}
-	i := s.index(rows, s.cursor) + delta
+	i := s.CursorIndex(rows) + delta
 	i = max(0, min(i, len(rows)-1))
-	s.cursor = rows[i].Alias
+	s.cursor = keyOf(rows[i])
 }
 
-// SetCursor puts the list cursor on alias.
+// SetCursor puts the list cursor on alias, or on its group's header when the
+// group is collapsed.
 func (s *State) SetCursor(alias string) {
 	if _, ok := s.conns[alias]; ok {
-		s.cursor = alias
+		s.cursor = rowKey{false, alias}
+		s.fixCursor()
 	}
+}
+
+// SetCursorGroup puts the list cursor on group's header.
+func (s *State) SetCursorGroup(group string) {
+	s.cursor = rowKey{true, group}
+	s.fixCursor()
 }
 
 // Activate makes an open Connection the Active connection.
@@ -229,15 +397,17 @@ func (s *State) Activate(alias string) error {
 	if !c.Open() {
 		return fmt.Errorf("%s is not open", alias)
 	}
-	s.active, s.cursor = alias, alias
+	s.active = alias
+	s.SetCursor(alias)
 	s.clearShownActivity()
 	return nil
 }
 
-// CycleActive makes the next (delta > 0) or previous open Connection active.
+// CycleActive makes the next (delta > 0) or previous open Connection active,
+// in list order, including Connections in collapsed groups.
 func (s *State) CycleActive(delta int) {
 	var open []*Connection
-	for _, c := range s.Rows() {
+	for _, c := range s.ordered() {
 		if c.Open() {
 			open = append(open, c)
 		}
@@ -245,13 +415,14 @@ func (s *State) CycleActive(delta int) {
 	if len(open) == 0 {
 		return
 	}
-	i := s.index(open, s.active)
+	i := slices.IndexFunc(open, func(c *Connection) bool { return c.Alias == s.active })
 	if i < 0 {
 		i = 0
 	} else {
 		i = (i + delta + len(open)) % len(open)
 	}
-	s.active, s.cursor = open[i].Alias, open[i].Alias
+	s.active = open[i].Alias
+	s.SetCursor(open[i].Alias)
 	s.clearShownActivity()
 }
 
@@ -273,7 +444,8 @@ func (s *State) OpenSession(alias string) (*Session, error) {
 	sess := &Session{N: c.nextN}
 	c.Sessions = append(c.Sessions, sess)
 	c.Current = len(c.Sessions) - 1
-	s.active, s.cursor = alias, alias
+	s.active = alias
+	s.SetCursor(alias)
 	return sess, nil
 }
 
@@ -358,22 +530,24 @@ func (s *State) LiveSessions() int {
 	return n
 }
 
+// fixCursor keeps the cursor on a listed row: a hidden Connection's cursor
+// moves to its group's header, anything else to the first row.
 func (s *State) fixCursor() {
 	rows := s.Rows()
-	if s.index(rows, s.cursor) >= 0 {
+	if s.CursorIndex(rows) >= 0 {
 		return
 	}
-	s.cursor = ""
-	if len(rows) > 0 {
-		s.cursor = rows[0].Alias
-	}
-}
-
-func (s *State) index(rows []*Connection, alias string) int {
-	for i, c := range rows {
-		if c.Alias == alias {
-			return i
+	if c := s.conns[s.cursor.name]; c != nil && !s.cursor.header {
+		head := rowKey{true, c.Group}
+		for _, r := range rows {
+			if keyOf(r) == head {
+				s.cursor = head
+				return
+			}
 		}
 	}
-	return -1
+	s.cursor = rowKey{}
+	if len(rows) > 0 {
+		s.cursor = keyOf(rows[0])
+	}
 }

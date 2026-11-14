@@ -37,6 +37,7 @@ func TestPrefixGReportsEveryMemberThatFailsToStart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, r := newRecordingModel(t, groupEntries, tt.fail...)
+			m.st.SetCursor("alpha")
 			press(m, keyPrefix, keyG)
 			if want := []string{"alpha", "beta", "delta"}; !slices.Equal(r.started(), want) {
 				t.Errorf("sessions started for %v, want %v", r.started(), want)
@@ -59,6 +60,7 @@ func TestPrefixGReportsEveryMemberThatFailsToStart(t *testing.T) {
 
 func TestPrefixGOpensClosedGroupMembers(t *testing.T) {
 	m, r := newRecordingModel(t, groupEntries)
+	m.st.SetCursor("alpha")
 	press(m, keyEnter) // alpha is already open before the group opens
 	press(m, keyPrefix, keyG)
 
@@ -97,7 +99,7 @@ func TestPrefixGWithNothingToOpenChangesNothing(t *testing.T) {
 		name  string
 		setup func(m *Model)
 	}{
-		{"no group", func(m *Model) { press(m, keyDown, keyDown) }}, // cursor on db
+		{"no group", func(m *Model) { m.st.SetCursor("db") }},
 		{"all members open", func(m *Model) {
 			m.st.SetCursor("other")
 			press(m, keyEnter)

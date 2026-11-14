@@ -6,10 +6,30 @@ import (
 	"testing"
 )
 
-func aliases(rows []*Connection) []string {
+func aliases[T Row | *Connection](rows []T) []string {
 	out := []string{}
-	for _, c := range rows {
-		out = append(out, c.Alias)
+	for _, r := range rows {
+		switch r := any(r).(type) {
+		case *Connection:
+			out = append(out, r.Alias)
+		case Row:
+			if !r.Header() {
+				out = append(out, r.Conn.Alias)
+			}
+		}
+	}
+	return out
+}
+
+// rowNames lists rows with each group header as "[group]" ("[]" for ungrouped).
+func rowNames(rows []Row) []string {
+	out := []string{}
+	for _, r := range rows {
+		if r.Header() {
+			out = append(out, "["+r.Group+"]")
+		} else {
+			out = append(out, r.Conn.Alias)
+		}
 	}
 	return out
 }
@@ -50,16 +70,95 @@ func TestGroupToOpenListsClosedLoadedMembersInListOrder(t *testing.T) {
 	}
 }
 
-func TestRowsOrderOpenFirstInOpenOrderThenAlphabetical(t *testing.T) {
-	s := sample()
-	if got, want := aliases(s.Rows()), []string{"db-main", "old-box", "prod-web", "staging"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("closed rows = %v, want %v", got, want)
+func TestRowsListGroupsThenUngroupedAndNeverReorderOnOpen(t *testing.T) {
+	s := NewState([]Entry{
+		{Alias: "zed", Group: "batch"},
+		{Alias: "staging", Group: "web"},
+		{Alias: "prod-web", Group: "web"},
+		{Alias: "db-main"},
+		{Alias: "old-box", Orphaned: true},
+	})
+	want := []string{"[batch]", "zed", "[web]", "prod-web", "staging", "[]", "db-main", "old-box"}
+	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
 	}
 	mustOpen(t, s, "staging")
 	mustOpen(t, s, "db-main")
-	mustOpen(t, s, "staging") // second tab must not reorder
-	if got, want := aliases(s.Rows()), []string{"staging", "db-main", "old-box", "prod-web"}; !reflect.DeepEqual(got, want) {
+	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("opening reordered rows: %v, want %v", got, want)
+	}
+}
+
+func TestRowsWithoutGroupsHaveNoHeaders(t *testing.T) {
+	s := NewState([]Entry{{Alias: "b"}, {Alias: "a"}})
+	s.ShowUngrouped(true) // there is no group to drag out of
+	if got, want := rowNames(s.Rows()), []string{"a", "b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestCollapsedGroupHidesMembersAndKeepsCursorOnHeader(t *testing.T) {
+	s := sample()
+	s.SetCursor("staging")
+	s.SetCollapsed("web", true)
+	if got, want := rowNames(s.Rows()), []string{"[web]", "[]", "db-main", "old-box"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	if r, ok := s.CursorRow(); !ok || !r.Header() || r.Group != "web" {
+		t.Fatalf("cursor = %+v, want the web header", r)
+	}
+	if s.Cursor() != nil {
+		t.Fatal("Cursor() must be nil on a header")
+	}
+	mustOpen(t, s, "prod-web") // opening a hidden member keeps the group collapsed
+	if got := rowNames(s.Rows())[0:2]; !reflect.DeepEqual(got, []string{"[web]", "[]"}) {
+		t.Fatalf("rows = %v", got)
+	}
+	if r, _ := s.CursorRow(); !r.Header() || s.Active().Alias != "prod-web" {
+		t.Fatalf("cursor = %+v active = %s", r, s.Active().Alias)
+	}
+	s.SetCollapsed("web", false)
+	if got := s.CollapsedGroups(); len(got) != 0 {
+		t.Fatalf("collapsed = %v", got)
+	}
+}
+
+func TestFilterShowsCollapsedMatchesAndDropsEmptyGroups(t *testing.T) {
+	s := sample()
+	s.SetCollapsed("web", true)
+	s.SetFilter("public")
+	if got, want := rowNames(s.Rows()), []string{"[web]", "prod-web"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestSetGroupMovesConnectionBetweenGroups(t *testing.T) {
+	s := sample()
+	s.SetGroup("db-main", "web")
+	s.SetGroup("staging", "")
+	want := []string{"[web]", "db-main", "prod-web", "[]", "old-box", "staging"}
+	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	s.SetGroup("old-box", "web")
+	s.SetGroup("staging", "web")
+	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, []string{"[web]", "db-main", "old-box", "prod-web", "staging"}) {
+		t.Fatalf("empty ungrouped section should not be listed: %v", got)
+	}
+	s.ShowUngrouped(true)
+	if got := rowNames(s.Rows()); got[len(got)-1] != "[]" {
+		t.Fatalf("ShowUngrouped should list an empty ungrouped header: %v", got)
+	}
+}
+
+func TestCycleActiveReachesConnectionsInCollapsedGroups(t *testing.T) {
+	s := sample()
+	mustOpen(t, s, "staging")
+	mustOpen(t, s, "db-main")
+	s.SetCollapsed("web", true)
+	s.CycleActive(-1)
+	if s.Active().Alias != "staging" {
+		t.Fatalf("active = %s, want staging", s.Active().Alias)
 	}
 }
 
@@ -89,14 +188,6 @@ func TestClosingLastTabStopsBeingOpen(t *testing.T) {
 	s.CloseCurrent()
 	if s.Get("db-main").Open() || s.Active() != nil {
 		t.Fatal("db-main should be closed with no active connection")
-	}
-	if got := aliases(s.Rows())[0]; got != "staging" {
-		t.Fatalf("first row = %s, want staging", got)
-	}
-	// Reopening counts as newly opened, so it goes after staging.
-	mustOpen(t, s, "db-main")
-	if got := aliases(s.Rows())[:2]; !reflect.DeepEqual(got, []string{"staging", "db-main"}) {
-		t.Fatalf("rows = %v", got)
 	}
 }
 
@@ -128,10 +219,10 @@ func TestFilterKeepsOpenConnectionsVisible(t *testing.T) {
 		filter string
 		want   []string
 	}{
-		{"web", []string{"db-main", "prod-web", "staging"}}, // group match
-		{"PUBLIC", []string{"db-main", "prod-web"}},         // description, case-insensitive
+		{"web", []string{"prod-web", "staging", "db-main"}}, // group match
+		{"PUBLIC", []string{"prod-web", "db-main"}},         // description, case-insensitive
 		{"zzz", []string{"db-main"}},
-		{"", []string{"db-main", "old-box", "prod-web", "staging"}},
+		{"", []string{"prod-web", "staging", "db-main", "old-box"}},
 	}
 	for _, tt := range tests {
 		s.SetFilter(tt.filter)
@@ -163,11 +254,11 @@ func TestReloadKeepsOpenSessionsAndOrphansVanishedHosts(t *testing.T) {
 
 func TestCursorAndCycleActive(t *testing.T) {
 	s := sample()
-	if s.Cursor().Alias != "db-main" {
-		t.Fatalf("cursor starts on first row, got %s", s.Cursor().Alias)
+	if r, _ := s.CursorRow(); !r.Header() || r.Group != "web" {
+		t.Fatalf("cursor starts on the first row, the web header, got %+v", r)
 	}
 	s.MoveCursor(10)
-	if s.Cursor().Alias != "staging" {
+	if s.Cursor().Alias != "old-box" {
 		t.Fatalf("cursor clamps to last row, got %s", s.Cursor().Alias)
 	}
 	mustOpen(t, s, "prod-web")

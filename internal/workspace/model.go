@@ -35,7 +35,22 @@ type Options struct {
 	// moment. When nil, Sessions get no process (used by layout tests).
 	Command func(alias string, claude bool) ([]string, error)
 	// OnOpen is called when a Connection becomes open (its first Session starts).
-	OnOpen          func(alias string) error
+	OnOpen func(alias string) error
+	// OnGroup saves alias's new group ("" for none) before the list shows it there.
+	OnGroup func(alias, group string) error
+	// Collapsed lists the groups that start collapsed.
+	Collapsed []string
+	// OnCollapse saves every collapsed group after one is collapsed or expanded.
+	OnCollapse func(groups []string) error
+	// SaveConnection adds a Connection (old is "") or saves changes to old.
+	// It returns an *IncludeError when ssh_config must first read sshctl's
+	// hosts file. When nil, the Workspace cannot add or edit Connections.
+	SaveConnection func(old string, s Spec) error
+	// DeleteConnection deletes alias's Host block when sshctl manages it, and
+	// its sshctl metadata. When nil, the Workspace cannot delete Connections.
+	DeleteConnection func(alias string) error
+	// AddInclude makes ssh_config read sshctl's hosts file.
+	AddInclude      func() error
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int
@@ -55,6 +70,23 @@ type confirmation struct {
 
 type clearStatusMsg struct{ id int }
 
+// moveInput is the status-line prompt asking which group to move alias to.
+type moveInput struct {
+	alias string
+	group []rune
+}
+
+// drag is a Connection held down with the left mouse button in the list.
+type drag struct {
+	alias string
+	fromY int
+	// moving is set once the pointer leaves the row it was pressed on.
+	moving bool
+	// target is the group under the pointer; ok is false off the list.
+	target string
+	ok     bool
+}
+
 // Model is the Workspace's Bubble Tea model.
 type Model struct {
 	opts      Options
@@ -70,6 +102,9 @@ type Model struct {
 	hideList  bool
 	help      bool
 	confirm   *confirmation
+	moving    *moveInput
+	form      *connForm
+	drag      *drag
 	status    string
 	statusErr bool
 	statusID  int
@@ -90,9 +125,13 @@ func New(opts Options) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	st := NewState(snap.Entries)
+	for _, g := range opts.Collapsed {
+		st.SetCollapsed(g, true)
+	}
 	return &Model{
 		opts:     opts,
-		st:       NewState(snap.Entries),
+		st:       st,
 		identity: snap.Identity,
 		ev:       newEvents(),
 		runners:  map[*Session]*runner{},
@@ -146,7 +185,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
 	case tea.PasteMsg:
-		if r := m.liveRunner(); r != nil && m.focus == focusPane && m.confirm == nil {
+		if r := m.liveRunner(); r != nil && m.focus == focusPane && m.confirm == nil && m.moving == nil && m.form == nil {
 			r.term.Paste(msg.Content)
 		}
 	case tea.KeyPressMsg:
@@ -213,6 +252,12 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.help = false
 		return nil
 	}
+	if m.moving != nil {
+		return m.moveKey(msg)
+	}
+	if m.form != nil && !m.prefix && msg.String() != m.opts.PrefixKey {
+		return m.formKey(msg)
+	}
 	if m.prefix {
 		m.prefix = false
 		return m.prefixCommand(msg)
@@ -249,8 +294,23 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.st.MoveCursor(-1)
 	case "down", "j":
 		m.st.MoveCursor(1)
-	case "enter":
+	case "enter", "space":
 		return m.enter()
+	case "left", "h":
+		if r, ok := m.st.CursorRow(); ok && m.st.grouped() {
+			m.st.SetCursorGroup(r.Group)
+			return m.setCollapsed(r.Group, true)
+		}
+	case "right", "l":
+		if r, ok := m.st.CursorRow(); ok && r.Header() {
+			return m.setCollapsed(r.Group, false)
+		}
+	case "a":
+		return m.startAdd()
+	case "e":
+		return m.startEdit()
+	case "d":
+		return m.deleteConnection()
 	case "/":
 		m.filtering = true
 	case "esc":
@@ -347,6 +407,14 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "g":
 		return m.openGroup()
+	case "m":
+		return m.startMove()
+	case "a":
+		return m.startAdd()
+	case "e":
+		return m.startEdit()
+	case "d":
+		return m.deleteConnection()
 	case "w":
 		return m.closeTab()
 	case "left":
@@ -387,6 +455,9 @@ func (m *Model) selectTab(delta int) {
 }
 
 func (m *Model) enter() tea.Cmd {
+	if r, ok := m.st.CursorRow(); ok && r.Header() {
+		return m.setCollapsed(r.Group, !m.st.Collapsed(r.Group))
+	}
 	c := m.st.Cursor()
 	if c == nil {
 		return nil
@@ -451,13 +522,14 @@ func (e *startError) Unwrap() error { return e.err }
 // for the cursor Connection's group and makes the first one active. The
 // status reports every member that failed to start.
 func (m *Model) openGroup() tea.Cmd {
-	c := m.st.Cursor()
-	if c == nil || c.Group == "" {
+	row, ok := m.st.CursorRow()
+	group := row.Group
+	if !ok || group == "" {
 		return m.setStatus("no group to open", false)
 	}
-	members := m.st.GroupToOpen(c.Group)
+	members := m.st.GroupToOpen(group)
 	if len(members) == 0 {
-		return m.setStatus("nothing to open in group "+c.Group, false)
+		return m.setStatus("nothing to open in group "+group, false)
 	}
 	var opened []string
 	var failed []*startError
@@ -482,13 +554,13 @@ func (m *Model) openGroup() tea.Cmd {
 		if other != nil {
 			return m.setStatus(other.Error(), true)
 		}
-		return m.setStatus(fmt.Sprintf("opened %s in group %s", countConnections(len(opened)), c.Group), false)
+		return m.setStatus(fmt.Sprintf("opened %s in group %s", countConnections(len(opened)), group), false)
 	}
 	aliases, reason := failedAliases(failed)
 	if len(opened) == 0 {
-		return m.setStatus(fmt.Sprintf("could not open %s in group %s%s", aliases, c.Group, reason), true)
+		return m.setStatus(fmt.Sprintf("could not open %s in group %s%s", aliases, group, reason), true)
 	}
-	return m.setStatus(fmt.Sprintf("opened %s in group %s; could not open %s%s", countConnections(len(opened)), c.Group, aliases, reason), true)
+	return m.setStatus(fmt.Sprintf("opened %s in group %s; could not open %s%s", countConnections(len(opened)), group, aliases, reason), true)
 }
 
 // failedAliases lists the aliases that failed to start. When they all failed
@@ -613,6 +685,83 @@ func (m *Model) refresh() tea.Cmd {
 	return m.setStatus("connection list refreshed", false)
 }
 
+// setCollapsed collapses or expands group and saves the collapsed groups.
+func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
+	if m.st.Collapsed(group) == collapsed {
+		return nil
+	}
+	m.st.SetCollapsed(group, collapsed)
+	if m.opts.OnCollapse != nil {
+		if err := m.opts.OnCollapse(m.st.CollapsedGroups()); err != nil {
+			return m.setStatus("save collapsed groups: "+err.Error(), true)
+		}
+	}
+	return nil
+}
+
+// moveTarget is the Connection a move applies to: the Active connection
+// while the terminal has focus, otherwise the one under the cursor.
+func (m *Model) moveTarget() *Connection {
+	if m.focus == focusPane {
+		if c := m.st.Active(); c != nil {
+			return c
+		}
+	}
+	return m.st.Cursor()
+}
+
+func (m *Model) startMove() tea.Cmd {
+	c := m.moveTarget()
+	if c == nil {
+		return m.setStatus("no connection to move", false)
+	}
+	m.moving = &moveInput{alias: c.Alias, group: []rune(c.Group)}
+	return nil
+}
+
+func (m *Model) moveKey(msg tea.KeyPressMsg) tea.Cmd {
+	in := m.moving
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		m.moving = nil
+	case "enter":
+		m.moving = nil
+		return m.moveTo(in.alias, string(in.group))
+	case "backspace":
+		if len(in.group) > 0 {
+			in.group = in.group[:len(in.group)-1]
+		}
+	case "ctrl+u":
+		in.group = nil
+	default:
+		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
+			in.group = append(in.group, []rune(msg.Text)...)
+		}
+	}
+	return nil
+}
+
+// moveTo saves alias's new group and moves it there in the list. A Connection
+// moved into a collapsed group leaves the cursor on that group's header.
+func (m *Model) moveTo(alias, group string) tea.Cmd {
+	group = strings.TrimSpace(group)
+	c := m.st.Get(alias)
+	if c == nil || c.Group == group {
+		return nil
+	}
+	from := c.Group
+	if m.opts.OnGroup != nil {
+		if err := m.opts.OnGroup(alias, group); err != nil {
+			return m.setStatus("move "+alias+": "+err.Error(), true)
+		}
+	}
+	m.st.SetGroup(alias, group)
+	if group == "" {
+		return m.setStatus(fmt.Sprintf("removed %s from group %s", alias, from), false)
+	}
+	return m.setStatus(fmt.Sprintf("moved %s to group %s", alias, group), false)
+}
+
 func (m *Model) setStatus(s string, isErr bool) tea.Cmd {
 	m.statusID++
 	m.status, m.statusErr = s, isErr
@@ -622,7 +771,16 @@ func (m *Model) setStatus(s string, isErr bool) tea.Cmd {
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	mm := msg.Mouse()
-	if mm.Y >= m.h-1 || m.help || m.confirm != nil {
+	if m.drag != nil {
+		switch msg.(type) {
+		case tea.MouseMotionMsg:
+			m.dragOver(mm)
+			return nil
+		case tea.MouseReleaseMsg:
+			return m.drop(mm)
+		}
+	}
+	if mm.Y >= m.h-1 || m.help || m.confirm != nil || m.moving != nil || m.form != nil {
 		return nil
 	}
 	lw := m.listWidth()
@@ -684,12 +842,17 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 		if mm.Button != tea.MouseLeft {
 			return nil
 		}
-		rows, offset, top := m.listRows()
-		i := mm.Y - top + offset
-		if mm.Y < top || i >= len(rows) {
+		row, ok := m.rowAt(mm.X, mm.Y)
+		if !ok {
 			return nil
 		}
-		c := rows[i]
+		if row.Header() {
+			m.st.SetCursorGroup(row.Group)
+			m.focus = focusList
+			return m.setCollapsed(row.Group, !m.st.Collapsed(row.Group))
+		}
+		c := row.Conn
+		m.drag = &drag{alias: c.Alias, fromY: mm.Y}
 		if c.Open() {
 			m.st.Activate(c.Alias)
 			m.focus, m.scrolling = focusPane, false
@@ -699,6 +862,50 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// rowAt returns the list row at screen position x, y.
+func (m *Model) rowAt(x, y int) (Row, bool) {
+	if x < 0 || x >= m.listWidth() || y >= m.h-1 {
+		return Row{}, false
+	}
+	rows, offset, top := m.listRows()
+	i := y - top + offset
+	if y < top || i < 0 || i >= len(rows) {
+		return Row{}, false
+	}
+	return rows[i], true
+}
+
+// dragOver follows a held Connection. Once it leaves its own row the list
+// also shows the ungrouped header, so it can be dropped out of its group.
+func (m *Model) dragOver(mm tea.Mouse) {
+	d := m.drag
+	if !d.moving {
+		if mm.Y == d.fromY || mm.Button != tea.MouseLeft {
+			return
+		}
+		d.moving = true
+		m.st.ShowUngrouped(true)
+	}
+	row, ok := m.rowAt(mm.X, mm.Y)
+	d.target, d.ok = row.Group, ok
+}
+
+// drop moves the held Connection to the group of the row it is released on.
+// Released off the list, or without having moved, nothing changes.
+func (m *Model) drop(mm tea.Mouse) tea.Cmd {
+	d := m.drag
+	m.drag = nil
+	if !d.moving {
+		return nil
+	}
+	row, ok := m.rowAt(mm.X, mm.Y)
+	m.st.ShowUngrouped(false)
+	if !ok {
+		return m.setStatus("move cancelled", false)
+	}
+	return m.moveTo(d.alias, row.Group)
 }
 
 // listWidth is the connection list's width, or 0 when it is hidden.
@@ -719,13 +926,13 @@ func (m *Model) paneOffset() int {
 
 // listRows returns the visible rows, the scroll offset into them, and the
 // screen row where they start (after the filter line, if shown).
-func (m *Model) listRows() (rows []*Connection, offset, top int) {
+func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
 	if m.filtering || m.st.Filter() != "" {
 		top = 1
 	}
 	height := m.h - 1 - top
-	cur := m.st.index(rows, m.st.cursor)
+	cur := m.st.CursorIndex(rows)
 	if height > 0 && cur >= height {
 		offset = cur - height + 1
 	}
