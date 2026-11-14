@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,39 +23,23 @@ var groupingEntries = []Entry{
 	{Alias: "loose"},
 }
 
-// groupingModel is an 80x12 Workspace over groupingEntries that records every
-// OnGroup and OnCollapse call; OnGroup fails when failGroup is set.
+// groupingModel is an 80x12 Workspace over groupingEntries, starting with
+// the collapsed groups, whose fakeCatalog records every SetGroup (moves) and
+// SetCollapsed (collapsed) call; SetGroup fails when failGroup is set.
 type groupingModel struct {
 	*Model
-	moves     [][2]string
-	collapsed [][]string
-	failGroup bool
+	*fakeCatalog
 }
 
 func newGroupingModel(t *testing.T, collapsed ...string) *groupingModel {
 	t.Helper()
-	g := &groupingModel{}
-	m, err := New(Options{
-		Load:      func() (Snapshot, error) { return Snapshot{Entries: groupingEntries}, nil },
-		Collapsed: collapsed,
-		OnGroup: func(alias, group string) error {
-			if g.failGroup {
-				return errors.New("disk full")
-			}
-			g.moves = append(g.moves, [2]string{alias, group})
-			return nil
-		},
-		OnCollapse: func(groups []string) error {
-			g.collapsed = append(g.collapsed, groups)
-			return nil
-		},
-	})
+	f := &fakeCatalog{entries: groupingEntries, startCollapsed: collapsed}
+	m, err := New(Options{Catalog: f})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
-	g.Model = m
-	return g
+	return &groupingModel{Model: m, fakeCatalog: f}
 }
 
 func (g *groupingModel) rows() []string { return rowNames(g.st.Rows()) }
@@ -139,11 +122,11 @@ func TestPrefixMMovesConnectionToTypedGroup(t *testing.T) {
 			g := newGroupingModel(t)
 			g.st.SetCursor("alpha")
 			press(g.Model, keyPrefix, text("m")[0])
-			if g.moving == nil || string(g.moving.group) != "web" {
-				t.Fatalf("prompt = %+v, want prefilled with web", g.moving)
+			if movePrompt(g.Model) == nil || string(movePrompt(g.Model).group) != "web" {
+				t.Fatalf("prompt = %+v, want prefilled with web", movePrompt(g.Model))
 			}
 			press(g.Model, tt.keys...)
-			if g.moving != nil {
+			if movePrompt(g.Model) != nil {
 				t.Fatal("Enter should close the prompt")
 			}
 			if got := g.st.Get("alpha").Group; got != tt.group {
@@ -162,7 +145,7 @@ func TestPrefixMEscapeAndSaveErrorLeaveGroupAlone(t *testing.T) {
 	press(g.Model, keyPrefix, text("m")[0])
 	press(g.Model, text("x")...)
 	press(g.Model, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if g.moving != nil || g.st.Get("alpha").Group != "web" || len(g.moves) != 0 {
+	if movePrompt(g.Model) != nil || g.st.Get("alpha").Group != "web" || len(g.moves) != 0 {
 		t.Fatal("Esc should cancel the move")
 	}
 	g.failGroup = true
@@ -250,4 +233,10 @@ func plainList(m *Model) []string {
 		lines[i] = ansi.Strip(l)
 	}
 	return lines
+}
+
+// movePrompt returns the open move prompt, or nil.
+func movePrompt(m *Model) *moveInput {
+	in, _ := m.modal.(*moveInput)
+	return in
 }

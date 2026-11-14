@@ -33,7 +33,7 @@ func (m *Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "sshctl"
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
-		!m.scrolling && !m.help && m.confirm == nil && !m.filtering && m.moving == nil && m.drag == nil && m.form == nil {
+		!m.scrolling && m.modal == nil && !m.filtering && m.drag == nil {
 		if x, y, visible := r.term.Cursor(); visible {
 			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
 		}
@@ -47,7 +47,7 @@ func (m *Model) render() string {
 		return ""
 	}
 	mainH := m.h - 1
-	if m.help {
+	if _, ok := m.modal.(helpScreen); ok {
 		// Help covers the whole Workspace without resizing the Sessions under it.
 		lines := make([]string, 0, m.h)
 		for _, l := range m.helpLines() {
@@ -276,8 +276,8 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 }
 
 func (m *Model) renderPane(w, h int) []string {
-	if m.form != nil {
-		return m.renderForm(w, h)
+	if f := m.form(); f != nil {
+		return f.render(w, h)
 	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
@@ -306,43 +306,31 @@ func (m *Model) renderPane(w, h int) []string {
 	return lines
 }
 
+// helpLines lists every binding (see bindings) with its keys and help text.
 func (m *Model) helpLines() []string {
-	p := keyHint(m.opts.PrefixKey)
-	rows := [][2]string{
-		{"↑/↓ Enter", "move, open or switch to a connection"},
-		{"/", "filter the connection list (Esc clears)"},
-		{"Alt+←/→", "previous / next tab"},
-		{"Alt+↑/↓", "previous / next open connection"},
-		{p + " n", "new tab for the active connection"},
-		{p + " c", "new tab running claude on the remote host"},
-		{"Enter ←/→", "on a group: collapse or expand it"},
-		{p + " g", "open the connection's group as tabs"},
-		{p + " m", "move a connection to a group (or drag it)"},
-		{p + " a / e / d", "add / edit / delete a connection (a, e, d in the list)"},
-		{p + " w", "close tab"},
-		{p + " ←/→  " + p + " 1-9", "switch tab"},
-		{p + " Tab", "move focus between list and terminal"},
-		{p + " [", "scroll back (mouse wheel also scrolls)"},
-		{"r / x", "on an ended tab: reconnect / close"},
-		{p + " b", "hide or show the connection list"},
-		{p + " r", "refresh connections from ssh_config"},
-		{p + " " + p, "send " + p + " to the session"},
-		{p + " q", "quit"},
+	labels := make([]string, len(bindings))
+	width := 0
+	for i, b := range bindings {
+		labels[i] = m.bindingLabel(b)
+		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	lines := []string{"", "  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)"), ""}
-	for _, r := range rows {
-		lines = append(lines, fmt.Sprintf("  %-14s %s", r[0], dimStyle.Render(r[1])))
+	lines := []string{"  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)"), ""}
+	for i, b := range bindings {
+		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
+		lines = append(lines, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
 	}
 	return lines
 }
 
 func (m *Model) renderStatus(w int) string {
 	var left string
+	modalStatus, ok := "", false
+	if m.modal != nil {
+		modalStatus, ok = m.modal.status()
+	}
 	switch {
-	case m.confirm != nil:
-		left = m.confirm.question
-	case m.moving != nil:
-		left = fmt.Sprintf("move %s to group: %s█  Enter move · empty for none · Esc cancel", m.moving.alias, string(m.moving.group))
+	case ok:
+		left = modalStatus
 	case m.drag != nil && m.drag.moving:
 		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
 		if m.drag.ok {
@@ -364,7 +352,7 @@ func (m *Model) renderStatus(w int) string {
 	default:
 		left = m.sessionStatus()
 	}
-	if m.prefix {
+	if m.prefix || m.modal != nil && m.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
 	p := keyHint(m.opts.PrefixKey)

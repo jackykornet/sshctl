@@ -8,20 +8,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // Entry is one Connection as loaded from ssh_config and sshctl metadata.
-type Entry struct {
-	Alias       string
-	Description string
-	Group       string
-	// Orphaned is true when sshctl metadata exists but the Host alias is gone.
-	Orphaned bool
-	// Managed is true when the Host block is in sshctl's own ssh_config file,
-	// so the Workspace can edit Host and delete the block.
-	Managed bool
-	Host    Host
-}
+type Entry = catalog.Entry
 
 // Session is one tab of a Connection.
 type Session struct {
@@ -41,9 +33,8 @@ type Connection struct {
 	Entry
 	Sessions []*Session
 	// Current is the index of the Session shown when this Connection is active.
-	Current   int
-	nextN     int
-	openedSeq int
+	Current int
+	nextN   int
 }
 
 // Open reports whether the Connection has at least one Session, live or ended.
@@ -128,7 +119,6 @@ type State struct {
 	// showUngrouped lists the ungrouped header even when it has no members,
 	// so a Connection can be dragged out of its group.
 	showUngrouped bool
-	seq           int
 	active        string
 	cursor        rowKey
 	filter        string
@@ -429,24 +419,36 @@ func (s *State) CycleActive(delta int) {
 // OpenSession adds a new Session to alias, makes it the current tab and makes
 // the Connection active.
 func (s *State) OpenSession(alias string) (*Session, error) {
+	if err := s.checkOpen(alias); err != nil {
+		return nil, err
+	}
+	sess := &Session{}
+	s.addSession(alias, sess)
+	return sess, nil
+}
+
+// checkOpen reports why a Session cannot be opened for alias, or nil.
+func (s *State) checkOpen(alias string) error {
 	c := s.conns[alias]
 	if c == nil {
-		return nil, fmt.Errorf("unknown connection %q", alias)
+		return fmt.Errorf("unknown connection %q", alias)
 	}
 	if c.Orphaned {
-		return nil, fmt.Errorf("%s: %w", alias, ErrOrphaned)
+		return fmt.Errorf("%s: %w", alias, ErrOrphaned)
 	}
-	if !c.Open() {
-		s.seq++
-		c.openedSeq = s.seq
-	}
+	return nil
+}
+
+// addSession numbers sess, adds it to alias as the current tab and makes the
+// Connection active. checkOpen must have accepted alias.
+func (s *State) addSession(alias string, sess *Session) {
+	c := s.conns[alias]
 	c.nextN++
-	sess := &Session{N: c.nextN}
+	sess.N = c.nextN
 	c.Sessions = append(c.Sessions, sess)
 	c.Current = len(c.Sessions) - 1
 	s.active = alias
 	s.SetCursor(alias)
-	return sess, nil
 }
 
 // SelectTab moves the Active connection's current tab by delta, stopping at either end.
@@ -467,17 +469,14 @@ func (s *State) SelectTabIndex(i int) {
 	}
 }
 
-// EndSession marks a Session as ended with the given exit code.
-func (s *State) EndSession(alias string, n, code int) {
-	c := s.conns[alias]
-	if c == nil {
-		return
-	}
-	for _, sess := range c.Sessions {
-		if sess.N == n {
-			sess.Ended, sess.ExitCode = true, code
+// connectionOf returns the Connection sess is a tab of, or nil once it is closed.
+func (s *State) connectionOf(sess *Session) *Connection {
+	for _, c := range s.conns {
+		if slices.Contains(c.Sessions, sess) {
+			return c
 		}
 	}
+	return nil
 }
 
 // CloseCurrent closes the Active connection's current tab. When it was the
@@ -493,7 +492,6 @@ func (s *State) CloseCurrent() *Session {
 		c.Current = max(len(c.Sessions)-1, 0)
 	}
 	if !c.Open() {
-		c.openedSeq = 0
 		s.active = ""
 		if !s.loaded[c.Alias] {
 			// It was only listed because it was open; nothing else keeps it.

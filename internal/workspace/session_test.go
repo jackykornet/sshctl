@@ -31,17 +31,11 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 	if runtime.GOOS == "windows" && s.cmd == "" {
 		t.Skip("uses POSIX-only tools")
 	}
-	var opened []string
+	f := &fakeCatalog{entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}
 	m, err := New(Options{
-		Load: func() (Snapshot, error) {
-			return Snapshot{Entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}, nil
-		},
+		Catalog: f,
 		Command: func(alias string, _ bool) ([]string, error) {
 			return s.argv(alias), nil
-		},
-		OnOpen: func(alias string) error {
-			opened = append(opened, alias)
-			return nil
 		},
 		ScrollbackLines: 100,
 	})
@@ -50,7 +44,7 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 	}
 	t.Cleanup(m.closeAll)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
-	return m, &opened
+	return m, &f.opened
 }
 
 // pump feeds runner messages into the model until cond holds.
@@ -104,14 +98,14 @@ func TestSessionEndsAndReconnects(t *testing.T) {
 	if !m.st.Get("alpha").Open() {
 		t.Fatal("ended tab keeps the connection open")
 	}
-	old := m.runners[sess]
+	old := m.sessions.runner(sess)
 	press(m, text("r")...)
-	if sess.Ended || m.runners[sess] == old {
+	if sess.Ended || m.sessions.runner(sess) == old {
 		t.Fatal("r should start a new process in the same tab")
 	}
 	pump(t, m, func() bool { return sess.Ended })
 	press(m, text("x")...)
-	if m.st.Get("alpha").Open() || len(m.runners) != 0 {
+	if m.st.Get("alpha").Open() || m.sessions.runner(sess) != nil {
 		t.Fatal("x should close the ended tab and release its process")
 	}
 }

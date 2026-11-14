@@ -10,55 +10,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// fakeStore stands in for ssh_config and sshctl metadata: Load reads its
-// entries, and the save and delete seams change them the way the real ones
-// change the files.
-type fakeStore struct {
-	entries  []Entry
-	saves    []string // "old→alias"
-	deletes  []string
-	included bool
-	saveErr  error
-}
+// needInclude is the error the catalog returns before ssh_config Includes sshctl's file.
+var needInclude = &IncludeError{Line: "Include sshctl_config", Config: "~/.ssh/config"}
 
-func (f *fakeStore) find(alias string) int {
-	for i, e := range f.entries {
-		if e.Alias == alias {
-			return i
-		}
-	}
-	return -1
-}
-
-func newStoreModel(t *testing.T, f *fakeStore) *Model {
+func newStoreModel(t *testing.T, f *fakeCatalog) *Model {
 	t.Helper()
-	m, err := New(Options{
-		Load: func() (Snapshot, error) { return Snapshot{Entries: append([]Entry(nil), f.entries...)}, nil },
-		SaveConnection: func(old string, s Spec) error {
-			if f.saveErr != nil {
-				return f.saveErr
-			}
-			if s.Managed && !f.included {
-				return &IncludeError{Line: "Include sshctl_config", Config: "~/.ssh/config"}
-			}
-			f.saves = append(f.saves, old+"→"+s.Alias)
-			e := Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host}
-			if i := f.find(old); old != "" && i >= 0 {
-				f.entries[i] = e
-			} else {
-				f.entries = append(f.entries, e)
-			}
-			return nil
-		},
-		DeleteConnection: func(alias string) error {
-			f.deletes = append(f.deletes, alias)
-			if i := f.find(alias); i >= 0 {
-				f.entries = append(f.entries[:i], f.entries[i+1:]...)
-			}
-			return nil
-		},
-		AddInclude: func() error { f.included = true; return nil },
-	})
+	m, err := New(Options{Catalog: f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,27 +44,27 @@ func fill(m *Model, values ...string) {
 }
 
 func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("a")...)
-	if m.form == nil || m.form.old != "" {
+	if m.form() == nil || m.form().old != "" {
 		t.Fatal("a should open the add form")
 	}
-	if got := m.form.spec().Group; got != "prod" {
+	if got := m.form().spec().Group; got != "prod" {
 		t.Errorf("group prefilled with %q, want the cursor's group prod", got)
 	}
 	fill(m, "api", "10.0.0.9", "", "2222")
 	press(m, keyCtrlS)
-	if m.confirm == nil || !strings.Contains(m.confirm.question, "Include sshctl_config") {
-		t.Fatalf("want a question about the Include line, got %+v", m.confirm)
+	if m.confirm() == nil || !strings.Contains(m.confirm().question, "Include sshctl_config") {
+		t.Fatalf("want a question about the Include line, got %+v", m.confirm())
 	}
 	press(m, text("y")...)
-	if m.form != nil || !f.included {
-		t.Fatalf("form = %+v included = %v", m.form, f.included)
+	if m.form() != nil || f.includes != 1 {
+		t.Fatalf("form = %+v includes = %d", m.form(), f.includes)
 	}
-	if want := []string{"→api"}; !reflect.DeepEqual(f.saves, want) {
-		t.Fatalf("saves = %v, want %v", f.saves, want)
+	if want := []string{"→api", "→api"}; !reflect.DeepEqual(f.saves, want) {
+		t.Fatalf("saves = %v, want %v: the save is retried after the Include", f.saves, want)
 	}
 	c := m.st.Get("api")
 	if c == nil || c.Group != "prod" || c.Host.Port != "2222" || !c.Managed {
@@ -119,39 +76,39 @@ func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 }
 
 func TestDecliningIncludeKeepsTheForm(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
 	press(m, keyPrefix, text("a")[0])
 	fill(m, "api", "h")
 	press(m, keyCtrlS, text("n")[0])
-	if m.form == nil || len(f.saves) != 0 || f.included {
-		t.Fatalf("form = %v saves = %v included = %v", m.form, f.saves, f.included)
+	if m.form() == nil || len(f.saves) != 1 || f.includes != 0 {
+		t.Fatalf("form = %v saves = %v includes = %d", m.form(), f.saves, f.includes)
 	}
 }
 
 func TestSaveErrorStaysInForm(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true, saveErr: errors.New("hostname is required")}
+	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{errors.New("hostname is required")}}
 	m := newStoreModel(t, f)
 	press(m, text("a")...)
 	press(m, keyCtrlS)
-	if m.form == nil || m.form.err != "hostname is required" {
-		t.Fatalf("form = %+v", m.form)
+	if m.form() == nil || m.form().err != "hostname is required" {
+		t.Fatalf("form = %+v", m.form())
 	}
 	if !strings.Contains(ansi.Strip(m.render()), "hostname is required") {
 		t.Error("the error should be shown in the form")
 	}
 	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.form != nil {
+	if m.form() != nil {
 		t.Fatal("Esc should close the form")
 	}
 }
 
 func TestEditManagedConnectionCanRename(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("e")...)
-	if got := m.form.spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form.fields) != 7 {
+	if got := m.form().spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form().fields) != 7 {
 		t.Fatalf("form = %+v", got)
 	}
 	fill(m, "web1")
@@ -165,27 +122,31 @@ func TestEditManagedConnectionCanRename(t *testing.T) {
 }
 
 func TestRenamingOpenConnectionIsRefused(t *testing.T) {
-	f := &fakeStore{entries: storeEntries(), included: true}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.OpenSession("web") // active, terminal focus not needed: the cursor is on it
 	press(m, keyPrefix, text("e")[0])
 	fill(m, "web1")
 	press(m, keyCtrlS)
-	if m.form == nil || !strings.Contains(m.form.err, "close web's tabs") || len(f.saves) != 0 {
-		t.Fatalf("form = %+v saves = %v", m.form, f.saves)
+	if m.form() == nil || !strings.Contains(m.form().err, "close web's tabs") || len(f.saves) != 0 {
+		t.Fatalf("form = %+v saves = %v", m.form(), f.saves)
 	}
 }
 
 func TestEditUnmanagedConnectionOnlyChangesMetadata(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)
-	if len(m.form.fields) != 2 {
-		t.Fatalf("fields = %d, want description and group only", len(m.form.fields))
+	if len(m.form().fields) != 2 {
+		t.Fatalf("fields = %d, want description and group only", len(m.form().fields))
 	}
 	fill(m, "laptop", "home")
-	press(m, keyCtrlS) // no Include needed: nothing is written to ssh_config
+	press(m, keyCtrlS)
+	want := Spec{Alias: "mine", Description: "laptop", Group: "home"}
+	if !reflect.DeepEqual(f.specs, []Spec{want}) {
+		t.Fatalf("saved %+v, want only %+v", f.specs, want)
+	}
 	if c := m.st.Get("mine"); c.Description != "laptop" || c.Group != "home" || c.Managed {
 		t.Fatalf("mine = %+v", c)
 	}
@@ -201,12 +162,12 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.alias, func(t *testing.T) {
-			f := &fakeStore{entries: storeEntries()}
+			f := &fakeCatalog{entries: storeEntries()}
 			m := newStoreModel(t, f)
 			m.st.SetCursor(tt.alias)
 			press(m, text("d")...)
-			if m.confirm == nil || !strings.HasPrefix(m.confirm.question, tt.question) {
-				t.Fatalf("confirm = %+v, want %q", m.confirm, tt.question)
+			if m.confirm() == nil || !strings.HasPrefix(m.confirm().question, tt.question) {
+				t.Fatalf("confirm = %+v, want %q", m.confirm(), tt.question)
 			}
 			press(m, text("y")...)
 			if !reflect.DeepEqual(f.deletes, []string{tt.alias}) || m.st.Get(tt.alias) != nil {
@@ -217,15 +178,15 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 }
 
 func TestDeleteRefusesOpenOrForeignConnections(t *testing.T) {
-	f := &fakeStore{entries: append(storeEntries(), Entry{Alias: "bare"})}
+	f := &fakeCatalog{entries: append(storeEntries(), Entry{Alias: "bare"})}
 	m := newStoreModel(t, f)
 	m.st.OpenSession("web")
 	press(m, keyPrefix, text("d")[0]) // web is active and open
 	m.st.SetCursor("bare")
 	m.focus = focusList
 	press(m, text("d")...)
-	if m.confirm != nil || len(f.deletes) != 0 {
-		t.Fatalf("confirm = %+v deletes = %v", m.confirm, f.deletes)
+	if m.confirm() != nil || len(f.deletes) != 0 {
+		t.Fatalf("confirm = %+v deletes = %v", m.confirm(), f.deletes)
 	}
 	if !strings.Contains(m.status, "defined outside sshctl") {
 		t.Errorf("status = %q", m.status)
@@ -233,7 +194,7 @@ func TestDeleteRefusesOpenOrForeignConnections(t *testing.T) {
 }
 
 func TestFormIsDrawnInThePane(t *testing.T) {
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
@@ -243,7 +204,41 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 		}
 	}
 	m.Update(tea.MouseClickMsg{X: 3, Y: 1, Button: tea.MouseLeft})
-	if m.form == nil {
+	if m.form() == nil {
 		t.Error("the mouse must not act behind an open form")
+	}
+}
+
+func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
+	f := &fakeCatalog{entries: storeEntries()}
+	m := newStoreModel(t, f)
+	loads := f.loads
+	m.st.SetCursor("web")
+	press(m, text("a")...)
+	fill(m, "api", "10.0.0.9")
+	for _, k := range "nar" {
+		press(m, keyPrefix, tea.KeyPressMsg{Code: k, Text: string(k)})
+	}
+	if n := len(m.st.Get("web").Sessions); n != 0 {
+		t.Errorf("^B n opened %d Sessions behind the form", n)
+	}
+	if n := f.loads - loads; n != 0 {
+		t.Errorf("^B r reloaded %d times behind the form", n)
+	}
+	if m.form() == nil {
+		t.Fatal("the form should still be open")
+	}
+	if s := m.form().spec(); s.Alias != "api" || s.Host.HostName != "10.0.0.9" {
+		t.Fatalf("form lost its contents: %+v", s)
+	}
+	press(m, keyCtrlS)
+	if m.form() != nil || !reflect.DeepEqual(f.saves, []string{"→api"}) {
+		t.Fatalf("saving after prefix keys: form = %+v saves = %v", m.form(), f.saves)
+	}
+	press(m, text("a")...)
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyEscape})
+	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.form() != nil {
+		t.Fatal("Esc should still close the form")
 	}
 }

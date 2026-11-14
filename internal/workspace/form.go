@@ -6,37 +6,19 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // Host is how OpenSSH reaches a Connection whose Host block sshctl manages.
-type Host struct {
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
-}
+type Host = catalog.Host
 
 // Spec is a Connection as entered in the connection form.
-type Spec struct {
-	Alias       string
-	Description string
-	Group       string
-	// Managed is true when sshctl writes the Host block, so Host applies.
-	// For a Connection defined elsewhere in ssh_config only the description
-	// and group are saved.
-	Managed bool
-	Host    Host
-}
+type Spec = catalog.Spec
 
-// IncludeError is returned by Options.SaveConnection when the user's
-// ssh_config does not yet read sshctl's hosts file. Saving can be retried
-// after Options.AddInclude adds Line to Config.
-type IncludeError struct {
-	Line   string
-	Config string
-}
-
-func (e *IncludeError) Error() string { return e.Config + " does not contain " + e.Line }
+// IncludeError is returned by Catalog.Save when the user's ssh_config does
+// not yet read sshctl's hosts file. Saving can be retried after
+// Catalog.AddInclude adds Line to Config.
+type IncludeError = catalog.IncludeError
 
 type fieldID int
 
@@ -59,6 +41,7 @@ type formField struct {
 
 // connForm is the form for adding or editing a Connection, drawn in the pane.
 type connForm struct {
+	prefixGate
 	// old is the alias being edited, or "" when adding.
 	old     string
 	managed bool
@@ -134,35 +117,31 @@ func (f *connForm) spec() Spec {
 }
 
 func (m *Model) startAdd() tea.Cmd {
-	if m.opts.SaveConnection == nil {
-		return nil
-	}
 	group := ""
 	if r, ok := m.st.CursorRow(); ok {
 		group = r.Group
 	}
-	m.form = newAddForm(group)
+	m.openModal(newAddForm(group))
 	return nil
 }
 
 func (m *Model) startEdit() tea.Cmd {
-	if m.opts.SaveConnection == nil {
-		return nil
-	}
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
 	}
-	m.form = newEditForm(c)
+	m.openModal(newEditForm(c))
 	return nil
 }
 
-func (m *Model) formKey(msg tea.KeyPressMsg) tea.Cmd {
-	f := m.form
+func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	if cmd, ok := f.intercept(m, msg); ok {
+		return cmd
+	}
 	fl := &f.fields[f.focus]
 	switch msg.String() {
 	case "esc":
-		m.form = nil
+		m.modal = nil
 	case "tab", "down":
 		f.focus = (f.focus + 1) % len(f.fields)
 	case "shift+tab", "up":
@@ -172,28 +151,31 @@ func (m *Model) formKey(msg tea.KeyPressMsg) tea.Cmd {
 			f.focus++
 			return nil
 		}
-		return m.saveForm()
+		return m.saveForm(f)
 	case "ctrl+s":
-		return m.saveForm()
-	case "backspace":
-		if len(fl.value) > 0 {
-			fl.value = fl.value[:len(fl.value)-1]
-		}
-	case "ctrl+u":
-		fl.value = nil
+		return m.saveForm(f)
 	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			fl.value = append(fl.value, []rune(msg.Text)...)
-		}
+		fl.value, _ = editLine(fl.value, msg)
 	}
 	return nil
 }
 
-// saveForm saves the form through Options.SaveConnection and reloads the
+func (f *connForm) paste(text string) {
+	fl := &f.fields[f.focus]
+	fl.value = pasteLine(fl.value, text)
+}
+
+func (f *connForm) status() (string, bool) {
+	if f.swallowed {
+		return "form open: Esc to cancel", true
+	}
+	return "", false
+}
+
+// saveForm saves the form through the Catalog and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config
 // must Include sshctl's hosts file first, it asks before adding the line.
-func (m *Model) saveForm() tea.Cmd {
-	f := m.form
+func (m *Model) saveForm(f *connForm) tea.Cmd {
 	s := f.spec()
 	if f.old != "" && s.Alias != f.old {
 		if c := m.st.Get(f.old); c != nil && c.Open() {
@@ -201,39 +183,33 @@ func (m *Model) saveForm() tea.Cmd {
 			return nil
 		}
 	}
-	err := m.opts.SaveConnection(f.old, s)
+	err := m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
-	if errors.As(err, &inc) && m.opts.AddInclude != nil {
-		m.confirm = &confirmation{
-			question: fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config),
-			yes: func(m *Model) tea.Cmd {
-				if err := m.opts.AddInclude(); err != nil {
-					m.form.err = err.Error()
-					return nil
-				}
-				return m.saveForm()
-			},
-		}
+	if errors.As(err, &inc) {
+		m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), func(m *Model) tea.Cmd {
+			if err := m.opts.Catalog.AddInclude(); err != nil {
+				f.err = err.Error()
+				return nil
+			}
+			return m.saveForm(f)
+		})
 		return nil
 	}
 	if err != nil {
 		f.err = err.Error()
 		return nil
 	}
-	m.form = nil
+	m.modal = nil
 	verb := "saved"
 	if f.old == "" {
 		verb = "added"
 	}
-	return m.reloadAfterEdit(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	return m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
 }
 
 // deleteConnection asks before deleting the target Connection: its Host
 // block when sshctl manages it, and its sshctl metadata.
 func (m *Model) deleteConnection() tea.Cmd {
-	if m.opts.DeleteConnection == nil {
-		return nil
-	}
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to delete", false)
@@ -249,33 +225,17 @@ func (m *Model) deleteConnection() tea.Cmd {
 		question = fmt.Sprintf("Remove %s's description and group? Its Host block is not sshctl's. (y/n)", c.Alias)
 	}
 	alias := c.Alias
-	m.confirm = &confirmation{question: question, yes: func(m *Model) tea.Cmd {
-		if err := m.opts.DeleteConnection(alias); err != nil {
+	m.ask(question, func(m *Model) tea.Cmd {
+		if err := m.opts.Catalog.Delete(alias); err != nil {
 			return m.setStatus("delete "+alias+": "+err.Error(), true)
 		}
-		return m.reloadAfterEdit("", "deleted "+alias)
-	}}
+		return m.reload("", "deleted "+alias)
+	})
 	return nil
 }
 
-// reloadAfterEdit reloads the list from disk, puts the cursor on alias when
-// it is set, and shows status.
-func (m *Model) reloadAfterEdit(alias, status string) tea.Cmd {
-	snap, err := m.opts.Load()
-	if err != nil {
-		return m.setStatus("reload: "+err.Error(), true)
-	}
-	m.st.Reload(snap.Entries)
-	m.identity = snap.Identity
-	if alias != "" {
-		m.st.SetCursor(alias)
-	}
-	return m.setStatus(status, false)
-}
-
 // renderForm draws the connection form in a w×h pane.
-func (m *Model) renderForm(w, h int) []string {
-	f := m.form
+func (f *connForm) render(w, h int) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
