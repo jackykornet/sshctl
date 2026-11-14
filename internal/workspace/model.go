@@ -239,8 +239,18 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if m.moving != nil {
 		return m.moveKey(msg)
 	}
-	if m.form != nil && !m.prefix && msg.String() != m.opts.PrefixKey {
-		return m.formKey(msg)
+	if m.form != nil {
+		// Prefix commands would act on the Workspace hidden behind the
+		// form, so the prefix key and the key after it are swallowed.
+		switch {
+		case m.prefix:
+			m.prefix = false
+		case k == m.opts.PrefixKey:
+			m.prefix = true
+		default:
+			return m.formKey(msg)
+		}
+		return nil
 	}
 	if m.prefix {
 		m.prefix = false

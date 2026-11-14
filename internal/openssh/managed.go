@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -32,6 +33,18 @@ type Host struct {
 
 // ErrUnknownHost is returned when a managed Host block does not exist.
 var ErrUnknownHost = errors.New("not a host managed by sshctl")
+
+// AliasExistsError is returned when saving would add an alias that ssh_config
+// already defines. OpenSSH uses the first block it reads, so a second block
+// with the same alias would silently win or lose.
+type AliasExistsError struct{ Alias string }
+
+func (e *AliasExistsError) Error() string { return e.Alias + " already exists in ssh_config" }
+
+// ErrNotIncluded is returned when saving a Host block while the user's
+// ssh_config does not Include the managed file, so OpenSSH would not read
+// it. AddInclude fixes it.
+var ErrNotIncluded = errors.New("ssh_config does not contain " + IncludeLine)
 
 func (c *Client) sshDir() string {
 	if c.SSHDir != "" {
@@ -90,28 +103,46 @@ func (c *Client) ManagedHosts() ([]Host, error) {
 
 // SaveHost writes h to the managed file, replacing the block for old, or
 // adding a new block when old is "". Extra lines of a replaced block are kept.
+//
+// It enforces ADR-0002: old must be a block in the managed file
+// (ErrUnknownHost otherwise), h must pass Validate, a new or renamed alias
+// must not exist anywhere in ssh_config (*AliasExistsError), and the user's
+// ssh_config must Include the managed file (ErrNotIncluded).
 func (c *Client) SaveHost(old string, h Host) error {
-	if err := h.Validate(); err != nil {
-		return err
-	}
 	hosts, err := c.ManagedHosts()
 	if err != nil {
 		return err
 	}
 	i := -1
-	for j, x := range hosts {
-		if old != "" && x.Alias == old {
-			i = j
-		} else if x.Alias == h.Alias {
-			return fmt.Errorf("%s already exists in %s", h.Alias, ManagedFile)
+	if old != "" {
+		i = slices.IndexFunc(hosts, func(x Host) bool { return x.Alias == old })
+		if i < 0 {
+			return fmt.Errorf("%s: %w", old, ErrUnknownHost)
 		}
 	}
-	switch {
-	case old == "":
+	if err := h.Validate(); err != nil {
+		return err
+	}
+	if old != h.Alias {
+		aliases, err := c.Aliases()
+		if err != nil {
+			return err
+		}
+		inManaged := slices.ContainsFunc(hosts, func(x Host) bool { return x.Alias == h.Alias })
+		if inManaged || slices.Contains(aliases, h.Alias) {
+			return &AliasExistsError{Alias: h.Alias}
+		}
+	}
+	included, err := c.IncludesManaged()
+	if err != nil {
+		return err
+	}
+	if !included {
+		return ErrNotIncluded
+	}
+	if i < 0 {
 		hosts = append(hosts, h)
-	case i < 0:
-		return fmt.Errorf("%s: %w", old, ErrUnknownHost)
-	default:
+	} else {
 		h.Extra = hosts[i].Extra
 		hosts[i] = h
 	}
