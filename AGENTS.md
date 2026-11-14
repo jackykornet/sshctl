@@ -4,8 +4,8 @@
 
 sshctl is one Go module (Go 1.25) with a single binary. Domain terms (Connection, Session, Workspace, Orphaned connection, Selected identity) are defined in `GLOSSARY.md`; the Workspace's stack is fixed by `docs/adr/0001-workspace-tui-stack.md`.
 
-- `cmd/sshctl`: the CLI entry. `commands.go` dispatches subcommands; `workspace.go` wires the Workspace to config and OpenSSH (`sessionCommand`, `recordOpen`, `workspaceSnapshot`). With no arguments sshctl opens the Workspace only when stdin and stdout are both terminals, and prints help otherwise.
-- `internal/catalog`: the Connection catalog. Saving and deleting Connections goes through it, so the rename, drop and write-order rules live only here.
+- `cmd/sshctl`: the CLI entry. `commands.go` dispatches subcommands; `workspace.go` wires the Workspace to the Connection catalog and `sessionCommand`. With no arguments sshctl opens the Workspace only when stdin and stdout are both terminals, and prints help otherwise.
+- `internal/catalog`: the Connection catalog. Listing Connections (`Snapshot`), saving, deleting, regrouping them, recording an open in History and saving collapsed Groups go through it, so the rename, drop and write-order rules live only here.
 - `internal/config`: the versioned JSON config (Connection metadata, Selected identity, History, `workspace` settings) and migration from legacy files.
 - `internal/openssh`: everything that runs or reads OpenSSH: ssh_config aliases (following `Include`), `ssh` argv (`ConnectArgs`), `ssh-add`, `ssh-keygen -R`.
 - `internal/platform`: opens a new OS terminal window running `ssh` for `group connect`.
@@ -35,11 +35,11 @@ Use Go’s built-in `testing` package and colocate tests with implementation. Pr
 - **State** (`state_test.go`): ordering, open/active/ended, filter and Reload on the pure State, with no terminal.
 - **Golden layouts** (`model_test.go`): `newTestModel`, `press` and `golden` render the whole Workspace to `testdata/*.golden`. After an intended layout change, regenerate with `go test ./internal/workspace -update` and review the golden diff before committing.
 - **Real-process Sessions** (`session_test.go`): `newSessionModel(t, script{sh, cmd})` runs `sh` on POSIX and `cmd.exe` on Windows in place of `ssh`, and `pump` feeds runner events until the screen matches. Give every new Session test a `cmd` variant; a test without one is skipped on Windows.
-- **Recording fake Command** (`fixture_test.go`): `newRecordingModel(t, entries, fail...)` returns a Workspace and a `recorder` of every `Command` call (alias, claude) and `OnOpen` alias. Its Command runs the test binary with no tests, which exits at once on every platform, and fails for the aliases in `fail`. Use it for tests about which Sessions start, not what they print.
+- **Recording fake Command** (`fixture_test.go`): `newRecordingModel(t, entries, fail...)` returns a Workspace and a `recorder` of every `Command` call (alias, claude) and every alias its `fakeCatalog` recorded as opened. Its Command runs the test binary with no tests, which exits at once on every platform, and fails for the aliases in `fail`. Use it for tests about which Sessions start, not what they print.
 - **OpenSSH** (`internal/openssh`): tests write temporary ssh_config trees.
-- **Connection catalog** (`internal/catalog`): tests use a temporary sshctl config and ssh_config tree (`newTree`). Workspace tests replace it with `fakeCatalog` (`crud_test.go`) through `Options.Catalog`.
+- **Connection catalog** (`internal/catalog`): tests use a temporary sshctl config and ssh_config tree (`newTree`). Workspace tests replace it with `fakeCatalog` (`fixture_test.go`) through `Options.Catalog`, which every Workspace needs.
 
-Tests never start the real `ssh`. `Options.Command` and `Options.Load` are the seams for replacing it and the config.
+Tests never start the real `ssh`. `Options.Command` and `Options.Catalog` are the seams for replacing it and the config.
 
 ## Commit & Pull Request Guidelines
 

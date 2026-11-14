@@ -15,16 +15,14 @@ var update = flag.Bool("update", false, "rewrite golden files")
 
 func newTestModel(t *testing.T, w, h int) *Model {
 	t.Helper()
-	m, err := New(Options{Load: func() (Snapshot, error) {
-		return Snapshot{
-			Entries: []Entry{
-				{Alias: "staging", Group: "web"},
-				{Alias: "prod-web", Description: "public site", Group: "web"},
-				{Alias: "db-main", Description: "postgres"},
-				{Alias: "old-box", Description: "retired", Orphaned: true},
-			},
-			Identity: "/home/me/.ssh/id_ed25519",
-		}, nil
+	m, err := New(Options{Catalog: &fakeCatalog{
+		entries: []Entry{
+			{Alias: "staging", Group: "web"},
+			{Alias: "prod-web", Description: "public site", Group: "web"},
+			{Alias: "db-main", Description: "postgres"},
+			{Alias: "old-box", Description: "retired", Orphaned: true},
+		},
+		identity: "/home/me/.ssh/id_ed25519",
 	}})
 	if err != nil {
 		t.Fatal(err)

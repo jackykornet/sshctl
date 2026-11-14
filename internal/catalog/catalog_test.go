@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -233,5 +234,102 @@ func TestFailedMetadataWriteRestoresTheHostBlock(t *testing.T) {
 	hosts := tr.hosts(t)
 	if _, ok := hosts["api2"]; ok || hosts["api"].HostName != "h" {
 		t.Errorf("Host blocks = %+v, want api as before so its metadata still matches", hosts)
+	}
+}
+
+func TestRecordOpenPutsConnectionFirstInHistory(t *testing.T) {
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	for i := range 20 {
+		cfg.History = append(cfg.History, fmt.Sprintf("h%02d", i))
+	}
+	tr.seed(t, cfg)
+	if err := tr.cat.RecordOpen("h05"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.config(t).History; len(got) != 20 || got[0] != "h05" || got[6] != "h06" || got[19] != "h19" {
+		t.Errorf("History = %v, want h05 moved to the front", got)
+	}
+	if err := tr.cat.RecordOpen("new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.config(t).History; len(got) != 20 || got[0] != "new" || got[1] != "h05" || got[19] != "h18" {
+		t.Errorf("History = %v, want new first and the oldest dropped to keep 20", got)
+	}
+}
+
+func TestSetGroupKeepsDescriptionAndDropsEmptiedMetadata(t *testing.T) {
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "prod"}
+	cfg.Connections["tmp"] = config.Connection{Alias: "tmp", Group: "scratch"}
+	tr.seed(t, cfg)
+	for _, mv := range [][2]string{{"web", "staging"}, {"db", "data"}, {"tmp", ""}} {
+		if err := tr.cat.SetGroup(mv[0], mv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := tr.config(t)
+	if web := got.Connections["web"]; web.Group != "staging" || web.Description != "site" {
+		t.Errorf("web = %+v, want group staging keeping its description", web)
+	}
+	if db := got.Connections["db"]; db.Alias != "db" || db.Group != "data" {
+		t.Errorf("db = %+v, want new metadata in group data", db)
+	}
+	if _, ok := got.Connections["tmp"]; ok {
+		t.Error("tmp has no description or group left and should lose its metadata")
+	}
+}
+
+func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
+	tr := newTree(t, true, "")
+	if err := tr.cat.SetCollapsed([]string{"data", "staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tr.config(t).Workspace.CollapsedGroups, []string{"data", "staging"}; !slices.Equal(got, want) {
+		t.Errorf("collapsed = %v, want %v", got, want)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"data", "staging"}; !slices.Equal(snap.Collapsed, want) {
+		t.Errorf("snapshot collapsed = %v, want %v", snap.Collapsed, want)
+	}
+}
+
+func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
+	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
+	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := tr.config(t)
+	cfg.DefaultKey = "/k/id"
+	cfg.Workspace.CollapsedGroups = []string{"prod"}
+	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
+	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
+	tr.seed(t, cfg)
+
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Entry{
+		{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}},
+		{Alias: "mine", Description: "laptop"},
+		{Alias: "old", Group: "prod", Orphaned: true},
+		{Alias: "zz-gone", Description: "retired", Orphaned: true},
+	}
+	if !slices.Equal(snap.Entries, want) {
+		t.Errorf("entries = %+v, want %+v", snap.Entries, want)
+	}
+	if snap.Identity != "/k/id" {
+		t.Errorf("identity = %q, want /k/id", snap.Identity)
+	}
+	if !slices.Equal(snap.Collapsed, []string{"prod"}) {
+		t.Errorf("collapsed = %v, want [prod]", snap.Collapsed)
 	}
 }

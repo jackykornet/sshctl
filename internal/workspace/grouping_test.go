@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,39 +23,23 @@ var groupingEntries = []Entry{
 	{Alias: "loose"},
 }
 
-// groupingModel is an 80x12 Workspace over groupingEntries that records every
-// OnGroup and OnCollapse call; OnGroup fails when failGroup is set.
+// groupingModel is an 80x12 Workspace over groupingEntries, starting with
+// the collapsed groups, whose fakeCatalog records every SetGroup (moves) and
+// SetCollapsed (collapsed) call; SetGroup fails when failGroup is set.
 type groupingModel struct {
 	*Model
-	moves     [][2]string
-	collapsed [][]string
-	failGroup bool
+	*fakeCatalog
 }
 
 func newGroupingModel(t *testing.T, collapsed ...string) *groupingModel {
 	t.Helper()
-	g := &groupingModel{}
-	m, err := New(Options{
-		Load:      func() (Snapshot, error) { return Snapshot{Entries: groupingEntries}, nil },
-		Collapsed: collapsed,
-		OnGroup: func(alias, group string) error {
-			if g.failGroup {
-				return errors.New("disk full")
-			}
-			g.moves = append(g.moves, [2]string{alias, group})
-			return nil
-		},
-		OnCollapse: func(groups []string) error {
-			g.collapsed = append(g.collapsed, groups)
-			return nil
-		},
-	})
+	f := &fakeCatalog{entries: groupingEntries, startCollapsed: collapsed}
+	m, err := New(Options{Catalog: f})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
-	g.Model = m
-	return g
+	return &groupingModel{Model: m, fakeCatalog: f}
 }
 
 func (g *groupingModel) rows() []string { return rowNames(g.st.Rows()) }

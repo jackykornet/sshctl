@@ -117,9 +117,6 @@ func (f *connForm) spec() Spec {
 }
 
 func (m *Model) startAdd() tea.Cmd {
-	if m.opts.Catalog == nil {
-		return nil
-	}
 	group := ""
 	if r, ok := m.st.CursorRow(); ok {
 		group = r.Group
@@ -129,9 +126,6 @@ func (m *Model) startAdd() tea.Cmd {
 }
 
 func (m *Model) startEdit() tea.Cmd {
-	if m.opts.Catalog == nil {
-		return nil
-	}
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
@@ -211,9 +205,6 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 // deleteConnection asks before deleting the target Connection: its Host
 // block when sshctl manages it, and its sshctl metadata.
 func (m *Model) deleteConnection() tea.Cmd {
-	if m.opts.Catalog == nil {
-		return nil
-	}
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to delete", false)
