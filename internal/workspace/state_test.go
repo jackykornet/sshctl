@@ -194,7 +194,7 @@ func TestClosingLastTabStopsBeingOpen(t *testing.T) {
 func TestEndedSessionKeepsConnectionOpen(t *testing.T) {
 	s := sample()
 	sess := mustOpen(t, s, "db-main")
-	s.EndSession("db-main", sess.N, 255)
+	sess.Ended, sess.ExitCode = true, 255 // as the Session lifecycle does when its process exits
 	c := s.Get("db-main")
 	if !c.Open() || !c.AllEnded() || c.LiveSessions() != 0 || sess.ExitCode != 255 {
 		t.Fatalf("unexpected state: open=%v allEnded=%v exit=%d", c.Open(), c.AllEnded(), sess.ExitCode)

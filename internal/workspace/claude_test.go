@@ -48,7 +48,7 @@ func TestTabBarCombinesClaudeMarkerWithSessionState(t *testing.T) {
 	press(m, prefixC...)              // alpha 2: will have unseen activity
 	press(m, keyPrefix, text("n")[0]) // alpha 3: plain ssh, the shown tab
 	c := m.st.Active()
-	m.st.EndSession("alpha", 1, 255)
+	endSession(m, c.Sessions[0], 255)
 	m.st.MarkActivity(c.Sessions[1])
 	bar, spans := m.tabBar(80)
 	want := " alpha 1 claude ✕  alpha 2 claude •  alpha 3 "

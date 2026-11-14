@@ -120,7 +120,7 @@ func TestActivityMarkersGolden(t *testing.T) {
 	m.st.MarkActivity(prod.Sessions[0])
 	m.st.MarkActivity(db.Sessions[0])
 	m.st.MarkActivity(db.Sessions[1])
-	m.st.EndSession("db-main", 2, 1)
+	endSession(m, db.Sessions[1], 1)
 	m.st.MarkActivity(db.Sessions[2]) // shown: never marked
 	golden(t, "activity", m)
 
@@ -179,7 +179,7 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	}
 	press(m, keyEnter)
 	c := m.st.Active()
-	m.st.EndSession(c.Alias, c.CurrentSession().N, 1)
+	endSession(m, c.CurrentSession(), 1)
 	press(m, keyPrefix, text("w")[0])
 	if m.confirm != nil || m.st.Active() != nil {
 		t.Fatal("closing an ended tab should not ask")
