@@ -105,8 +105,11 @@ func TestSaveAndDeleteConnectionWriteManagedHostsAndMetadata(t *testing.T) {
 	if err := a.saveConnection("", api); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.saveConnection("", workspace.Spec{Alias: "mine", Managed: true, Host: workspace.Host{HostName: "x"}}); err == nil {
-		t.Error("adding an alias that ssh_config already has should fail")
+	if err := a.saveConnection("", workspace.Spec{Alias: "mine", Managed: true, Host: workspace.Host{HostName: "x"}}); err == nil || err.Error() != "mine already exists in ssh_config" {
+		t.Errorf("adding an alias that ssh_config already has: err = %v", err)
+	}
+	if err := a.saveConnection("mine", workspace.Spec{Alias: "mine", Managed: true, Host: workspace.Host{HostName: "x"}}); err == nil {
+		t.Error("a Spec claiming the user's Host block is managed must not write it")
 	}
 	snap, err := a.workspaceSnapshot()
 	if err != nil {
@@ -130,8 +133,17 @@ func TestSaveAndDeleteConnectionWriteManagedHostsAndMetadata(t *testing.T) {
 	if _, ok := cfg.Connections["api"]; ok || cfg.Connections["api2"].Group != "prod" || cfg.History[0] != "api2" {
 		t.Fatalf("metadata after rename = %+v history = %v", cfg.Connections, cfg.History)
 	}
-	if err := a.saveConnection("mine", workspace.Spec{Alias: "mine2", Description: "x"}); err == nil {
-		t.Error("renaming a Host block sshctl does not manage should fail")
+	if err := a.saveConnection("mine", workspace.Spec{Alias: "mine2", Description: "x"}); err == nil || err.Error() != "mine is defined outside sshctl and cannot be renamed here" {
+		t.Errorf("renaming a Host block sshctl does not manage: err = %v", err)
+	}
+	if err := a.saveConnection("mine", workspace.Spec{Alias: "mine", Description: "mine"}); err != nil {
+		t.Fatalf("describing the user's own Connection: %v", err)
+	}
+	if err := a.deleteConnection("mine"); err != nil {
+		t.Fatalf("deleting the user's own Connection drops only its metadata: %v", err)
+	}
+	if cfg, _ := config.Load(path, nil); cfg.Connections["mine"].Description != "" {
+		t.Error("mine's metadata should be deleted")
 	}
 
 	if err := a.deleteConnection("api2"); err != nil {
