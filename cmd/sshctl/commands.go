@@ -24,7 +24,7 @@ type app struct {
 	legacy   []string
 	cfg      *config.Config
 	ssh      *openssh.Client
-	// runSSH runs remote commands over ssh; tests replace it.
+	// runSSH runs ssh and ssh-keygen; tests replace it.
 	runSSH openssh.Runner
 }
 
