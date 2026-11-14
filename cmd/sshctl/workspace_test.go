@@ -1,11 +1,13 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/sshctl/sshctl/internal/config"
+	"github.com/sshctl/sshctl/internal/workspace"
 )
 
 func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
@@ -26,7 +28,7 @@ func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := a.sessionCommand("web", tt.claude)
+			got, err := a.sessionCommand("web", workspace.Launch{Claude: tt.claude})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -34,5 +36,20 @@ func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 				t.Errorf("sessionCommand(web, %v) = %v, want %v", tt.claude, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSessionCommandRunsActionAsSshctlItself(t *testing.T) {
+	a := &app{cfgPath: filepath.Join(t.TempDir(), "config.json"), cfg: config.New()}
+	got, err := a.sessionCommand("web", workspace.Launch{Action: workspace.ActionBootstrap})
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{self, "bootstrap", "web"}; !slices.Equal(got, want) {
+		t.Errorf("sessionCommand(web, bootstrap) = %v, want %v", got, want)
 	}
 }

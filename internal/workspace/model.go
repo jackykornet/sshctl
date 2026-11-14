@@ -51,11 +51,12 @@ type Options struct {
 	// Catalog loads and saves Connections and the Workspace's saved state.
 	// It is required.
 	Catalog Catalog
-	// Command returns the command line for a new Session of alias; claude asks
-	// for a Session that runs claude on the remote host. It is called each time
-	// a tab opens or reconnects, so it can use the Selected identity at that
-	// moment. When nil, Sessions get no process (used by layout tests).
-	Command         func(alias string, claude bool) ([]string, error)
+	// Command returns the command line for a new Session of alias that runs
+	// what l says: ssh, claude on the remote host, or one of sshctl's own
+	// Actions. It is called each time a tab opens or reconnects, so it can
+	// use the Selected identity at that moment. When nil, Sessions get no
+	// process (used by layout tests).
+	Command         func(alias string, l Launch) ([]string, error)
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int
@@ -189,7 +190,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.ev.listen()
 	case sessionEndedMsg:
 		m.sessions.takeActivity() // its last output may not have been redrawn yet
-		m.sessions.ended(msg)
+		if m.sessions.ended(msg) && msg.sess.Action != "" && msg.code == 0 {
+			// An Action may have rewritten the Connection's Host block.
+			return tea.Batch(m.reload("", string(msg.sess.Action)+" finished; connection list refreshed"), m.ev.listen())
+		}
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
@@ -360,13 +364,13 @@ func (m *Model) enter() tea.Cmd {
 		m.focus = focusPane
 		return nil
 	}
-	return m.open(c.Alias, false)
+	return m.open(c.Alias, Launch{})
 }
 
-// open starts a new Session (tab) for alias, running claude when claude is
-// set, and shows any error on the status line.
-func (m *Model) open(alias string, claude bool) tea.Cmd {
-	if err := m.openSession(alias, claude); err != nil {
+// open starts a new Session (tab) for alias running what l says, and shows
+// any error on the status line.
+func (m *Model) open(alias string, l Launch) tea.Cmd {
+	if err := m.openSession(alias, l); err != nil {
 		return m.setStatus(err.Error(), true)
 	}
 	return nil
@@ -375,10 +379,10 @@ func (m *Model) open(alias string, claude bool) tea.Cmd {
 // openSession starts a new Session (tab) for alias. When the Session cannot
 // start, the Connection is left as it was and the error is a *startError.
 // A History error is returned with the Session left running.
-func (m *Model) openSession(alias string, claude bool) error {
+func (m *Model) openSession(alias string, l Launch) error {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
-	if _, err := m.sessions.open(alias, claude); err != nil {
+	if _, err := m.sessions.open(alias, l); err != nil {
 		if errors.Is(err, ErrOrphaned) {
 			return errors.New(alias + " is missing from ssh_config")
 		}
@@ -422,7 +426,7 @@ func (m *Model) openGroup() tea.Cmd {
 	var failed []*startError
 	var other error // e.g. a History error; the Session still opened
 	for _, member := range members {
-		err := m.openSession(member.Alias, false)
+		err := m.openSession(member.Alias, Launch{})
 		var se *startError
 		switch {
 		case errors.As(err, &se):
@@ -556,7 +560,7 @@ func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
 	return nil
 }
 
-// moveTarget is the Connection a move applies to: the Active connection
+// moveTarget is the Connection a move or an Action applies to: the Active connection
 // while the terminal has focus, otherwise the one under the cursor.
 func (m *Model) moveTarget() *Connection {
 	if m.focus == focusPane {
