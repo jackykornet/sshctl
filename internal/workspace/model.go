@@ -26,6 +26,19 @@ type Snapshot struct {
 	Identity string
 }
 
+// Catalog is the Connection catalog as the Workspace uses it. The real one
+// is *catalog.Catalog.
+type Catalog interface {
+	// Save adds a Connection (old is "") or saves changes to old. It returns
+	// an *IncludeError when ssh_config must first read sshctl's hosts file.
+	Save(old string, s Spec) error
+	// Delete deletes alias's Host block when sshctl manages it, and its
+	// sshctl metadata.
+	Delete(alias string) error
+	// AddInclude makes ssh_config read sshctl's hosts file.
+	AddInclude() error
+}
+
 // Options configures a Workspace.
 type Options struct {
 	Load func() (Snapshot, error)
@@ -42,15 +55,9 @@ type Options struct {
 	Collapsed []string
 	// OnCollapse saves every collapsed group after one is collapsed or expanded.
 	OnCollapse func(groups []string) error
-	// SaveConnection adds a Connection (old is "") or saves changes to old.
-	// It returns an *IncludeError when ssh_config must first read sshctl's
-	// hosts file. When nil, the Workspace cannot add or edit Connections.
-	SaveConnection func(old string, s Spec) error
-	// DeleteConnection deletes alias's Host block when sshctl manages it, and
-	// its sshctl metadata. When nil, the Workspace cannot delete Connections.
-	DeleteConnection func(alias string) error
-	// AddInclude makes ssh_config read sshctl's hosts file.
-	AddInclude      func() error
+	// Catalog saves and deletes Connections. When nil, the Workspace cannot
+	// add, edit or delete them.
+	Catalog         Catalog
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int

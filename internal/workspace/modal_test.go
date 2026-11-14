@@ -22,9 +22,9 @@ var modals = []struct {
 	{"help", func(m *Model) { press(m, keyPrefix, text("?")[0]) }},
 }
 
-func newModalModel(t *testing.T) (*Model, *fakeStore) {
+func newModalModel(t *testing.T) (*Model, *fakeCatalog) {
 	t.Helper()
-	f := &fakeStore{entries: storeEntries()}
+	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	return m, f

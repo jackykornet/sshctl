@@ -39,6 +39,16 @@ type Workspace struct {
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
+// SetMetadata sets alias's description and group. Metadata with neither is
+// dropped, so an emptied Connection leaves nothing behind.
+func (c *Config) SetMetadata(alias, description, group string) {
+	if description == "" && group == "" {
+		delete(c.Connections, alias)
+		return
+	}
+	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group}
+}
+
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }
 
 func Paths() (string, []string, error) {

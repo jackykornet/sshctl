@@ -12,6 +12,10 @@ _Avoid_: Server, host, profile
 A Connection whose Host block is in sshctl's own file, `~/.ssh/sshctl_config`, which the user's ssh_config Includes. The Workspace can add, edit, rename and delete it. Every other Connection's Host block belongs to the user, and sshctl only edits its description and group.
 _Avoid_: sshctl host, owned connection
 
+**Connection catalog**:
+The one place sshctl reads and changes Connections, keeping sshctl's metadata, History and Managed connections' Host blocks consistent: a rename moves all three, metadata with no description and no group is dropped, and a failed save changes nothing.
+_Avoid_: Store, repository, database
+
 **Orphaned connection**:
 A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened.
 _Avoid_: Stale, missing, saved-only connection
