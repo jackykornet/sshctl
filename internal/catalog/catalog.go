@@ -145,6 +145,44 @@ func (c *Catalog) SetCollapsed(groups []string) error {
 	return c.update(func(cfg *config.Config) { cfg.Workspace.CollapsedGroups = groups })
 }
 
+// Dotfiles returns the global dotfiles setting: a repo URL,
+// config.DotfilesNone, or "" when unset.
+func (c *Catalog) Dotfiles() (string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return "", err
+	}
+	return cfg.Provision.Dotfiles, nil
+}
+
+// SetDotfiles saves the global dotfiles setting ("" unsets it).
+func (c *Catalog) SetDotfiles(repo string) error {
+	return c.update(func(cfg *config.Config) { cfg.Provision.Dotfiles = repo })
+}
+
+var (
+	// ErrNoDotfiles is returned by ProvisionRepo when no dotfiles repo is set.
+	ErrNoDotfiles = errors.New("no dotfiles repo is set")
+	// ErrProvisionRefused is returned by ProvisionRepo when the setting
+	// that applies is config.DotfilesNone.
+	ErrProvisionRefused = errors.New("Provision is refused by the dotfiles setting none")
+)
+
+// ProvisionRepo returns the dotfiles repo Provision applies to alias's host.
+// In v1 that is the global setting.
+func (c *Catalog) ProvisionRepo(alias string) (string, error) {
+	repo, err := c.Dotfiles()
+	switch {
+	case err != nil:
+		return "", err
+	case repo == "":
+		return "", ErrNoDotfiles
+	case repo == config.DotfilesNone:
+		return "", ErrProvisionRefused
+	}
+	return repo, nil
+}
+
 // update loads the sshctl config, applies change and saves it.
 func (c *Catalog) update(change func(*config.Config)) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
