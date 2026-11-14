@@ -53,6 +53,10 @@ type Snapshot struct {
 	Identity string
 	// Collapsed lists the groups the Workspace shows collapsed.
 	Collapsed []string
+	// Include is set when sshctl's hosts file exists but the user's
+	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
+	// on a new machine the file was synced to (ADR-0004). AddInclude fixes it.
+	Include *IncludeError
 }
 
 // IncludeError is returned by Save when the user's ssh_config does not yet
@@ -103,6 +107,9 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 		managed[h.Alias] = h
 	}
 	snap := Snapshot{Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
+	if snap.Include, err = c.missingInclude(); err != nil {
+		return Snapshot{}, err
+	}
 	seen := map[string]bool{}
 	for _, alias := range aliases {
 		seen[alias] = true
@@ -126,6 +133,26 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Group: m.Group, Orphaned: true})
 	}
 	return snap, nil
+}
+
+// missingInclude returns the Include the user's ssh_config lacks when
+// sshctl's hosts file exists, and nil when there is no such file or it is
+// already Included.
+func (c *Catalog) missingInclude() (*IncludeError, error) {
+	if _, err := os.Stat(c.ssh.ManagedPath()); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	included, err := c.ssh.IncludesManaged()
+	if err != nil || included {
+		return nil, err
+	}
+	return c.includeError(), nil
+}
+
+func (c *Catalog) includeError() *IncludeError {
+	return &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
 }
 
 // RecordOpen records in History that alias was opened.
@@ -209,7 +236,7 @@ func (c *Catalog) saveHost(old string, s Spec) (undo func() error, err error) {
 	h := openssh.Host{Alias: s.Alias, Endpoint: s.Host}
 	switch err := c.saveHostBlock(old, h); {
 	case errors.Is(err, openssh.ErrNotIncluded):
-		return nil, &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
+		return nil, c.includeError()
 	case errors.Is(err, openssh.ErrUnknownHost):
 		return nil, c.notManaged(old, s.Alias)
 	case err != nil:

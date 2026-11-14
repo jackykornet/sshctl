@@ -132,6 +132,9 @@ func New(opts Options) (*Model, error) {
 		size:       m.paneSize,
 		runners:    map[*Session]*runner{},
 	}
+	if snap.Include != nil {
+		m.offerInclude(snap.Include)
+	}
 	return m, nil
 }
 

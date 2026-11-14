@@ -186,7 +186,7 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 	err := m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
 	if errors.As(err, &inc) {
-		m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), func(m *Model) tea.Cmd {
+		m.askInclude(inc, func(m *Model) tea.Cmd {
 			if err := m.opts.Catalog.AddInclude(); err != nil {
 				f.err = err.Error()
 				return nil
@@ -205,6 +205,24 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 		verb = "added"
 	}
 	return m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+}
+
+// askInclude asks before adding inc's Include line to the user's ssh_config
+// (ADR-0002); yes runs on y.
+func (m *Model) askInclude(inc *IncludeError, yes func(*Model) tea.Cmd) {
+	m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), yes)
+}
+
+// offerInclude asks at startup to add the Include that sshctl's existing
+// hosts file lacks (ADR-0004). It is asked once per Workspace, so no
+// leaves everything unchanged for the rest of the session.
+func (m *Model) offerInclude(inc *IncludeError) {
+	m.askInclude(inc, func(m *Model) tea.Cmd {
+		if err := m.opts.Catalog.AddInclude(); err != nil {
+			return m.setStatus("add include: "+err.Error(), true)
+		}
+		return m.reload("", fmt.Sprintf("added %q to %s", inc.Line, inc.Config))
+	})
 }
 
 // deleteConnection asks before deleting the target Connection: its Host

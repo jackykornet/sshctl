@@ -451,3 +451,36 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 		t.Errorf("collapsed = %v, want [prod]", snap.Collapsed)
 	}
 }
+
+// A hosts file synced to a new machine is invisible to ssh until the user's
+// ssh_config Includes it (ADR-0004).
+func TestSnapshotReportsAnUnincludedHostsFile(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		included, hostFile bool
+		want               bool
+	}{
+		{"hosts file not included", false, true, true},
+		{"hosts file included", true, true, false},
+		{"no hosts file", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, tc.included, "Host user-box\n    HostName 10.0.0.1\n")
+			if tc.hostFile {
+				if err := os.WriteFile(tr.ssh.ManagedPath(), []byte("Host synced\n    HostName 10.0.0.2\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snap, err := tr.cat.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snap.Include != nil; got != tc.want {
+				t.Fatalf("Include = %+v, want set %v", snap.Include, tc.want)
+			}
+			if tc.want && snap.Include.Line != openssh.IncludeLine {
+				t.Fatalf("Include.Line = %q, want %q", snap.Include.Line, openssh.IncludeLine)
+			}
+		})
+	}
+}
