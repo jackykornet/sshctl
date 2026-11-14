@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +23,74 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 		t.Fatal("expected unknown command error")
 	}
 }
+
+// cliTree is an app over a temporary sshctl config and ssh_config, reading in.
+func cliTree(t *testing.T, sshConfig string, cfg *config.Config, in string) (*app, *bytes.Buffer) {
+	t.Helper()
+	dir := t.TempDir()
+	ssh := &openssh.Client{SSHConfig: filepath.Join(dir, "config"), SSHDir: dir}
+	if err := os.WriteFile(ssh.SSHConfig, []byte(sshConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "sshctl.json")
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	return &app{in: strings.NewReader(in), out: &out, err: &out, cfgPath: path, cfg: cfg, ssh: ssh}, &out
+}
+
+func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
+	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
+	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
+	cfg.Connections["mid"] = config.Connection{Alias: "mid", Description: "moved"}
+	a, out := cliTree(t, "Host web\n  HostName 10.0.0.1\nHost db\n  HostName 10.0.0.2\nHost *\n  User me\n", cfg, "")
+	if err := a.list(); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"web                      front end [prod]\n" +
+		"db                       \n" +
+		"mid                      moved (orphaned)\n" +
+		"old                       [prod] (orphaned)\n" +
+		"zz-gone                  retired (orphaned)\n"
+	if out.String() != want {
+		t.Errorf("list output:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
+	a, _ := cliTree(t, "Host web\n", config.New(), "\n\n")
+	if err := a.metadata([]string{"web"}, false); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(a.cfgPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := loaded.Connections["web"]; ok {
+		t.Errorf("empty add saved metadata %#v, want none", m)
+	}
+}
+
+func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
+	a, _ := cliTree(t, "Host web\n", cfg, "\nstaging\n")
+	if err := a.metadata([]string{"web"}, true); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(a.cfgPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); got != want {
+		t.Errorf("edited metadata = %#v, want %#v", got, want)
+	}
+}
+
 func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()

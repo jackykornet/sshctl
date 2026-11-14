@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
 	"github.com/sshctl/sshctl/internal/platform"
@@ -56,7 +57,7 @@ Usage: sshctl                 Open the Workspace (in a terminal)
        sshctl <command> [arguments]
 
 Commands:
-  list                         List saved connections and SSH config aliases
+  list                         List Connections
   connect <alias> [--claude]   Connect using OpenSSH
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
@@ -137,28 +138,26 @@ func (a *app) execute(args []string) error {
 	return fmt.Errorf("unknown or incomplete command; run sshctl --help")
 }
 func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
+
+// catalog is the Connection catalog over a's config files, read fresh on each call.
+func (a *app) catalog() *catalog.Catalog { return catalog.New(a.cfgPath, a.legacy, a.ssh) }
+
+// list prints the Connections the Workspace lists: ssh_config's aliases, then
+// the Orphaned connections.
 func (a *app) list() error {
-	aliases, err := a.ssh.Aliases()
+	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	seen := map[string]bool{}
-	for _, name := range aliases {
-		seen[name] = true
-		c, ok := a.cfg.Connections[name]
-		label := ""
-		if ok {
-			label = c.Description
-			if c.Group != "" {
-				label += fmt.Sprintf(" [%s]", c.Group)
-			}
+	for _, e := range snap.Entries {
+		label := e.Description
+		if e.Group != "" {
+			label += fmt.Sprintf(" [%s]", e.Group)
 		}
-		fmt.Fprintf(a.out, "%-24s %s\n", name, label)
-	}
-	for name, c := range a.cfg.Connections {
-		if !seen[name] {
-			fmt.Fprintf(a.out, "%-24s %s (saved)\n", name, c.Description)
+		if e.Orphaned {
+			label += " (orphaned)"
 		}
+		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, label)
 	}
 	return nil
 }
@@ -196,7 +195,6 @@ func (a *app) metadata(args []string, edit bool) error {
 	if edit && !exists {
 		return fmt.Errorf("no sshctl metadata for %q", alias)
 	}
-	c.Alias = alias
 	reader := bufio.NewReader(a.in)
 	fmt.Fprintf(a.out, "Description [%s]: ", c.Description)
 	desc, err := reader.ReadString('\n')
@@ -214,8 +212,9 @@ func (a *app) metadata(args []string, edit bool) error {
 	if strings.TrimSpace(group) != "" {
 		c.Group = strings.TrimSpace(group)
 	}
-	a.cfg.Connections[alias] = c
-	return a.save()
+	// Saving under the same alias without Managed changes only the
+	// description and group, never a Host block.
+	return a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Group: c.Group})
 }
 func (a *app) remove(args []string) error {
 	if len(args) != 1 {
@@ -239,7 +238,7 @@ func (a *app) groupConnect(args []string) error {
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		return fmt.Errorf("group %q has no saved connections", args[0])
+		return fmt.Errorf("group %q has no Connections", args[0])
 	}
 	for _, n := range names {
 		if err := platform.OpenSSH(n, a.cfg.DefaultKey); err != nil {
