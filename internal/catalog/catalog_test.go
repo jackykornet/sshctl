@@ -565,3 +565,83 @@ func TestSnapshotReportsAnUnincludedHostsFile(t *testing.T) {
 		})
 	}
 }
+
+func TestProvisionRepoTakesTheGroupsRepoThenTheGlobalOne(t *testing.T) {
+	const global, group = "https://example.com/global.git", "https://example.com/prod.git"
+	for _, tc := range []struct {
+		name          string
+		global, group string
+		member        bool
+		want          string
+		err           error
+	}{
+		{"group repo wins", global, group, true, group, nil},
+		{"unset group falls back to global", global, "", true, global, nil},
+		{"ungrouped uses global", global, group, false, global, nil},
+		{"group none refuses despite global", global, config.DotfilesNone, true, "", ErrProvisionRefused},
+		{"global none refuses", config.DotfilesNone, "", true, "", ErrProvisionRefused},
+		{"group repo without global", "", group, true, group, nil},
+		{"nothing set", "", "", true, "", ErrNoDotfiles},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, true, "Host web\n")
+			cfg := config.New()
+			cfg.Provision.Dotfiles = tc.global
+			cfg.Groups = []config.Group{{Name: "prod", Dotfiles: tc.group}}
+			if tc.member {
+				cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+			}
+			tr.seed(t, cfg)
+			got, err := tr.cat.ProvisionRepo("web")
+			if !errors.Is(err, tc.err) || got != tc.want {
+				t.Errorf("ProvisionRepo = %q, %v; want %q, %v", got, err, tc.want, tc.err)
+			}
+		})
+	}
+}
+
+func TestProvisionRefusedByAGroupNamesTheGroup(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod", Dotfiles: config.DotfilesNone}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	tr.seed(t, cfg)
+	if _, err := tr.cat.ProvisionRepo("web"); err == nil || !strings.Contains(err.Error(), "prod") {
+		t.Errorf("err = %v, want one naming group prod", err)
+	}
+}
+
+func TestSetGroupDotfilesSavesOnTheGroupRecord(t *testing.T) {
+	const repo = "https://example.com/prod.git"
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "dev"}, {Name: "prod"}}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroupDotfiles("prod", repo); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Group{{Name: "dev"}, {Name: "prod", Dotfiles: repo}}; !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
+	}
+	if err := tr.cat.SetGroupDotfiles("prod", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.config(t).Groups[1]; got.Dotfiles != "" {
+		t.Errorf("after unset prod = %+v", got)
+	}
+}
+
+func TestSetGroupDotfilesRefusesAGroupWithNoRecord(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.seed(t, config.New())
+	if err := tr.cat.SetGroupDotfiles("nowhere", config.DotfilesNone); !errors.Is(err, ErrUnknownGroup) {
+		t.Fatalf("err = %v, want ErrUnknownGroup", err)
+	}
+	if got := tr.config(t).Groups; len(got) != 0 {
+		t.Errorf("groups = %+v, want none created", got)
+	}
+}

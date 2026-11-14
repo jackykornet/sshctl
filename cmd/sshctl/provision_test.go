@@ -59,6 +59,9 @@ func TestProvisionDefaultRefusesBadArguments(t *testing.T) {
 		{"provision", "default", "a", "b"},
 		{"provision", "default", "--unset", dotfiles},
 		{"provision", "default", "--bogus"},
+		{"provision", "default", "--group", "prod"},
+		{"provision", "default", dotfiles, "--group"},
+		{"provision", "default", dotfiles, "--group", "a", "--group", "b"},
 	} {
 		a, _ := cliTree(t, "Host web\n", config.New(), "")
 		if err := a.execute(args); err == nil || !strings.Contains(err.Error(), "usage") {
@@ -367,5 +370,79 @@ func TestExitCode(t *testing.T) {
 		if got := exitCode(tc.err); got != tc.want {
 			t.Errorf("exitCode(%v) = %d, want %d", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestProvisionDefaultSetsListsAndUnsetsAGroupsRepo(t *testing.T) {
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "lab"}}
+	a, out := cliTree(t, "Host web\n", cfg, "")
+	steps := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"provision", "default"}, "global: unset\ngroup prod: unset\ngroup lab: unset\n"},
+		{[]string{"provision", "default", dotfiles, "--group", "prod"}, ""},
+		{[]string{"provision", "default", "--group", "lab", "none"}, ""},
+		{[]string{"provision", "default"}, "global: unset\ngroup prod: " + dotfiles + "\ngroup lab: none (Provision refused)\n"},
+		{[]string{"provision", "default", "--unset", "--group", "prod"}, ""},
+		{[]string{"provision", "default"}, "global: unset\ngroup prod: unset\ngroup lab: none (Provision refused)\n"},
+	}
+	for _, s := range steps {
+		out.Reset()
+		stale(a)
+		if err := a.execute(s.args); err != nil {
+			t.Fatalf("%v: %v", s.args, err)
+		}
+		if out.String() != s.want {
+			t.Errorf("%v printed %q, want %q", s.args, out.String(), s.want)
+		}
+	}
+}
+
+func TestProvisionDefaultRefusesAnUnknownGroup(t *testing.T) {
+	a, _ := cliTree(t, "Host web\n", config.New(), "")
+	if err := a.execute([]string{"provision", "default", dotfiles, "--group", "nowhere"}); err == nil || !strings.Contains(err.Error(), "nowhere") {
+		t.Errorf("err = %v, want one naming the group", err)
+	}
+}
+
+func TestProvisionUsesTheGroupsRepoOrRefusesForItsGroup(t *testing.T) {
+	const prodRepo = "https://example.com/prod.git"
+	for _, tc := range []struct {
+		name, group string
+		want        string
+		err         string
+	}{
+		{"group repo", prodRepo, prodRepo, ""},
+		{"global fallback", "", dotfiles, ""},
+		{"group none", config.DotfilesNone, "", "group prod"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.New()
+			cfg.Provision.Dotfiles = dotfiles
+			cfg.Groups = []config.Group{{Name: "prod", Dotfiles: tc.group}}
+			cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+			a, out := cliTree(t, "Host web\n", cfg, "")
+			r := &sshRecorder{}
+			a.runSSH = r.run
+			err := a.execute([]string{"provision", "web"})
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Errorf("err = %v, want one containing %q", err, tc.err)
+				}
+				if len(r.calls) != 0 {
+					t.Errorf("ssh ran %d times, want none", len(r.calls))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := r.calls[len(r.calls)-1]
+			if !strings.Contains(out.String(), tc.want) || !strings.Contains(script[len(script)-1], tc.want) {
+				t.Errorf("provisioned with %q / %q, want %q", out.String(), r.calls, tc.want)
+			}
+		})
 	}
 }

@@ -222,6 +222,20 @@ func (c *Catalog) SetDotfiles(repo string) error {
 	})
 }
 
+// SetGroupDotfiles saves group's dotfiles setting on its record ("" unsets
+// it, so the global setting applies). The Group must already have a record;
+// otherwise SetGroupDotfiles returns ErrUnknownGroup and changes nothing.
+func (c *Catalog) SetGroupDotfiles(group, repo string) error {
+	return c.update(func(cfg *config.Config) error {
+		i := cfg.GroupIndex(group)
+		if i < 0 {
+			return fmt.Errorf("%q: %w", group, ErrUnknownGroup)
+		}
+		cfg.Groups[i].Dotfiles = repo
+		return nil
+	})
+}
+
 var (
 	// ErrNoDotfiles is returned by ProvisionRepo when no dotfiles repo is set.
 	ErrNoDotfiles = errors.New("no dotfiles repo is set")
@@ -230,19 +244,34 @@ var (
 	ErrProvisionRefused = errors.New("Provision is refused by the dotfiles setting none")
 )
 
-// ProvisionRepo returns the dotfiles repo Provision applies to alias's host.
-// In v1 that is the global setting.
+// ProvisionRepo returns the dotfiles repo Provision applies to alias's host:
+// its Group's setting when that is set, otherwise the global one. There is
+// no per-Connection setting. A Group set to config.DotfilesNone refuses
+// Provision whatever the global setting is, and the error names the Group.
 func (c *Catalog) ProvisionRepo(alias string) (string, error) {
-	repo, err := c.Dotfiles()
-	switch {
-	case err != nil:
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
 		return "", err
-	case repo == "":
-		return "", ErrNoDotfiles
-	case repo == config.DotfilesNone:
-		return "", ErrProvisionRefused
 	}
-	return repo, nil
+	if group := cfg.Connections[alias].Group; group != "" {
+		if i := cfg.GroupIndex(group); i >= 0 {
+			switch repo := cfg.Groups[i].Dotfiles; repo {
+			case "":
+			case config.DotfilesNone:
+				return "", fmt.Errorf("%w of group %s", ErrProvisionRefused, group)
+			default:
+				return repo, nil
+			}
+		}
+	}
+	switch repo := cfg.Provision.Dotfiles; repo {
+	case "":
+		return "", ErrNoDotfiles
+	case config.DotfilesNone:
+		return "", ErrProvisionRefused
+	default:
+		return repo, nil
+	}
 }
 
 // update loads the sshctl config, applies change and saves it, unless

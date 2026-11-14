@@ -207,3 +207,23 @@ func TestSaveRefusesDanglingSymlink(t *testing.T) {
 		t.Fatal("dangling link was replaced")
 	}
 }
+
+func TestGroupDotfilesSurviveARenameAndASaveRoundTrip(t *testing.T) {
+	path := writeConfig(t, `{"version":2,"groups":[{"name":"7","dotfiles":"https://example.com/d.git"},{"name":"off","dotfiles":"none"}],
+		"connections":{"web":{"alias":"web","group":"7"}}}`)
+	c, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Group{{Name: "group-7", Dotfiles: "https://example.com/d.git"}, {Name: "off", Dotfiles: DotfilesNone}}
+	if !reflect.DeepEqual(c.Groups, want) {
+		t.Errorf("groups = %+v, want %+v", c.Groups, want)
+	}
+	again, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.Groups, want) {
+		t.Errorf("reloaded groups = %+v, want %+v", again.Groups, want)
+	}
+}
