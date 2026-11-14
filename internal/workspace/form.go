@@ -59,6 +59,7 @@ type formField struct {
 
 // connForm is the form for adding or editing a Connection, drawn in the pane.
 type connForm struct {
+	prefixGate
 	// old is the alias being edited, or "" when adding.
 	old     string
 	managed bool
@@ -141,7 +142,7 @@ func (m *Model) startAdd() tea.Cmd {
 	if r, ok := m.st.CursorRow(); ok {
 		group = r.Group
 	}
-	m.form = newAddForm(group)
+	m.openModal(newAddForm(group))
 	return nil
 }
 
@@ -153,16 +154,18 @@ func (m *Model) startEdit() tea.Cmd {
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
 	}
-	m.form = newEditForm(c)
+	m.openModal(newEditForm(c))
 	return nil
 }
 
-func (m *Model) formKey(msg tea.KeyPressMsg) tea.Cmd {
-	f := m.form
+func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	if cmd, ok := f.intercept(m, msg); ok {
+		return cmd
+	}
 	fl := &f.fields[f.focus]
 	switch msg.String() {
 	case "esc":
-		m.form = nil
+		m.modal = nil
 	case "tab", "down":
 		f.focus = (f.focus + 1) % len(f.fields)
 	case "shift+tab", "up":
@@ -172,28 +175,26 @@ func (m *Model) formKey(msg tea.KeyPressMsg) tea.Cmd {
 			f.focus++
 			return nil
 		}
-		return m.saveForm()
+		return m.saveForm(f)
 	case "ctrl+s":
-		return m.saveForm()
-	case "backspace":
-		if len(fl.value) > 0 {
-			fl.value = fl.value[:len(fl.value)-1]
-		}
-	case "ctrl+u":
-		fl.value = nil
+		return m.saveForm(f)
 	default:
-		if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-			fl.value = append(fl.value, []rune(msg.Text)...)
-		}
+		fl.value, _ = editLine(fl.value, msg)
 	}
 	return nil
 }
 
+func (f *connForm) paste(text string) {
+	fl := &f.fields[f.focus]
+	fl.value = pasteLine(fl.value, text)
+}
+
+func (f *connForm) status() (string, bool) { return "", false }
+
 // saveForm saves the form through Options.SaveConnection and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config
 // must Include sshctl's hosts file first, it asks before adding the line.
-func (m *Model) saveForm() tea.Cmd {
-	f := m.form
+func (m *Model) saveForm(f *connForm) tea.Cmd {
 	s := f.spec()
 	if f.old != "" && s.Alias != f.old {
 		if c := m.st.Get(f.old); c != nil && c.Open() {
@@ -204,23 +205,20 @@ func (m *Model) saveForm() tea.Cmd {
 	err := m.opts.SaveConnection(f.old, s)
 	var inc *IncludeError
 	if errors.As(err, &inc) && m.opts.AddInclude != nil {
-		m.confirm = &confirmation{
-			question: fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config),
-			yes: func(m *Model) tea.Cmd {
-				if err := m.opts.AddInclude(); err != nil {
-					m.form.err = err.Error()
-					return nil
-				}
-				return m.saveForm()
-			},
-		}
+		m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), func(m *Model) tea.Cmd {
+			if err := m.opts.AddInclude(); err != nil {
+				f.err = err.Error()
+				return nil
+			}
+			return m.saveForm(f)
+		})
 		return nil
 	}
 	if err != nil {
 		f.err = err.Error()
 		return nil
 	}
-	m.form = nil
+	m.modal = nil
 	verb := "saved"
 	if f.old == "" {
 		verb = "added"
@@ -249,12 +247,12 @@ func (m *Model) deleteConnection() tea.Cmd {
 		question = fmt.Sprintf("Remove %s's description and group? Its Host block is not sshctl's. (y/n)", c.Alias)
 	}
 	alias := c.Alias
-	m.confirm = &confirmation{question: question, yes: func(m *Model) tea.Cmd {
+	m.ask(question, func(m *Model) tea.Cmd {
 		if err := m.opts.DeleteConnection(alias); err != nil {
 			return m.setStatus("delete "+alias+": "+err.Error(), true)
 		}
 		return m.reloadAfterEdit("", "deleted "+alias)
-	}}
+	})
 	return nil
 }
 
@@ -274,8 +272,7 @@ func (m *Model) reloadAfterEdit(alias, status string) tea.Cmd {
 }
 
 // renderForm draws the connection form in a w×h pane.
-func (m *Model) renderForm(w, h int) []string {
-	f := m.form
+func (f *connForm) render(w, h int) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "

@@ -139,11 +139,11 @@ func TestPrefixMMovesConnectionToTypedGroup(t *testing.T) {
 			g := newGroupingModel(t)
 			g.st.SetCursor("alpha")
 			press(g.Model, keyPrefix, text("m")[0])
-			if g.moving == nil || string(g.moving.group) != "web" {
-				t.Fatalf("prompt = %+v, want prefilled with web", g.moving)
+			if movePrompt(g.Model) == nil || string(movePrompt(g.Model).group) != "web" {
+				t.Fatalf("prompt = %+v, want prefilled with web", movePrompt(g.Model))
 			}
 			press(g.Model, tt.keys...)
-			if g.moving != nil {
+			if movePrompt(g.Model) != nil {
 				t.Fatal("Enter should close the prompt")
 			}
 			if got := g.st.Get("alpha").Group; got != tt.group {
@@ -162,7 +162,7 @@ func TestPrefixMEscapeAndSaveErrorLeaveGroupAlone(t *testing.T) {
 	press(g.Model, keyPrefix, text("m")[0])
 	press(g.Model, text("x")...)
 	press(g.Model, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if g.moving != nil || g.st.Get("alpha").Group != "web" || len(g.moves) != 0 {
+	if movePrompt(g.Model) != nil || g.st.Get("alpha").Group != "web" || len(g.moves) != 0 {
 		t.Fatal("Esc should cancel the move")
 	}
 	g.failGroup = true
@@ -250,4 +250,10 @@ func plainList(m *Model) []string {
 		lines[i] = ansi.Strip(l)
 	}
 	return lines
+}
+
+// movePrompt returns the open move prompt, or nil.
+func movePrompt(m *Model) *moveInput {
+	in, _ := m.modal.(*moveInput)
+	return in
 }

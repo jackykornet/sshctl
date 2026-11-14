@@ -153,10 +153,10 @@ func TestQuitConfirmsWhenSessionsAreLive(t *testing.T) {
 	}
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
-	if cmd := press(m, keyPrefix, text("q")[0]); cmd != nil || m.confirm == nil {
+	if cmd := press(m, keyPrefix, text("q")[0]); cmd != nil || m.confirm() == nil {
 		t.Fatal("quit with a live session should ask first")
 	}
-	if cmd := press(m, text("n")...); cmd != nil || m.confirm != nil {
+	if cmd := press(m, text("n")...); cmd != nil || m.confirm() != nil {
 		t.Fatal("answering n should cancel")
 	}
 	press(m, keyPrefix, text("q")[0])
@@ -170,7 +170,7 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
 	press(m, keyPrefix, text("w")[0])
-	if m.confirm == nil {
+	if m.confirm() == nil {
 		t.Fatal("closing a live tab should ask first")
 	}
 	press(m, text("y")...)
@@ -181,7 +181,7 @@ func TestCloseTabConfirmsOnlyWhenLive(t *testing.T) {
 	c := m.st.Active()
 	m.st.EndSession(c.Alias, c.CurrentSession().N, 1)
 	press(m, keyPrefix, text("w")[0])
-	if m.confirm != nil || m.st.Active() != nil {
+	if m.confirm() != nil || m.st.Active() != nil {
 		t.Fatal("closing an ended tab should not ask")
 	}
 }
