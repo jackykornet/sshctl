@@ -8,10 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 )
 
-const Version = 1
+// Version is the config format written by Save. Version 2 stores Groups
+// as records (ADR-0003); version 1 configs are migrated by Load.
+const Version = 2
 
 type Connection struct {
 	Alias       string `json:"alias"`
@@ -19,14 +23,27 @@ type Connection struct {
 	Group       string `json:"group,omitempty"`
 }
 
+// Group is a stored Group record (ADR-0003). Its position in Config.Groups
+// is its place in the connection list. Whether it is collapsed is not part
+// of the record: that is per machine, in Workspace.CollapsedGroups (ADR-0004).
+type Group struct {
+	Name string `json:"name"`
+}
+
 type Config struct {
-	Version     int                   `json:"version"`
+	Version int `json:"version"`
+	// Groups lists every Group in the user's order. Every Group a
+	// Connection names has a record here; Load adds any that is missing.
+	Groups      []Group               `json:"groups,omitempty"`
 	Connections map[string]Connection `json:"connections"`
 	History     []string              `json:"history,omitempty"`
 	Keys        []string              `json:"keys,omitempty"`
 	DefaultKey  string                `json:"defaultKey,omitempty"`
 	Workspace   Workspace             `json:"workspace,omitzero"`
 	Provision   Provision             `json:"provision,omitzero"`
+	// Notices tell the user what Load changed while migrating, such as a
+	// renamed Group. They are not saved.
+	Notices []string `json:"-"`
 }
 
 // DotfilesNone is the dotfiles setting that refuses Provision.
@@ -52,6 +69,35 @@ type Workspace struct {
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
+// ErrGroupName is returned by CheckGroupName for a name sshctl refuses.
+var ErrGroupName = errors.New("invalid group name")
+
+// CheckGroupName refuses an empty Group name and one made only of digits,
+// which would clash with Group numbers.
+func CheckGroupName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: a group needs a name", ErrGroupName)
+	}
+	if allDigits(name) {
+		return fmt.Errorf("%w: %q is only digits, which stand for group numbers", ErrGroupName, name)
+	}
+	return nil
+}
+
+func allDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// GroupIndex returns the position of the Group named name in Groups, or -1.
+func (c *Config) GroupIndex(name string) int {
+	for i, g := range c.Groups {
+		if g.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 // SetMetadata sets alias's description and group. Metadata with neither is
 // dropped, so an emptied Connection leaves nothing behind.
 func (c *Config) SetMetadata(alias, description, group string) {
@@ -60,6 +106,89 @@ func (c *Config) SetMetadata(alias, description, group string) {
 		return
 	}
 	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group}
+	c.addMissingGroups()
+}
+
+// addMissingGroups gives every Group a Connection names but Groups lacks a
+// record, alphabetically after the existing ones. It reports whether it
+// added any.
+func (c *Config) addMissingGroups() bool {
+	var missing []string
+	for _, conn := range c.Connections {
+		if conn.Group != "" && c.GroupIndex(conn.Group) < 0 && !slices.Contains(missing, conn.Group) {
+			missing = append(missing, conn.Group)
+		}
+	}
+	sort.Strings(missing)
+	for _, name := range missing {
+		c.Groups = append(c.Groups, Group{Name: name})
+	}
+	return len(missing) > 0
+}
+
+// renameDigitGroups renames every Group made only of digits, in its record,
+// its members and the collapsed list, and records a notice for each.
+func (c *Config) renameDigitGroups() {
+	used := map[string]bool{}
+	var digits []string
+	note := func(name string) {
+		if !used[name] {
+			used[name] = true
+			if allDigits(name) {
+				digits = append(digits, name)
+			}
+		}
+	}
+	for _, g := range c.Groups {
+		note(g.Name)
+	}
+	for _, conn := range c.Connections {
+		if conn.Group != "" {
+			note(conn.Group)
+		}
+	}
+	sort.Strings(digits)
+	for _, old := range digits {
+		name := "group-" + old
+		for n := 2; used[name]; n++ {
+			name = fmt.Sprintf("group-%s-%d", old, n)
+		}
+		used[name] = true
+		c.renameGroup(old, name)
+		c.Notices = append(c.Notices, fmt.Sprintf("renamed group %q to %q: a group name may not be only digits", old, name))
+	}
+}
+
+// renameGroup renames the Group old to name in its record, its members and
+// the collapsed list.
+func (c *Config) renameGroup(old, name string) {
+	if i := c.GroupIndex(old); i >= 0 {
+		c.Groups[i].Name = name
+	}
+	for alias, conn := range c.Connections {
+		if conn.Group == old {
+			conn.Group = name
+			c.Connections[alias] = conn
+		}
+	}
+	for i, g := range c.Workspace.CollapsedGroups {
+		if g == old {
+			c.Workspace.CollapsedGroups[i] = name
+		}
+	}
+}
+
+// migrateGroups brings c's Groups up to Version 2: a record for every Group
+// a Connection names, no all-digit names. It reports whether c changed.
+func (c *Config) migrateGroups() bool {
+	changed := c.Version < Version
+	c.Version = Version
+	n := len(c.Notices)
+	c.renameDigitGroups()
+	if c.addMissingGroups() {
+		changed = true
+	}
+	return changed || len(c.Notices) > n
 }
 
 // historyLen is how many Connections History keeps.
@@ -108,6 +237,11 @@ func Load(path string, legacy []string) (*Config, error) {
 		}
 		if c.Connections == nil {
 			c.Connections = map[string]Connection{}
+		}
+		if c.migrateGroups() {
+			if e := Save(path, &c); e != nil {
+				return nil, e
+			}
 		}
 		return &c, nil
 	}
@@ -237,6 +371,7 @@ func migrate(b []byte) (*Config, error) {
 		}
 		c.Connections[alias] = Connection{Alias: alias, Description: field(m, "description", "Description", "desc", "Desc"), Group: field(m, "group", "Group")}
 	}
+	c.migrateGroups()
 	return c, nil
 }
 func field(m map[string]any, names ...string) string {

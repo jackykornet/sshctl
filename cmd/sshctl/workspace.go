@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -30,6 +31,7 @@ func (a *app) runWorkspace() error {
 		PrefixKey:       a.cfg.Workspace.PrefixKey,
 		ListWidth:       a.cfg.Workspace.ListWidth,
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
+		Notice:          strings.Join(a.cfg.Notices, "; "),
 	})
 }
 

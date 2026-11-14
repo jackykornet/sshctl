@@ -19,6 +19,14 @@ import (
 // Host is how OpenSSH reaches a Managed connection.
 type Host = openssh.Endpoint
 
+// Group is a stored Group record (ADR-0003). A Group's number is its
+// position in Snapshot.Groups counting from 1.
+type Group = config.Group
+
+// ErrUnknownGroup is returned when a Connection is moved into a Group that
+// has no record.
+var ErrUnknownGroup = errors.New("no such group")
+
 // Spec is a Connection as it is to be saved.
 type Spec struct {
 	Alias       string
@@ -49,9 +57,12 @@ type Snapshot struct {
 	// Entries lists ssh_config's aliases in ssh_config order, then the
 	// Orphaned connections sorted by alias.
 	Entries []Entry
+	// Groups lists every Group in the user's order, including empty ones.
+	Groups []Group
 	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
 	Identity string
-	// Collapsed lists the groups the Workspace shows collapsed.
+	// Collapsed lists the groups the Workspace shows collapsed on this
+	// machine, by name (ADR-0004).
 	Collapsed []string
 	// Include is set when sshctl's hosts file exists but the user's
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
@@ -106,7 +117,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
+	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.DefaultKey, Collapsed: cfg.Workspace.CollapsedGroups}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -157,19 +168,31 @@ func (c *Catalog) includeError() *IncludeError {
 
 // RecordOpen records in History that alias was opened.
 func (c *Catalog) RecordOpen(alias string) error {
-	return c.update(func(cfg *config.Config) { cfg.RecordOpen(alias) })
+	return c.update(func(cfg *config.Config) error {
+		cfg.RecordOpen(alias)
+		return nil
+	})
 }
 
-// SetGroup puts alias in group ("" for none), keeping its description.
+// SetGroup puts alias in group ("" for none), keeping its description. The
+// Group must already have a record; otherwise SetGroup returns
+// ErrUnknownGroup and changes nothing.
 func (c *Catalog) SetGroup(alias, group string) error {
-	return c.update(func(cfg *config.Config) {
+	return c.update(func(cfg *config.Config) error {
+		if group != "" && cfg.GroupIndex(group) < 0 {
+			return fmt.Errorf("%q: %w", group, ErrUnknownGroup)
+		}
 		cfg.SetMetadata(alias, cfg.Connections[alias].Description, group)
+		return nil
 	})
 }
 
 // SetCollapsed saves groups as the groups the Workspace shows collapsed.
 func (c *Catalog) SetCollapsed(groups []string) error {
-	return c.update(func(cfg *config.Config) { cfg.Workspace.CollapsedGroups = groups })
+	return c.update(func(cfg *config.Config) error {
+		cfg.Workspace.CollapsedGroups = groups
+		return nil
+	})
 }
 
 // Dotfiles returns the global dotfiles setting: a repo URL,
@@ -184,7 +207,10 @@ func (c *Catalog) Dotfiles() (string, error) {
 
 // SetDotfiles saves the global dotfiles setting ("" unsets it).
 func (c *Catalog) SetDotfiles(repo string) error {
-	return c.update(func(cfg *config.Config) { cfg.Provision.Dotfiles = repo })
+	return c.update(func(cfg *config.Config) error {
+		cfg.Provision.Dotfiles = repo
+		return nil
+	})
 }
 
 var (
@@ -210,13 +236,16 @@ func (c *Catalog) ProvisionRepo(alias string) (string, error) {
 	return repo, nil
 }
 
-// update loads the sshctl config, applies change and saves it.
-func (c *Catalog) update(change func(*config.Config)) error {
+// update loads the sshctl config, applies change and saves it, unless
+// change fails.
+func (c *Catalog) update(change func(*config.Config) error) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return err
 	}
-	change(cfg)
+	if err := change(cfg); err != nil {
+		return err
+	}
 	return c.saveConfig(c.configPath, cfg)
 }
 
@@ -231,8 +260,14 @@ func (c *Catalog) update(change func(*config.Config)) error {
 // Nothing is changed when Save fails: the sshctl config is read before the
 // Host block is written, and the Host block is put back when the config
 // cannot be written. Save returns an *IncludeError when ssh_config must
-// first Include sshctl's file.
+// first Include sshctl's file, and refuses a Group name config.CheckGroupName
+// refuses. A Group with no record gets one, after the others.
 func (c *Catalog) Save(old string, s Spec) error {
+	if s.Group != "" {
+		if err := config.CheckGroupName(s.Group); err != nil {
+			return err
+		}
+	}
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return err

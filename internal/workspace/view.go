@@ -152,7 +152,11 @@ func (m *Model) headerLabel(group string) string {
 		}
 		unseen = unseen || c.Unseen()
 	}
-	line := fold + name + " " + dimStyle.Render(fmt.Sprint(len(members)))
+	count := fmt.Sprint(len(members))
+	if len(members) == 0 && group != "" {
+		count = "(empty)"
+	}
+	line := fold + name + " " + dimStyle.Render(count)
 	if open > 0 {
 		line += " " + openStyle.Render(fmt.Sprintf("●%d", open))
 	}
