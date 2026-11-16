@@ -38,9 +38,16 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	moved, err := config.MoveOld(p)
+	if err != nil {
+		return err
+	}
 	c, err := config.Load(p, legacy)
 	if err != nil {
 		return err
+	}
+	if moved != "" {
+		c.Notices = append([]string{moved}, c.Notices...)
 	}
 	s, err := openssh.New()
 	if err != nil {

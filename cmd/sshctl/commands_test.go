@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,51 @@ import (
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
+// fakeHome points the home directory and the config folders at a temporary
+// directory, so run never reads or moves the real config.
+func fakeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AppData", filepath.Join(home, "AppData", "Roaming"))
+	return home
+}
+
+func TestRunMovesTheOldConfigOnceWithANotice(t *testing.T) {
+	home := fakeHome(t)
+	var old string
+	switch runtime.GOOS {
+	case "darwin":
+		old = filepath.Join(home, "Library", "Application Support", "sshctl")
+	case "windows":
+		old = filepath.Join(home, "AppData", "Roaming", "sshctl")
+	default:
+		t.Skip("no old config folder on " + runtime.GOOS)
+	}
+	if err := os.MkdirAll(old, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "config.json"), []byte(`{"version":3}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []bool{true, false} {
+		var out, errOut bytes.Buffer
+		if err := run([]string{"config", "show"}, strings.NewReader(""), &out, &errOut); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(errOut.String(), "moved the config"); got != want {
+			t.Errorf("run %d: stderr = %q, want notice %v", i+1, errOut.String(), want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "sshctl", "config.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHelpAndUnknownCommand(t *testing.T) {
+	fakeHome(t)
 	var out bytes.Buffer
 	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
