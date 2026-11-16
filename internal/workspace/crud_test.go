@@ -290,7 +290,7 @@ func TestEditKeepsTheConnectionInItsSpace(t *testing.T) {
 			entries[i].Space = "acme"
 		}
 	}
-	f := &fakeCatalog{entries: entries}
+	f := &fakeCatalog{entries: entries, spaces: []Space{{Name: "acme"}}, activeSpace: "acme"}
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)

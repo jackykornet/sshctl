@@ -349,7 +349,7 @@ func TestRowsListStoredGroupsInOrderIncludingEmptyOnes(t *testing.T) {
 		{Alias: "stray", Group: "adhoc"}, // no record: listed after the stored Groups
 		{Alias: "loose"},
 	})
-	s.SetGroups([]string{"web", "spare", "batch"})
+	s.SetGroups([]Group{{Name: "web"}, {Name: "spare"}, {Name: "batch"}})
 	want := []string{"[web]", "web-1", "[spare]", "[batch]", "zed", "[adhoc]", "stray", "[]", "loose"}
 	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
@@ -362,7 +362,7 @@ func TestRowsListStoredGroupsInOrderIncludingEmptyOnes(t *testing.T) {
 
 func TestOnlyEmptyGroupsStillShowHeaders(t *testing.T) {
 	s := NewState([]Entry{{Alias: "a"}})
-	s.SetGroups([]string{"spare"})
+	s.SetGroups([]Group{{Name: "spare"}})
 	if got, want := rowNames(s.Rows()), []string{"[spare]", "[]", "a"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
@@ -375,7 +375,7 @@ func TestOnlyEmptyGroupsStillShowHeaders(t *testing.T) {
 // the stored Groups, 0 for ungrouped) or a name.
 func TestResolveGroupTakesANumberOrAName(t *testing.T) {
 	s := NewState([]Entry{{Alias: "stray", Group: "adhoc"}})
-	s.SetGroups([]string{"prod", "staging"})
+	s.SetGroups([]Group{{Name: "prod"}, {Name: "staging"}})
 	tests := []struct {
 		in, want string
 		ok       bool
@@ -395,5 +395,104 @@ func TestResolveGroupTakesANumberOrAName(t *testing.T) {
 		if got != tt.want || ok != tt.ok {
 			t.Errorf("ResolveGroup(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
 		}
+	}
+}
+func spaced() *State {
+	s := NewState([]Entry{
+		{Alias: "web-1", Group: "web"},
+		{Alias: "loose"},
+		{Alias: "db", Space: "acme", Group: "prod"},
+		{Alias: "api", Space: "acme", Group: "web"},
+	})
+	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}}, "")
+	s.SetGroups([]Group{{Name: "web"}, {Name: "prod", Space: "acme"}, {Name: "web", Space: "acme"}, {Name: "spare", Space: "acme"}})
+	return s
+}
+
+func TestRowsShowOnlyTheActiveSpace(t *testing.T) {
+	s := spaced()
+	if got, want := rowNames(s.Rows()), []string{"[web]", "web-1", "[]", "loose"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("home rows = %v, want %v", got, want)
+	}
+	s.SetSpace("acme")
+	if got, want := rowNames(s.Rows()), []string{"[prod]", "db", "[web]", "api", "[spare]"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("acme rows = %v, want %v", got, want)
+	}
+	if got := s.GroupPosition("spare"); got != 3 {
+		t.Errorf("acme's Group number of spare = %d, want 3", got)
+	}
+	if got, ok := s.ResolveGroup("2"); !ok || got != "web" {
+		t.Errorf("acme's Group 2 = %q, %v; want web", got, ok)
+	}
+	if got := aliases(s.Members("web")); !reflect.DeepEqual(got, []string{"api"}) {
+		t.Errorf("acme's web members = %v, want [api]", got)
+	}
+}
+
+func TestCollapsedGroupsAreKeptPerSpace(t *testing.T) {
+	s := spaced()
+	s.SetCollapsed("web", true)
+	s.SetSpace("acme")
+	if s.Collapsed("web") {
+		t.Error("collapsing home's web collapsed acme's web")
+	}
+	s.SetCollapsed("prod", true)
+	if got, want := s.CollapsedGroups(), []string{"acme/prod", "web"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("collapsed = %v, want %v", got, want)
+	}
+}
+
+func TestEachSpaceKeepsItsActiveConnectionAndCyclesWithinIt(t *testing.T) {
+	s := spaced()
+	mustOpen(t, s, "web-1")
+	mustOpen(t, s, "loose")
+	s.SetSpace("acme")
+	if s.Active() != nil {
+		t.Fatalf("acme's active = %s, want none", s.Active().Alias)
+	}
+	s.CycleActive(1)
+	if s.Active() != nil {
+		t.Fatalf("cycling in acme activated %s from home", s.Active().Alias)
+	}
+	mustOpen(t, s, "db")
+	mustOpen(t, s, "api")
+	s.CycleActive(1)
+	if got := s.Active().Alias; got != "db" {
+		t.Errorf("after api, cycling in acme gave %s, want db", got)
+	}
+	s.SetSpace("")
+	if got := s.Active(); got == nil || got.Alias != "loose" {
+		t.Errorf("back in home, active = %v, want loose", got)
+	}
+	if c, ok := s.CursorRow(); !ok || c.Conn == nil || c.Conn.Alias != "loose" {
+		t.Errorf("back in home, cursor = %+v, want on loose", c)
+	}
+	if got := s.LiveSessions(); got != 4 {
+		t.Errorf("live sessions = %d, want all 4, every Space's", got)
+	}
+}
+
+func TestSpaceTabsMarkTheActiveSpaceAndLiveSessions(t *testing.T) {
+	s := spaced()
+	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}, {Name: "idle"}}, "")
+	sess := mustOpen(t, s, "web-1")
+	s.SetSpace("acme")
+	want := []SpaceTab{{Name: "home", Live: true}, {Name: "acme", Active: true}, {Name: "idle"}}
+	if got := s.SpaceTabs(); !reflect.DeepEqual(got, want) {
+		t.Errorf("tabs = %+v, want %+v", got, want)
+	}
+	sess.Ended = true
+	if got := s.SpaceTabs(); got[0].Live {
+		t.Error("a Space whose only Session ended is still live")
+	}
+}
+
+func TestSwitchingToASpaceWithNothingOpenPutsTheCursorOnItsFirstRow(t *testing.T) {
+	s := spaced()
+	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}}, "")
+	s.SetCursorGroup("web") // acme has a Group web too
+	s.SetSpace("acme")
+	if r, ok := s.CursorRow(); !ok || !r.Header() || r.Group != "prod" {
+		t.Errorf("cursor = %+v, want acme's first row, the prod header", r)
 	}
 }

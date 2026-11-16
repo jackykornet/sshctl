@@ -16,6 +16,12 @@ import (
 // Entry is one Connection as loaded from ssh_config and sshctl metadata.
 type Entry = catalog.Entry
 
+// Group is a stored Group of some Space.
+type Group = catalog.Group
+
+// Space is a stored Space, in the user's order.
+type Space = catalog.Space
+
 // Session is one tab of a Connection.
 type Session struct {
 	// N is the tab number, unique per Connection for the lifetime of the Workspace.
@@ -133,25 +139,124 @@ func keyOf(r Row) rowKey {
 	return rowKey{false, r.Conn.Alias}
 }
 
-// State holds the Workspace's connection list and Sessions, independent of rendering.
+// State holds the Workspace's connection list and Sessions, independent of
+// rendering. The list shows one Space, the active Space; every other
+// Space's Connections keep their Sessions but are not listed.
 type State struct {
-	conns     map[string]*Connection
-	loaded    map[string]bool // aliases returned by the last Reload
-	groups    []string        // the stored Groups in the user's order
-	collapsed map[string]bool
+	conns  map[string]*Connection
+	loaded map[string]bool // aliases returned by the last Reload
+	spaces []Space
+	// space is the active Space as Connections refer to it, "" for the
+	// default Space.
+	space     string
+	allGroups []Group         // every Space's stored Groups in the user's order
+	groups    []string        // the active Space's stored Groups in the user's order
+	collapsed map[string]bool // by catalog.CollapsedKey
 	// showUngrouped lists the ungrouped header even when it has no members,
 	// so a Connection can be dragged out of its group.
 	showUngrouped bool
-	active        string
-	cursor        rowKey
-	filter        string
+	// active is each Space's Active connection, so switching back to a
+	// Space shows what it showed before.
+	active map[string]string
+	cursor rowKey
+	filter string
 }
 
-// NewState builds a State from loaded entries.
+// NewState builds a State from loaded entries, showing the default Space.
 func NewState(entries []Entry) *State {
-	s := &State{conns: map[string]*Connection{}, collapsed: map[string]bool{}}
+	s := &State{conns: map[string]*Connection{}, collapsed: map[string]bool{}, active: map[string]string{}}
 	s.Reload(entries)
 	return s
+}
+
+// SetSpaces sets the stored Spaces, in the user's order. When the active
+// Space is no longer one of them, as when another terminal renamed or
+// deleted it, fallback becomes active ("" for the default Space).
+func (s *State) SetSpaces(spaces []Space, fallback string) {
+	s.spaces = slices.Clone(spaces)
+	if !slices.ContainsFunc(spaces, func(sp Space) bool { return spaceRef(sp) == s.space }) {
+		s.SetSpace(fallback)
+	}
+}
+
+// spaceRef returns how Connections refer to sp: "" for the default Space,
+// its name for any other (ADR-0005).
+func spaceRef(sp Space) string {
+	if sp.Default {
+		return ""
+	}
+	return sp.Name
+}
+
+// SpaceRef returns how Connections refer to Space number n, counting from
+// 1 ("" for the default Space), and whether there is one.
+func (s *State) SpaceRef(n int) (string, bool) {
+	if n < 1 || n > len(s.spaces) {
+		return "", false
+	}
+	return spaceRef(s.spaces[n-1]), true
+}
+
+// ActiveSpaceName returns the active Space's name.
+func (s *State) ActiveSpaceName() string {
+	for _, sp := range s.spaces {
+		if spaceRef(sp) == s.space {
+			return sp.Name
+		}
+	}
+	return ""
+}
+
+// SpaceTab is a Space as the Space bar shows it.
+type SpaceTab struct {
+	Name   string
+	Active bool
+	// Live is set when one of the Space's Connections has a live Session.
+	Live bool
+}
+
+// SpaceTabs returns every Space in the user's order, so Space number n is
+// SpaceTabs()[n-1].
+func (s *State) SpaceTabs() []SpaceTab {
+	live := map[string]bool{}
+	for _, c := range s.conns {
+		if c.LiveSessions() > 0 {
+			live[c.Space] = true
+		}
+	}
+	tabs := make([]SpaceTab, len(s.spaces))
+	for i, sp := range s.spaces {
+		ref := spaceRef(sp)
+		tabs[i] = SpaceTab{Name: sp.Name, Active: ref == s.space, Live: live[ref]}
+	}
+	return tabs
+}
+
+// Space returns the active Space as Connections refer to it, "" for the
+// default Space.
+func (s *State) Space() string { return s.space }
+
+// SetSpace makes space ("" for the default Space) the active Space: the
+// list shows its Groups and Connections, and its own Active connection,
+// with the cursor on it or else on the Space's first row. No Session
+// starts or ends.
+func (s *State) SetSpace(space string) {
+	if space != s.space {
+		s.cursor = rowKey{} // a header key could name another Space's Group
+	}
+	s.space = space
+	s.groups = nil
+	for _, g := range s.allGroups {
+		if g.Space == space {
+			s.groups = append(s.groups, g.Name)
+		}
+	}
+	if c := s.Active(); c != nil {
+		s.SetCursor(c.Alias)
+		s.clearShownActivity()
+		return
+	}
+	s.fixCursor()
 }
 
 // Reload replaces the loaded entries while keeping every open Connection and its Sessions.
@@ -180,19 +285,20 @@ func (s *State) Reload(entries []Entry) {
 	s.fixCursor()
 }
 
-// SetGroups sets the stored Groups, in the user's order.
-func (s *State) SetGroups(groups []string) {
-	s.groups = slices.Clone(groups)
-	s.fixCursor()
+// SetGroups sets every Space's stored Groups, in the user's order.
+func (s *State) SetGroups(groups []Group) {
+	s.allGroups = slices.Clone(groups)
+	s.SetSpace(s.space)
 }
 
-// Groups returns every Group in list order: the stored Groups in the user's
-// order, then any Group only a Connection names, alphabetically.
+// Groups returns every Group of the active Space in list order: the stored
+// Groups in the user's order, then any Group only a Connection names,
+// alphabetically.
 func (s *State) Groups() []string {
 	out := slices.Clone(s.groups)
 	var extra []string
 	for _, c := range s.conns {
-		if c.Group != "" && !slices.Contains(out, c.Group) && !slices.Contains(extra, c.Group) {
+		if c.Space == s.space && c.Group != "" && !slices.Contains(out, c.Group) && !slices.Contains(extra, c.Group) {
 			extra = append(extra, c.Group)
 		}
 	}
@@ -283,7 +389,7 @@ func (s *State) Rows() []Row {
 	return rows
 }
 
-// ordered returns every Connection sorted by group (in Groups order,
+// ordered returns every Connection of the active Space sorted by group (in Groups order,
 // ungrouped last), then by alias.
 func (s *State) ordered() []*Connection {
 	rank := map[string]int{"": len(s.groups) + len(s.conns)}
@@ -292,7 +398,9 @@ func (s *State) ordered() []*Connection {
 	}
 	out := make([]*Connection, 0, len(s.conns))
 	for _, c := range s.conns {
-		out = append(out, c)
+		if c.Space == s.space {
+			out = append(out, c)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -335,21 +443,34 @@ func (s *State) GroupToOpen(group string) []*Connection {
 	return out
 }
 
-// Collapsed reports whether group's members are hidden.
-func (s *State) Collapsed(group string) bool { return s.collapsed[group] }
+// Collapsed reports whether the active Space's group has its members hidden.
+func (s *State) Collapsed(group string) bool {
+	return s.collapsed[catalog.CollapsedKey(s.space, group)]
+}
 
-// SetCollapsed hides or shows group's members. A cursor on a hidden member
-// moves to the group's header.
+// SetCollapsed hides or shows the members of the active Space's group. A
+// cursor on a hidden member moves to the group's header.
 func (s *State) SetCollapsed(group string, collapsed bool) {
+	key := catalog.CollapsedKey(s.space, group)
 	if collapsed {
-		s.collapsed[group] = true
+		s.collapsed[key] = true
 	} else {
-		delete(s.collapsed, group)
+		delete(s.collapsed, key)
 	}
 	s.fixCursor()
 }
 
-// CollapsedGroups returns the collapsed groups alphabetically.
+// RestoreCollapsed collapses every Space's groups named by keys, as
+// CollapsedGroups returns them.
+func (s *State) RestoreCollapsed(keys []string) {
+	for _, k := range keys {
+		s.collapsed[k] = true
+	}
+	s.fixCursor()
+}
+
+// CollapsedGroups returns every Space's collapsed groups by
+// config.CollapsedKey, alphabetically.
 func (s *State) CollapsedGroups() []string {
 	out := make([]string, 0, len(s.collapsed))
 	for g := range s.collapsed {
@@ -389,8 +510,14 @@ func (s *State) matches(c *Connection) bool {
 // Get returns the Connection for alias, or nil.
 func (s *State) Get(alias string) *Connection { return s.conns[alias] }
 
-// Active returns the Active connection, or nil when none is selected.
-func (s *State) Active() *Connection { return s.conns[s.active] }
+// Active returns the active Space's Active connection, or nil when none is
+// selected.
+func (s *State) Active() *Connection {
+	if c := s.conns[s.active[s.space]]; c != nil && c.Space == s.space {
+		return c
+	}
+	return nil
+}
 
 // Cursor returns the Connection under the list cursor, or nil when the
 // cursor is on a group header or the list is empty.
@@ -466,14 +593,15 @@ func (s *State) Activate(alias string) error {
 	if !c.Open() {
 		return fmt.Errorf("%s is not open", alias)
 	}
-	s.active = alias
+	s.active[s.space] = alias
 	s.SetCursor(alias)
 	s.clearShownActivity()
 	return nil
 }
 
-// CycleActive makes the next (delta > 0) or previous open Connection active,
-// in list order, including Connections in collapsed groups.
+// CycleActive makes the active Space's next (delta > 0) or previous open
+// Connection active, in list order, including Connections in collapsed
+// groups.
 func (s *State) CycleActive(delta int) {
 	var open []*Connection
 	for _, c := range s.ordered() {
@@ -484,13 +612,13 @@ func (s *State) CycleActive(delta int) {
 	if len(open) == 0 {
 		return
 	}
-	i := slices.IndexFunc(open, func(c *Connection) bool { return c.Alias == s.active })
+	i := slices.IndexFunc(open, func(c *Connection) bool { return c.Alias == s.active[s.space] })
 	if i < 0 {
 		i = 0
 	} else {
 		i = (i + delta + len(open)) % len(open)
 	}
-	s.active = open[i].Alias
+	s.active[s.space] = open[i].Alias
 	s.SetCursor(open[i].Alias)
 	s.clearShownActivity()
 }
@@ -526,7 +654,7 @@ func (s *State) addSession(alias string, sess *Session) {
 	sess.N = c.nextN
 	c.Sessions = append(c.Sessions, sess)
 	c.Current = len(c.Sessions) - 1
-	s.active = alias
+	s.active[s.space] = alias
 	s.SetCursor(alias)
 }
 
@@ -571,7 +699,7 @@ func (s *State) CloseCurrent() *Session {
 		c.Current = max(len(c.Sessions)-1, 0)
 	}
 	if !c.Open() {
-		s.active = ""
+		delete(s.active, s.space)
 		if !s.loaded[c.Alias] {
 			// It was only listed because it was open; nothing else keeps it.
 			delete(s.conns, c.Alias)

@@ -6,8 +6,8 @@
   /                filter the connection list                                   
   Esc              clear the filter                                             
   Alt+←/→  ^B ←/→  previous / next tab                                          
-  ^B 1-9           switch to tab 1-9                                            
-  Alt+↑/↓          previous / next open connection                              
+  1-9  ^B 1-9      switch to Space 1-9                                          
+  Alt+↑/↓          previous / next open connection in the Space                 
   ^B n/c           new tab for the active connection (c runs claude)            
   ^B i/p           bootstrap / provision the connection in its own tab          
   ^B g             open the connection's group as tabs                          

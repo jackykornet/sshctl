@@ -53,8 +53,10 @@ type connForm struct {
 	err     string
 }
 
-func newAddForm(group string) *connForm {
-	return &connForm{managed: true, fields: managedFields(Spec{Group: group})}
+// newAddForm is the form for a new Connection in space ("" for the default
+// Space), with group filled in.
+func newAddForm(space, group string) *connForm {
+	return &connForm{space: space, managed: true, fields: managedFields(Spec{Group: group})}
 }
 
 func newEditForm(c *Connection) *connForm {
@@ -124,7 +126,7 @@ func (m *Model) startAdd() tea.Cmd {
 	if r, ok := m.st.CursorRow(); ok {
 		group = r.Group
 	}
-	m.openModal(newAddForm(group))
+	m.openModal(newAddForm(m.st.Space(), group))
 	return nil
 }
 
