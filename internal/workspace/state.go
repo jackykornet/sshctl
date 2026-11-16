@@ -196,6 +196,12 @@ func (s *State) Groups() []string {
 	return append(out, extra...)
 }
 
+// GroupPosition is group's position among the stored Groups, counting from
+// 1, or 0 when group is not a stored Group.
+func (s *State) GroupPosition(group string) int {
+	return slices.Index(s.groups, group) + 1
+}
+
 // HasGroup reports whether group is a Group the list shows.
 func (s *State) HasGroup(group string) bool {
 	return group != "" && slices.Contains(s.Groups(), group)

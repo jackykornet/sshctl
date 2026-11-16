@@ -89,6 +89,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | --- | --- |
 | `↑`/`↓`, `Enter` | Move in the list, open or switch to a connection |
 | `Enter`/`Space`, `←`/`→` | On a group header: collapse or expand the group (`←` on a member collapses its group) |
+| `Shift+↑`/`Shift+↓` (or `K`/`J`) | On a group header: move the group up / down; the new order is saved |
 | `/` | Filter the list by alias, description, or group |
 | `Alt+←`/`Alt+→` | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection |
@@ -115,7 +116,7 @@ Once any connection has a group, the list shows each group (alphabetically, with
 
 ### Mouse and settings
 
-The mouse selects connections and tabs and scrolls history. Click a group header to collapse or expand it, and drag a connection onto any row of another group (its header or one of its members) to move it there. Release off the list to cancel. Group changes are saved to sshctl's metadata, the same as `sshctl edit`. Full-screen programs such as `vim` receive mouse events when they ask for them. Hold Shift while dragging to select text with your own terminal. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
+The mouse selects connections and tabs and scrolls history. Click a group header to collapse or expand it, drag a group header onto another group's header to move the group to that position, and drag a connection onto any row of another group (its header or one of its members) to move it there. Release off the list to cancel. Group changes are saved to sshctl's metadata, the same as `sshctl edit`. Full-screen programs such as `vim` receive mouse events when they ask for them. Hold Shift while dragging to select text with your own terminal. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
 
 Optional settings go in a `workspace` object in the config file:
 
