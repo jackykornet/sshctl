@@ -101,6 +101,25 @@ func (s Snapshot) HasGroup(space, name string) bool {
 	return slices.ContainsFunc(s.Groups, func(g Group) bool { return g.Space == space && g.Name == name })
 }
 
+// SpaceRef returns how Groups and Connections refer to the Space named
+// name ("" for the default Space, which "" also names), and whether there
+// is one.
+func (s Snapshot) SpaceRef(name string) (string, bool) {
+	return (&config.Config{Spaces: s.Spaces}).SpaceRef(name)
+}
+
+// GroupNames returns the names of space's Groups ("" for the default
+// Space) in order, so the Group number n names GroupNames(space)[n-1].
+func (s Snapshot) GroupNames(space string) []string {
+	var names []string
+	for _, g := range s.Groups {
+		if g.Space == space {
+			names = append(names, g.Name)
+		}
+	}
+	return names
+}
+
 // IncludeError is returned by Save when the user's ssh_config does not yet
 // read sshctl's hosts file. Saving can be retried after AddInclude adds Line
 // to Config.

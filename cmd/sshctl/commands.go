@@ -69,16 +69,23 @@ Usage: sshctl                 Open the Workspace (in a terminal)
        sshctl <command> [arguments]
 
 Commands:
-  list                         List Connections
+  list [--space <name>]        List Connections, or one Space's
   connect <alias> [--claude]   Connect using OpenSSH
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
   remove <alias>               Remove sshctl metadata
+  space list                   List Spaces: number, name, groups, connections
+  space add <name>             Create a Space
+  space rename <old> <new>     Rename a Space, keeping its contents
+  space delete <name>          Delete an empty Space
+  space move <name> <position> Set a Space's position (its number)
+  group [--space <name>] ...   Pick the Space for a group command;
+                               <group> is a Group name or number
   group list                   List Groups: number, name, members, dotfiles
   group add <name>             Create a Group
-  group rename <old> <new>     Rename a Group, moving its Connections
-  group delete <name> [--yes]  Delete a Group; its Connections become ungrouped
-  group move <name> <position> Set a Group's position (its number)
+  group rename <group> <new>   Rename a Group, moving its Connections
+  group delete <group> [--yes] Delete a Group; its Connections become ungrouped
+  group move <group> <pos>     Set a Group's position (its number)
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
   key list|use|add             List, select, or register keys
@@ -95,12 +102,16 @@ Use sshctl <command> --help for command usage where available.
 }
 func usage(command string) string {
 	switch command {
+	case "list":
+		return "list [--space <name>]"
 	case "connect":
 		return "connect <alias> [--claude]"
 	case "add", "edit", "remove":
 		return command + " <alias>"
 	case "group":
 		return groupUsage
+	case "space":
+		return spaceUsage
 	case "key":
 		return "key list | use <key-path|none> | add <private-key-path>"
 	case "agent":
@@ -129,7 +140,7 @@ func (a *app) execute(args []string) error {
 	}
 	switch args[0] {
 	case "list":
-		return a.list()
+		return a.list(args[1:])
 	case "connect":
 		return a.connect(args[1:])
 	case "add":
@@ -140,6 +151,8 @@ func (a *app) execute(args []string) error {
 		return a.remove(args[1:])
 	case "group":
 		return a.groupCommand(args[1:])
+	case "space":
+		return a.spaceCommand(args[1:])
 	case "history":
 		for _, h := range a.cfg.History {
 			fmt.Fprintln(a.out, h)
@@ -177,14 +190,26 @@ func (a *app) identity() (string, error) {
 }
 
 // list prints the Connections the Workspace lists: ssh_config's aliases, then
-// the Orphaned connections. When sshctl's hosts file is not Included in
-// ssh_config it adds a one-line hint on stderr.
-func (a *app) list() error {
+// the Orphaned connections, all of them or, with --space, one Space's. When
+// sshctl's hosts file is not Included in ssh_config it adds a one-line hint
+// on stderr.
+func (a *app) list(args []string) error {
+	space, rest, err := cutSpaceOption(args)
+	if err != nil || len(rest) > 0 {
+		return errors.New("usage: sshctl " + usage("list"))
+	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
+	spaces, err := space.spaces(snap)
+	if err != nil {
+		return err
+	}
 	for _, e := range snap.Entries {
+		if space.set && e.Space != spaces[0].ref {
+			continue
+		}
 		var label []string
 		if e.Description != "" {
 			label = append(label, e.Description)
@@ -284,23 +309,27 @@ func (a *app) remove(args []string) error {
 	}
 	return err
 }
-func (a *app) groupConnect(args []string) error {
+func (a *app) groupConnect(space spaceOption, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: sshctl group connect <group>")
+		return errors.New("usage: sshctl group [--space <name>] connect <group>")
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
+	ref, group, err := findGroup(snap, space, args[0])
+	if err != nil {
+		return err
+	}
 	var names []string
 	for _, e := range snap.Entries {
-		if e.Group == args[0] {
+		if e.Space == ref && e.Group == group {
 			names = append(names, e.Alias)
 		}
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		return fmt.Errorf("group %q has no Connections", args[0])
+		return fmt.Errorf("group %q has no Connections", group)
 	}
 	for _, n := range names {
 		if err := platform.OpenSSH(n, snap.Identity); err != nil {

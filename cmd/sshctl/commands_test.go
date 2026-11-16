@@ -134,7 +134,7 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
 	cfg.Connections["mid"] = config.Connection{Alias: "mid", Description: "moved"}
 	a, out := cliTree(t, "Host web\n  HostName 10.0.0.1\nHost db\n  HostName 10.0.0.2\nHost *\n  User me\n", cfg, "")
-	if err := a.list(); err != nil {
+	if err := a.list(nil); err != nil {
 		t.Fatal(err)
 	}
 	want := "" +
@@ -163,7 +163,7 @@ func TestListHintsAtAMissingInclude(t *testing.T) {
 			if err := os.WriteFile(a.ssh.ManagedPath(), []byte("Host synced\n  HostName 10.0.0.9\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.list(); err != nil {
+			if err := a.list(nil); err != nil {
 				t.Fatal(err)
 			}
 			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")

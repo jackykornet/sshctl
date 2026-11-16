@@ -18,17 +18,22 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 
 ```text
 sshctl
-sshctl list
+sshctl list [--space <name>]
 sshctl connect <alias> [--claude]
 sshctl add <alias>
 sshctl edit <alias>
 sshctl remove <alias>
-sshctl group list
-sshctl group add <name>
-sshctl group rename <old> <new>
-sshctl group delete <name> [--yes]
-sshctl group move <name> <position>
-sshctl group connect <group>
+sshctl space list
+sshctl space add <name>
+sshctl space rename <old> <new>
+sshctl space delete <name>
+sshctl space move <name> <position>
+sshctl group [--space <name>] list
+sshctl group [--space <name>] add <name>
+sshctl group [--space <name>] rename <group> <new>
+sshctl group [--space <name>] delete <group> [--yes]
+sshctl group [--space <name>] move <group> <position>
+sshctl group [--space <name>] connect <group>
 sshctl history
 sshctl key list
 sshctl key use <key-path|none>
@@ -48,7 +53,11 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 
 `known-hosts remove` asks before invoking `ssh-keygen -R`, which handles hashed entries. `known-hosts list` displays the host field as stored (hashed names remain hashed).
 
-Groups exist from `group add` until `group delete`, even with no Connections, and are listed in the order you set. `group list` shows each Group's number (its position, counting from 1, as in the Workspace headers), name, member count and dotfiles repo for Provision (`unset` when the global default applies). `group rename` moves every Connection with the Group and keeps its position and collapsed state; it refuses a name another Group has. A group name may not be only digits, since numbers stand for positions. `group delete` asks `Delete group X? N Connections become ungrouped.` first (`--yes` skips the question); it never deletes a Connection or a Host block. `group move <name> <position>` puts the Group at that position, shifting the others. The CLI takes Group names only, never numbers, so scripts keep working when Groups are reordered.
+Groups exist from `group add` until `group delete`, even with no Connections, and are listed in the order you set. `group list` shows each Group's number (its position, counting from 1, as in the Workspace headers), name, member count and dotfiles repo for Provision (`unset` when the global default applies). `group rename` moves every Connection with the Group and keeps its position and collapsed state; it refuses a name another Group has. A group name may not be only digits, since numbers stand for positions. `group delete` asks `Delete group X? N Connections become ungrouped.` first (`--yes` skips the question); it never deletes a Connection or a Host block. `group move <group> <position>` puts the Group at that position, shifting the others. Where a command takes a `<group>`, it can also be the Group's number, but a name keeps working in scripts when Groups are reordered.
+
+Spaces keep Connections apart, for example one per customer or project, and are listed in the order you set. Every Group and Connection belongs to one Space; the default Space holds everything not put elsewhere. `space list` shows each Space's number, name, Group count and Connection count, and marks the default Space. `space rename` keeps the Space's Groups, Connections and position; the default Space can be renamed and stays the default. `space delete` deletes only an empty Space, and refuses the default Space; otherwise it names the Groups and Connections left in it. `space move <name> <position>` sets the Space's position. A Space name may not be empty, only digits, or contain `/`. Spaces are sshctl metadata only: aliases stay one namespace, so `connect <alias>` needs no Space.
+
+`list --space <name>` lists only that Space's Connections. `group` commands take `--space <name>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number counts within a Space, so it works without `--space` only while there is one Space.
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
 
