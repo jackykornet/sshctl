@@ -46,6 +46,9 @@ type Action string
 // ActionBootstrap runs Bootstrap ("sshctl bootstrap <alias>").
 const ActionBootstrap Action = "bootstrap"
 
+// ActionProvision runs Provision ("sshctl provision <alias>").
+const ActionProvision Action = "provision"
+
 // Connection is a Connection together with its Sessions in this Workspace.
 type Connection struct {
 	Entry

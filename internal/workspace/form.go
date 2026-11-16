@@ -151,9 +151,13 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			f.focus++
 			return nil
 		}
-		return m.saveForm(f)
+		return m.saveForm(f, false)
 	case "ctrl+s":
-		return m.saveForm(f)
+		return m.saveForm(f, false)
+	case "ctrl+o":
+		if f.old == "" {
+			return m.saveForm(f, true)
+		}
 	default:
 		fl.value, _ = editLine(fl.value, msg)
 	}
@@ -175,7 +179,9 @@ func (f *connForm) status() (string, bool) {
 // saveForm saves the form through the Catalog and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config
 // must Include sshctl's hosts file first, it asks before adding the line.
-func (m *Model) saveForm(f *connForm) tea.Cmd {
+// With bootstrap, a successful save then opens a Bootstrap tab for the
+// saved alias.
+func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	s := f.spec()
 	if f.old != "" && s.Alias != f.old {
 		if c := m.st.Get(f.old); c != nil && c.Open() {
@@ -191,13 +197,13 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 				f.err = err.Error()
 				return nil
 			}
-			return m.saveForm(f)
+			return m.saveForm(f, bootstrap)
 		})
 		return nil
 	}
 	if errors.Is(err, catalog.ErrUnknownGroup) {
 		f.err = "no group " + s.Group
-		m.askCreateGroup(s.Group, func(m *Model) tea.Cmd { return m.saveForm(f) })
+		m.askCreateGroup(s.Group, func(m *Model) tea.Cmd { return m.saveForm(f, bootstrap) })
 		return nil
 	}
 	if err != nil {
@@ -209,7 +215,11 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 	if f.old == "" {
 		verb = "added"
 	}
-	return m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	cmd := m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	if bootstrap {
+		return tea.Batch(cmd, m.open(s.Alias, Launch{Action: ActionBootstrap}))
+	}
+	return cmd
 }
 
 // askInclude asks before adding inc's Include line to the user's ssh_config
@@ -279,6 +289,9 @@ func (f *connForm) render(w, h int) []string {
 		lines = append(lines, "  "+errStyle.Render(f.err))
 	}
 	lines = append(lines, "  "+dimStyle.Render("Tab/↑↓ move · Ctrl+S save · Esc cancel"))
+	if f.old == "" {
+		lines = append(lines, "  "+dimStyle.Render("Ctrl+O save and Bootstrap"))
+	}
 	out := make([]string, 0, h)
 	for _, l := range lines {
 		if len(out) < h {

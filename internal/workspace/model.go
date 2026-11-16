@@ -50,6 +50,10 @@ type Catalog interface {
 	RenameGroup(old, name string) error
 	// DeleteGroup deletes a Group; its members become ungrouped.
 	DeleteGroup(name string) error
+	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
+	// catalog.ErrNoDotfiles when none is set, or an error wrapping
+	// catalog.ErrProvisionRefused when the setting that applies is none.
+	ProvisionRepo(alias string) (string, error)
 }
 
 // Options configures a Workspace.
