@@ -120,8 +120,10 @@ The mouse selects connections and tabs and scrolls history. Click a group header
 Optional settings go in a `workspace` object in the config file:
 
 ```json
-"workspace": { "prefixKey": "ctrl+a", "listWidth": 32, "scrollbackLines": 20000 }
+"workspace": { "prefixKey": "ctrl+a", "scrollbackLines": 20000 }
 ```
+
+The list width is this machine's own state: sshctl keeps it in `state.json`, not `config.json`.
 
 The Workspace needs Windows 10 version 1809 or newer for its pseudo-terminals; the other commands do not.
 
@@ -130,6 +132,120 @@ The Workspace needs Windows 10 version 1809 or newer for its pseudo-terminals; t
 sshctl keeps two versioned JSON files in `~/.config/sshctl/` on Linux, macOS and Windows alike (`%USERPROFILE%\.config\sshctl\` on Windows), or in `$XDG_CONFIG_HOME/sshctl/` when `XDG_CONFIG_HOME` is set to an absolute path: `config.json`, the part to sync between machines, and `state.json`, this machine's own state. One chezmoi source path, `dot_config/sshctl/config.json`, therefore fits every OS. Older versions used `~/Library/Application Support/sshctl/` on macOS and `%AppData%\sshctl\` on Windows. sshctl moves both files from there once and says so. If both folders hold a config, it uses the new one, leaves the old one alone and says it can be removed. `sshctl config show` prints both paths. Files are written with owner-only permissions where supported. If `~/.sshctl/connections.json` or `~/.sshyeah/connections.json` exists and no new config exists, sshctl migrates recognized alias, description, and group fields and leaves the source untouched.
 
 The only SSH config sshctl writes is `~/.ssh/sshctl_config` (owner-only), plus the one `Include` line it asks before adding to `~/.ssh/config`. It checks every value so a field cannot add other directives. Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh-agent` handle key use and in-memory caching. `config show` displays config paths and alias count without printing credentials or key contents.
+
+## Syncing with chezmoi
+
+sshctl has no sync command. To keep the same Connections and Groups on every machine, let [chezmoi](https://www.chezmoi.io/) carry two files:
+
+| Sync | File | Holds |
+| --- | --- | --- |
+| Yes | `~/.config/sshctl/config.json` | Groups, Connections' descriptions and Groups, Provision repos, `workspace` settings |
+| Yes | `~/.ssh/sshctl_config` | The Host blocks sshctl writes |
+| Never | `~/.config/sshctl/state.json` | This machine's History, selected key and key list, collapsed Groups, list width |
+| Never | Private keys (`~/.ssh/id_ed25519` and the like) | Copy or create them on each machine yourself |
+
+Host blocks name your hosts, users and ports, so don't put `sshctl_config` in a public repo unencrypted. Use a small private repo of its own (recommended), or chezmoi's encryption in your public dotfiles repo.
+
+### Recommended: a private repo with symlinks
+
+A second chezmoi source, with its own config, keeps these files apart from your dotfiles. In symlink mode chezmoi makes the targets symlinks into its source directory. sshctl saves through the symlink, so every change lands in the repo's working tree at once.
+
+Create the second source's config and a shortcut for it (bash or zsh; put the alias in your shell's rc file):
+
+```sh
+mkdir -p ~/.config/chezmoi-sshctl
+cat > ~/.config/chezmoi-sshctl/chezmoi.toml <<'EOF'
+sourceDir = "~/.local/share/chezmoi-sshctl"
+mode = "symlink"
+EOF
+alias sshctl-sync='chezmoi --config ~/.config/chezmoi-sshctl/chezmoi.toml'
+```
+
+Then add the two files, push them to a new private repo (here `git@github.com:you/sshctl-sync.git`), and turn the files into symlinks:
+
+```sh
+sshctl-sync init
+sshctl-sync add ~/.config/sshctl/config.json ~/.ssh/sshctl_config
+sshctl-sync chattr -- -private ~/.config/sshctl/config.json ~/.ssh/sshctl_config
+sshctl-sync apply
+sshctl-sync git -- add .
+sshctl-sync git -- commit -m "Add sshctl config"
+sshctl-sync git -- remote add origin git@github.com:you/sshctl-sync.git
+sshctl-sync git -- push -u origin HEAD
+```
+
+The `chattr` step is needed because sshctl writes both files owner-only, so `chezmoi add` marks them `private_`, and chezmoi never symlinks private files. sshctl still writes owner-only through the symlink.
+
+Day to day, change Connections or Groups in sshctl as usual, then commit and push:
+
+```sh
+sshctl-sync git -- commit -am "Update Connections"
+sshctl-sync git -- push
+```
+
+On each other machine, pull the change, then press `^B r` in a running Workspace to reload the list:
+
+```sh
+sshctl-sync update
+```
+
+### Setting up a new machine
+
+Install sshctl and chezmoi, create `~/.config/chezmoi-sshctl/chezmoi.toml` and the `sshctl-sync` alias as above, then clone and apply:
+
+```sh
+sshctl-sync init --apply git@github.com:you/sshctl-sync.git
+```
+
+If sshctl has run on this machine before, chezmoi asks before replacing its `config.json`. `state.json` is not touched, so this machine keeps its own History and keys. Choose this machine's key with `sshctl key use <key-path>`, or let Bootstrap create one.
+
+`~/.ssh/config` on a new machine usually lacks the `Include sshctl_config` line, so ssh cannot see the synced hosts yet. The Workspace asks at startup: `Add "Include sshctl_config" to the top of ~/.ssh/config? (y/n)`. Answer `y` (the previous file is kept as `~/.ssh/config.sshctl-backup`). Answering `n` leaves the file alone for the rest of the session, and `sshctl list` prints a hint until the line is there. If your dotfiles already manage `~/.ssh/config`, add the line there instead, so chezmoi doesn't undo it.
+
+sshctl writes `IdentityFile` as `~/.ssh/...` for a key in your home directory, so one Host block works on Linux, macOS and Windows as long as each machine has a key at that path.
+
+On Windows, chezmoi can only create symlinks when your account may create them (Developer Mode, or an administrator shell). Without symlinks, use the encrypted setup's `re-add` step below to copy sshctl's changes into the source before committing.
+
+### Alternative: encrypted in your public dotfiles repo
+
+chezmoi can encrypt the two files with [age](https://www.chezmoi.io/user-guide/encryption/age/). Create a key, and keep it out of the repo and safe, since it is the only way to decrypt the files:
+
+```sh
+chezmoi age-keygen --output ~/.config/chezmoi/key.txt
+```
+
+Put the printed public key in `~/.config/chezmoi/chezmoi.toml`. `encryption` must come before any `[section]`:
+
+```toml
+encryption = "age"
+[age]
+    identity = "~/.config/chezmoi/key.txt"
+    recipient = "age1..."
+```
+
+Then add the files encrypted:
+
+```sh
+chezmoi add --encrypt ~/.config/sshctl/config.json ~/.ssh/sshctl_config
+```
+
+chezmoi never symlinks an encrypted file, so changes made in sshctl stay in the target until you copy them back. `re-add` re-encrypts them:
+
+```sh
+chezmoi re-add ~/.config/sshctl/config.json ~/.ssh/sshctl_config
+chezmoi git -- commit -am "Update Connections"
+chezmoi git -- push
+```
+
+Elsewhere, `chezmoi update` and `^B r` work as above. A new machine needs `key.txt` and the config above before `chezmoi init --apply <your-dotfiles-repo>`.
+
+Provision applies the same dotfiles repo on your servers, which have no age key, so `chezmoi apply` would fail there. Skip the two files on machines without the key with a `.chezmoiignore` in the repo:
+
+```text
+{{ if not (stat (joinPath .chezmoi.homeDir ".config/chezmoi/key.txt")) }}
+.config/sshctl/config.json
+.ssh/sshctl_config
+{{ end }}
+```
 
 ## Platform support
 
