@@ -36,7 +36,7 @@ type formField struct {
 	id          fieldID
 	label       string
 	placeholder string
-	value       []rune
+	value       line
 }
 
 // connForm is the form for adding or editing a Connection, drawn in the pane.
@@ -61,8 +61,8 @@ func newEditForm(c *Connection) *connForm {
 		f.fields = managedFields(s)
 	} else {
 		f.fields = []formField{
-			{id: fieldDescription, label: "Description", value: []rune(s.Description)},
-			{id: fieldGroup, label: "Group", placeholder: "none", value: []rune(s.Group)},
+			{id: fieldDescription, label: "Description", value: newLine(s.Description)},
+			{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
 		}
 	}
 	return f
@@ -70,13 +70,13 @@ func newEditForm(c *Connection) *connForm {
 
 func managedFields(s Spec) []formField {
 	return []formField{
-		{id: fieldAlias, label: "Alias", placeholder: "name used with ssh", value: []rune(s.Alias)},
-		{id: fieldHostName, label: "HostName", placeholder: "host or IP address", value: []rune(s.Host.HostName)},
-		{id: fieldUser, label: "User", placeholder: "OpenSSH default", value: []rune(s.Host.User)},
-		{id: fieldPort, label: "Port", placeholder: "22", value: []rune(s.Host.Port)},
-		{id: fieldIdentity, label: "Identity file", placeholder: "OpenSSH default", value: []rune(s.Host.IdentityFile)},
-		{id: fieldDescription, label: "Description", value: []rune(s.Description)},
-		{id: fieldGroup, label: "Group", placeholder: "none", value: []rune(s.Group)},
+		{id: fieldAlias, label: "Alias", placeholder: "name used with ssh", value: newLine(s.Alias)},
+		{id: fieldHostName, label: "HostName", placeholder: "host or IP address", value: newLine(s.Host.HostName)},
+		{id: fieldUser, label: "User", placeholder: "OpenSSH default", value: newLine(s.Host.User)},
+		{id: fieldPort, label: "Port", placeholder: "22", value: newLine(s.Host.Port)},
+		{id: fieldIdentity, label: "Identity file", placeholder: "OpenSSH default", value: newLine(s.Host.IdentityFile)},
+		{id: fieldDescription, label: "Description", value: newLine(s.Description)},
+		{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
 	}
 }
 
@@ -95,7 +95,7 @@ func (f *connForm) title() string {
 func (f *connForm) spec() Spec {
 	s := Spec{Alias: f.old, Managed: f.managed}
 	for _, fl := range f.fields {
-		v := strings.TrimSpace(string(fl.value))
+		v := strings.TrimSpace(fl.value.String())
 		switch fl.id {
 		case fieldAlias:
 			s.Alias = v
@@ -143,12 +143,12 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		m.modal = nil
 	case "tab", "down":
-		f.focus = (f.focus + 1) % len(f.fields)
+		f.focusField(f.focus + 1)
 	case "shift+tab", "up":
-		f.focus = (f.focus + len(f.fields) - 1) % len(f.fields)
+		f.focusField(f.focus - 1)
 	case "enter":
 		if f.focus < len(f.fields)-1 {
-			f.focus++
+			f.focusField(f.focus + 1)
 			return nil
 		}
 		return m.saveForm(f, false)
@@ -159,15 +159,19 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			return m.saveForm(f, true)
 		}
 	default:
-		fl.value, _ = editLine(fl.value, msg)
+		fl.value.key(msg)
 	}
 	return nil
 }
 
-func (f *connForm) paste(text string) {
-	fl := &f.fields[f.focus]
-	fl.value = pasteLine(fl.value, text)
+// focusField moves the focus to field i, wrapping around, with the cursor
+// at the end of its value.
+func (f *connForm) focusField(i int) {
+	f.focus = (i + len(f.fields)) % len(f.fields)
+	f.fields[f.focus].value.end()
 }
+
+func (f *connForm) paste(text string) { f.fields[f.focus].value.paste(text) }
 
 func (f *connForm) status() (string, bool) {
 	if f.swallowed {
@@ -280,11 +284,11 @@ func (f *connForm) render(w, h int, groups []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
-		value := string(fl.value)
+		value := fl.value.String()
 		if i == f.focus {
 			pointer = "› "
-			value += "█"
-		} else if value == "" && fl.placeholder != "" {
+			value = fl.value.withCursor()
+		} else if fl.value.empty() && fl.placeholder != "" {
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))

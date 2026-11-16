@@ -111,6 +111,8 @@ type Model struct {
 	focus     focus
 	prefix    bool // armed outside modals; a modal keeps its own
 	filtering bool
+	// filter is the filter being typed, with its cursor; State holds its text.
+	filter    line
 	scrolling bool
 	hideList  bool
 	modal     modal // gets input before anything else; see modal
@@ -260,7 +262,8 @@ func (m *Model) paste(text string) {
 	case m.modal != nil:
 		m.modal.paste(text)
 	case m.filtering:
-		m.st.SetFilter(string(pasteLine([]rune(m.st.Filter()), text)))
+		m.filter.paste(text)
+		m.st.SetFilter(m.filter.String())
 	case r != nil && m.focus == focusPane:
 		r.term.Paste(text)
 	}
@@ -339,6 +342,13 @@ func (m *Model) scrollBy(r *runner, n int) {
 	m.scrolling = r.scroll > 0
 }
 
+// startFilter starts typing the filter, resuming the current one with the
+// cursor at its end.
+func (m *Model) startFilter() {
+	m.filtering = true
+	m.filter = newLine(m.st.Filter())
+}
+
 func (m *Model) filterKey(msg tea.KeyPressMsg) {
 	switch msg.String() {
 	case "esc":
@@ -347,8 +357,8 @@ func (m *Model) filterKey(msg tea.KeyPressMsg) {
 	case "enter":
 		m.filtering = false
 	default:
-		if f, ok := editLine([]rune(m.st.Filter()), msg); ok {
-			m.st.SetFilter(string(f))
+		if m.filter.key(msg) {
+			m.st.SetFilter(m.filter.String())
 		}
 	}
 }
@@ -619,7 +629,7 @@ func (m *Model) startMove() tea.Cmd {
 	if c == nil {
 		return m.setStatus("no connection to move", false)
 	}
-	m.openModal(&moveInput{alias: c.Alias, group: []rune(c.Group)})
+	m.openModal(&moveInput{alias: c.Alias, group: newLine(c.Group)})
 	return nil
 }
 
