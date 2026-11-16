@@ -104,7 +104,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Enter`/`Space`, `←`/`→` | On a group header: collapse or expand the group (`←` on a member collapses its group) |
 | `Shift+↑`/`Shift+↓` (or `K`/`J`) | On a group header: move the group up / down; the new order is saved |
 | `/` | Filter the list by alias, description, or group |
-| `Alt+←`/`Alt+→` | Previous / next tab |
+| `Alt+←`/`Alt+→`, `[`/`]` (prefix `[`/`]` in the terminal) | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection in the active Space |
 | `1`–`9` (prefix `1`–`9` in the terminal) | Switch to Space 1–9 |
 | prefix `n` / `w` | New tab / close tab |
@@ -114,9 +114,8 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
 | `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
-| prefix `←`/`→` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
-| prefix `[` | Scroll back through the tab's history (`q` to leave) |
+| prefix `s` | Scroll back through the tab's history (`q` to leave; the mouse wheel also scrolls) |
 | prefix `b` / `r` | Hide the list / reload connections from disk |
 | prefix `?` / `q` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) / quit |
 

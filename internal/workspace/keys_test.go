@@ -142,3 +142,32 @@ func TestKeysDispatchThroughBindings(t *testing.T) {
 		t.Fatal("^B b should hide the list")
 	}
 }
+
+func TestBracketsSelectTheNeighbouringTab(t *testing.T) {
+	m := newTestModel(t, 80, 10)
+	m.st.SetCursor("db-main")
+	press(m, keyEnter)
+	press(m, keyPrefix, text("n")[0], keyPrefix, text("n")[0]) // tabs 1-3, on 3
+	c := m.st.Get("db-main")
+	press(m, keyPrefix, text("[")[0])
+	if c.Current != 1 {
+		t.Fatalf("prefix [ in the pane: tab %d, want 2", c.Current+1)
+	}
+	press(m, keyPrefix, text("]")[0])
+	if c.Current != 2 {
+		t.Fatalf("prefix ] in the pane: tab %d, want 3", c.Current+1)
+	}
+	if m.scrolling {
+		t.Fatal("prefix [ should no longer scroll back")
+	}
+	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}) // to the list
+	press(m, text("[")...)
+	press(m, text("[")...)
+	if c.Current != 0 {
+		t.Fatalf("[ [ in the list: tab %d, want 1", c.Current+1)
+	}
+	press(m, text("]")...)
+	if c.Current != 1 || m.focus != focusList {
+		t.Fatalf("] in the list: tab %d, focus %v; want tab 2 with the list kept", c.Current+1, m.focus)
+	}
+}

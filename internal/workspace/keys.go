@@ -75,7 +75,8 @@ var bindings = []binding{
 	{
 		keys: merge(
 			each(inAny, on("alt+left", selectTab(-1)), on("alt+right", selectTab(1))),
-			each(inPrefix, on("left", selectTab(-1)), on("right", selectTab(1))),
+			each(inList, tabKeys...),
+			each(inPrefix, tabKeys...),
 		),
 		help: "previous / next tab",
 	},
@@ -106,7 +107,7 @@ var bindings = []binding{
 	},
 	{
 		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
-		help: "add / edit / delete the connection or group under the cursor",
+		help: "add / edit / delete the cursor's connection or group",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.
@@ -132,7 +133,7 @@ var bindings = []binding{
 				m.focus = focusPane
 			}
 			return nil
-		}, "["),
+		}, "s"),
 		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
@@ -161,6 +162,10 @@ var bindings = []binding{
 		help: "quit",
 	},
 }
+
+// tabKeys select the previous and next tab, bound alike in the list and
+// after the prefix.
+var tabKeys = []boundKey{on("[", selectTab(-1)), on("]", selectTab(1))}
 
 // crud is the add, edit and delete keys, bound alike in two contexts. They
 // act on the Group whose header is under the cursor, otherwise on a
@@ -297,11 +302,14 @@ func each(ctx keyContext, keys ...boundKey) (out [numContexts][]boundKey) {
 	return out
 }
 
-func merge(a, b [numContexts][]boundKey) [numContexts][]boundKey {
-	for i := range a {
-		a[i] = append(a[i], b[i]...)
+// merge binds every key of sets, in order.
+func merge(sets ...[numContexts][]boundKey) (out [numContexts][]boundKey) {
+	for _, set := range sets {
+		for i := range out {
+			out[i] = append(out[i], set[i]...)
+		}
 	}
-	return a
+	return out
 }
 
 // runBinding runs the binding for msg in ctx, reporting false when there is none.

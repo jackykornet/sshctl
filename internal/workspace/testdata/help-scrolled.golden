@@ -1,12 +1,12 @@
   Keys  (↑/↓ PgUp/PgDn scroll · any other key closes)                           
-  Enter/Space      open or switch to a connection, or toggle a group            
-  ←/→/h/l          on a group: collapse / expand it                             
-  Shift+↑/↓/K/J    on a group: move it up / down (or drag its header)           
-  /                filter the connection list                                   
-  Esc              clear the filter                                             
-  Alt+←/→  ^B ←/→  previous / next tab                                          
-  1-9  ^B 1-9      switch to Space 1-9                                          
-  Alt+↑/↓          previous / next open connection in the Space                 
-  ^B n/c           new tab for the active connection (c runs claude)            
+  Enter/Space           open or switch to a connection, or toggle a group       
+  ←/→/h/l               on a group: collapse / expand it                        
+  Shift+↑/↓/K/J         on a group: move it up / down (or drag its header)      
+  /                     filter the connection list                              
+  Esc                   clear the filter                                        
+  Alt+←/→  [/]  ^B [/]  previous / next tab                                     
+  1-9  ^B 1-9           switch to Space 1-9                                     
+  Alt+↑/↓               previous / next open connection in the Space            
+  ^B n/c                new tab for the active connection (c runs claude)       
   ↓ 12 more below (↓ / PgDn)                                                    
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 
