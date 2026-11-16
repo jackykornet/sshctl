@@ -46,6 +46,9 @@ type Action string
 // ActionBootstrap runs Bootstrap ("sshctl bootstrap <alias>").
 const ActionBootstrap Action = "bootstrap"
 
+// ActionProvision runs Provision ("sshctl provision <alias>").
+const ActionProvision Action = "provision"
+
 // Connection is a Connection together with its Sessions in this Workspace.
 type Connection struct {
 	Entry
@@ -194,6 +197,12 @@ func (s *State) Groups() []string {
 	}
 	sort.Strings(extra)
 	return append(out, extra...)
+}
+
+// GroupPosition is group's position among the stored Groups, counting from
+// 1, or 0 when group is not a stored Group.
+func (s *State) GroupPosition(group string) int {
+	return slices.Index(s.groups, group) + 1
 }
 
 // HasGroup reports whether group is a Group the list shows.

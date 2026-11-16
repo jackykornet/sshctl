@@ -20,7 +20,8 @@ type commandCall struct {
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
 // the deleted alias) on the next Snapshot. Snapshot reports include, the
-// Include ssh_config lacks, until AddInclude is called. The catalog's own rules are
+// Include ssh_config lacks, until AddInclude is called. ProvisionRepo fails
+// with provision[alias], or returns a repo. The catalog's own rules are
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
@@ -30,6 +31,7 @@ type fakeCatalog struct {
 	loadErr        error
 	failGroup      bool
 	include        *IncludeError
+	provision      map[string]error // ProvisionRepo's error per alias
 
 	loads     int
 	opened    []string    // RecordOpen aliases
@@ -40,6 +42,9 @@ type fakeCatalog struct {
 	deletes   []string
 	includes  int
 	saveErrs  []error
+
+	groupMoves   [][2]any // MoveGroup name, position
+	moveGroupErr error
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
@@ -94,6 +99,28 @@ func (f *fakeCatalog) Delete(alias string) error {
 }
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
+
+// MoveGroup records the call and, unless moveGroupErr is set, puts name at
+// position (from 1) in groups.
+func (f *fakeCatalog) MoveGroup(name string, position int) error {
+	f.groupMoves = append(f.groupMoves, [2]any{name, position})
+	if f.moveGroupErr != nil {
+		return f.moveGroupErr
+	}
+	i := slices.Index(f.groups, name)
+	if i < 0 || position < 1 || position > len(f.groups) {
+		return errors.New("bad group move")
+	}
+	f.groups = slices.Insert(slices.Delete(f.groups, i, i+1), position-1, name)
+	return nil
+}
+
+func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
+	if err := f.provision[alias]; err != nil {
+		return "", err
+	}
+	return "https://example.com/dotfiles.git", nil
+}
 
 // recorder records what a Workspace asks of its Options.Command seam, and
 // through its fakeCatalog which Connections were recorded as opened.

@@ -93,6 +93,7 @@ func TestClickHeaderTogglesGroup(t *testing.T) {
 		t.Fatal("clicking the header should collapse it")
 	}
 	g.Update(tea.MouseClickMsg{X: 2, Y: 2, Button: tea.MouseLeft})
+	g.Update(tea.MouseReleaseMsg{X: 2, Y: 2, Button: tea.MouseLeft})
 	if g.st.Collapsed("web") {
 		t.Fatal("clicking again should expand it")
 	}
