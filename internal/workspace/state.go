@@ -24,9 +24,27 @@ type Session struct {
 	// Unseen is true when the Session had activity (output or a bell) while
 	// it was not the shown tab. Showing the tab clears it.
 	Unseen bool
-	// Claude is true for a Session that runs claude on the remote host.
-	Claude bool
+	// Launch is what the Session's process runs.
+	Launch
 }
+
+// A Launch is what a Session's process runs for its Connection: ssh to it
+// (a login shell, or claude), or one of sshctl's own Actions on it.
+type Launch struct {
+	// Claude runs claude on the remote host instead of a login shell.
+	Claude bool
+	// Action, when set, runs sshctl's own command of that name on the
+	// Connection ("sshctl bootstrap <alias>") instead of ssh. Its tab is
+	// labelled with the Action, and when it exits with status 0 the
+	// connection list is reloaded, since an Action may change Host blocks.
+	Action Action
+}
+
+// An Action is an sshctl command a Session can run on its Connection.
+type Action string
+
+// ActionBootstrap runs Bootstrap ("sshctl bootstrap <alias>").
+const ActionBootstrap Action = "bootstrap"
 
 // Connection is a Connection together with its Sessions in this Workspace.
 type Connection struct {

@@ -34,7 +34,7 @@ func newSessionModel(t *testing.T, s script) (*Model, *[]string) {
 	f := &fakeCatalog{entries: []Entry{{Alias: "alpha"}, {Alias: "beta"}}}
 	m, err := New(Options{
 		Catalog: f,
-		Command: func(alias string, _ bool) ([]string, error) {
+		Command: func(alias string, _ Launch) ([]string, error) {
 			return s.argv(alias), nil
 		},
 		ScrollbackLines: 100,

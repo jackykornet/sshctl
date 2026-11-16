@@ -54,7 +54,7 @@ Group launching starts a separate terminal for each Connection in the group. The
 3. It proves that the key alone logs in, with a fresh `ssh` that has BatchMode on and password login off.
 4. Only then does it set `IdentityFile` in the Host block, written as `~/.ssh/...` when the key is in your home directory.
 
-If the check in step 3 fails, nothing after step 1 changes and sshctl says why. A key with a passphrase must be in the agent for the check (`sshctl agent ensure`). A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. Bootstrap needs a selected key, never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
+If the check in step 3 fails, nothing after step 1 changes and sshctl says why. A key with a passphrase must be in the agent for the check (`sshctl agent ensure`). A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. With no selected key, Bootstrap first creates one: `ssh-keygen` makes an ed25519 key at `~/.ssh/id_ed25519`, or at `~/.ssh/sshctl_ed25519` when `id_ed25519` already exists (an existing key is never overwritten), asks you for a passphrase (leave it empty for none), and the new key becomes the selected key. Bootstrap never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
 
 ### Provision
 

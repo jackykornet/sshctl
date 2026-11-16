@@ -1,5 +1,4 @@
   Keys  (press any key to close)                                                
-                                                                                
   ↑/↓/k/j          move the cursor                                              
   Enter/Space      open or switch to a connection, or toggle a group            
   ←/→/h/l          on a group: collapse / expand it                             
@@ -9,6 +8,7 @@
   ^B 1-9           switch to tab 1-9                                            
   Alt+↑/↓          previous / next open connection                              
   ^B n/c           new tab for the active connection (c runs claude)            
+  ^B i             bootstrap the connection in its own tab                      
   ^B g             open the connection's group as tabs                          
   ^B m             move a connection to a group (or drag it)                    
   a/e/d  ^B a/e/d  add / edit / delete a connection                             

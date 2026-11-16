@@ -17,16 +17,26 @@ import (
 
 const bootstrapKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ0ZXN0a2V5 jo@laptop"
 
+// newKey is the public key the fakeHost's ssh-keygen writes.
+const (
+	newKey     = "ssh-ed25519 " + newKeyBlob + " jo@laptop"
+	newKeyBlob = "AAAAC3NzaC1lZDI1NTE5AAAAIG5ld2tleTAx"
+)
+
 // fakeHost is an openssh.Runner playing ssh and the host behind it. It
 // keeps the installed key blobs, logs every call ("resolve", "install",
 // "key-only") with its argv, and answers like a POSIX host unless noPOSIX.
 // With reject the key never logs in on its own.
+//
+// It also plays ssh-keygen ("keygen"): it writes newKey's pair at the -f
+// path, unless keygenFails.
 type fakeHost struct {
-	keys    []string
-	noPOSIX bool
-	reject  bool
-	calls   []string
-	argv    [][]string
+	keys        []string
+	noPOSIX     bool
+	reject      bool
+	keygenFails bool
+	calls       []string
+	argv        [][]string
 }
 
 var installedBlob = regexp.MustCompile(`k='\\''([A-Za-z0-9+/=]+)'\\''`)
@@ -35,6 +45,16 @@ func (h *fakeHost) run(_ context.Context, argv []string, out io.Writer) error {
 	h.argv = append(h.argv, argv)
 	remote := argv[len(argv)-1]
 	switch {
+	case argv[0] == "ssh-keygen":
+		h.calls = append(h.calls, "keygen")
+		if h.keygenFails {
+			return exitCodeError(1)
+		}
+		path := argv[slices.Index(argv, "-f")+1]
+		if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+			return err
+		}
+		return os.WriteFile(path+".pub", []byte(newKey+"\n"), 0o644)
 	case slices.Contains(argv, "-G"):
 		h.calls = append(h.calls, "resolve")
 		fmt.Fprint(out, "host web\nhostname 10.0.0.5\nuser deploy\nport 22\n")
@@ -187,30 +207,26 @@ func TestBootstrapOnlyInstallsTheKeyOnAConnectionThatIsNotManaged(t *testing.T) 
 	}
 }
 
-func TestBootstrapRefusesBeforeRunningSSH(t *testing.T) {
+func TestBootstrapRefusesAnUnknownAliasBeforeRunningAnything(t *testing.T) {
 	for _, tc := range []struct {
-		name, alias, want string
-		noIdentity        bool
+		name       string
+		noIdentity bool
 	}{
-		{"no Selected identity", "web", "no Selected identity", true},
-		{"unknown alias", "nope", "not a Host in ssh_config", false},
+		{"with a Selected identity", false},
+		{"before generating a key", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
 			managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
 			if tc.noIdentity {
-				c := load(t, a)
-				c.DefaultKey = ""
-				if err := config.Save(a.cfgPath, c); err != nil {
-					t.Fatal(err)
-				}
+				withoutIdentity(t, a)
 			}
-			err := a.execute([]string{"bootstrap", tc.alias})
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("err = %v, want %q", err, tc.want)
+			err := a.execute([]string{"bootstrap", "nope"})
+			if err == nil || !strings.Contains(err.Error(), "not a Host in ssh_config") {
+				t.Errorf("err = %v, want the unknown alias", err)
 			}
 			if len(h.calls) != 0 {
-				t.Errorf("ssh ran %q, want nothing", h.calls)
+				t.Errorf("ran %q, want nothing", h.calls)
 			}
 		})
 	}
@@ -226,5 +242,92 @@ func TestBootstrapFailsEarlyWithoutPOSIXSh(t *testing.T) {
 	}
 	if slices.Contains(h.calls, "key-only") || hostBlock(t, a, "web").IdentityFile != "" {
 		t.Errorf("calls %q, Host block %+v: want nothing after the install", h.calls, hostBlock(t, a, "web"))
+	}
+}
+
+// withoutIdentity clears a's Selected identity and removes the key
+// bootstrapTree put in ~/.ssh, so ~/.ssh holds no key.
+func withoutIdentity(t *testing.T, a *app) {
+	t.Helper()
+	if err := a.catalog().SetIdentity(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(a.ssh.Home, ".ssh", "id_ed25519.pub")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func selectedIdentity(t *testing.T, a *app) string {
+	t.Helper()
+	snap, err := a.catalog().Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap.Identity
+}
+
+func TestBootstrapGeneratesAndSelectsAKeyWhenThereIsNoSelectedIdentity(t *testing.T) {
+	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	withoutIdentity(t, a)
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if want := []string{"keygen", "resolve", "install", "key-only"}; !slices.Equal(h.calls, want) {
+		t.Errorf("calls = %q, want %q", h.calls, want)
+	}
+	key := filepath.Join(a.ssh.Home, ".ssh", "id_ed25519")
+	if got := selectedIdentity(t, a); got != key {
+		t.Errorf("Selected identity = %q, want %q", got, key)
+	}
+	if !slices.Equal(h.keys, []string{newKeyBlob}) {
+		t.Errorf("installed keys = %q, want the new key", h.keys)
+	}
+	if got := hostBlock(t, a, "web").IdentityFile; got != "~/.ssh/id_ed25519" {
+		t.Errorf("IdentityFile = %q, want ~/.ssh/id_ed25519", got)
+	}
+	if !strings.Contains(out.String(), "~/.ssh/id_ed25519 is now the Selected identity") {
+		t.Errorf("output does not say the new key is selected:\n%s", out)
+	}
+}
+
+func TestBootstrapNeverOverwritesAnUnselectedIDEd25519(t *testing.T) {
+	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	if err := a.catalog().SetIdentity(""); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(a.ssh.Home, ".ssh", "id_ed25519.pub")
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(old); string(b) != bootstrapKey+"\n" {
+		t.Errorf("id_ed25519.pub = %q, want it untouched", b)
+	}
+	if got, want := selectedIdentity(t, a), filepath.Join(a.ssh.Home, ".ssh", "sshctl_ed25519"); got != want {
+		t.Errorf("Selected identity = %q, want %q", got, want)
+	}
+	if !slices.Equal(h.keys, []string{newKeyBlob}) {
+		t.Errorf("installed keys = %q, want the new key", h.keys)
+	}
+	if got := hostBlock(t, a, "web").IdentityFile; got != "~/.ssh/sshctl_ed25519" {
+		t.Errorf("IdentityFile = %q, want ~/.ssh/sshctl_ed25519", got)
+	}
+}
+
+func TestBootstrapStopsWhenKeyGenerationFails(t *testing.T) {
+	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	withoutIdentity(t, a)
+	h.keygenFails = true
+	err := a.execute([]string{"bootstrap", "web"})
+	if err == nil || !strings.Contains(err.Error(), "ssh-keygen") {
+		t.Fatalf("err = %v, want the ssh-keygen failure\n%s", err, out)
+	}
+	if want := []string{"keygen"}; !slices.Equal(h.calls, want) {
+		t.Errorf("calls = %q, want %q", h.calls, want)
+	}
+	if got := selectedIdentity(t, a); got != "" {
+		t.Errorf("Selected identity = %q, want none", got)
 	}
 }
