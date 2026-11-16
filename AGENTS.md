@@ -46,7 +46,7 @@ Tests never start the real `ssh`. `Options.Command` and `Options.Catalog` are th
 
 Use concise imperative commit subjects (for example, `Add SSH config parsing`). Pull requests should explain the change and rationale, list the validation commands and results, and link the issue. Include screenshots only when a change adds a visual interface.
 
-Workspace work is a stack of pull requests, merged in order: `ssh-config-include` (#1, into `main`) → `workspace-layout` (#2) → `workspace-sessions` (#3) → `workspace-followups` (#12). Each targets the branch before it. Ticket branches start from `workspace-followups` and merge back into it; merge its current tip into the ticket branch and re-run the checks before handing off.
+Ticket branches start from `main` and open a pull request back into it. Work spanning several tickets gets a feature branch off `main` (as `connection-bootstrap` was for #36); its ticket branches start from it and merge back into it, and the feature branch then goes to `main` as one pull request. Before handing off, merge the base branch's current tip into the ticket branch and re-run the checks.
 
 ## Security & Configuration
 
