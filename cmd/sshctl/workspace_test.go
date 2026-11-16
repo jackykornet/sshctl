@@ -50,7 +50,7 @@ func TestSessionCommandRunsActionAsSshctlItself(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{self, string(action), "web"}; !slices.Equal(got, want) {
+		if want := []string{self, string(action), "--", "web"}; !slices.Equal(got, want) {
 			t.Errorf("sessionCommand(web, %s) = %v, want %v", action, got, want)
 		}
 	}

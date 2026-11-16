@@ -203,11 +203,38 @@ func TestCheckKeyOnlyAllowsNothingButTheKey(t *testing.T) {
 	if err := CheckKeyOnly(context.Background(), f.run, "web", "/k/id"); !errors.Is(err, exitErr(255)) {
 		t.Errorf("err = %v, want ssh's failure", err)
 	}
-	want := []string{"ssh", "-i", "/k/id", "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
+	// No BatchMode, so ssh can ask for the key's passphrase; nothing but
+	// that public key may log in.
+	want := []string{"ssh", "-i", "/k/id", "-o", "PasswordAuthentication=no",
 		"-o", "KbdInteractiveAuthentication=no", "-o", "PreferredAuthentications=publickey", "-o", "IdentitiesOnly=yes",
 		"web", "exit 0"}
 	if len(f.calls) != 1 || !slices.Equal(f.calls[0], want) {
 		t.Errorf("ran %q\nwant %q", f.calls, want)
+	}
+}
+
+func TestOtherIdentitiesListsWhatSSHConfigAddsToTheKey(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		want         []string
+	}{
+		{"only the key", "host web\nidentityfile /home/jo/.ssh/id\n", nil},
+		{"the key as ~/", "identityfile ~/.ssh/id\n", nil},
+		{"another key", "identityfile /home/jo/.ssh/id\nidentityfile ~/.ssh/old\nidentitiesonly yes\n", []string{"~/.ssh/old"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeSSH{output: tc.output}
+			got, err := OtherIdentities(context.Background(), f.run, "web", "/home/jo/.ssh/id", "/home/jo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("OtherIdentities = %q, want %q", got, tc.want)
+			}
+			if want := []string{"ssh", "-G", "-i", "/home/jo/.ssh/id", "web"}; len(f.calls) != 1 || !slices.Equal(f.calls[0], want) {
+				t.Errorf("ran %q, want %q", f.calls, want)
+			}
+		})
 	}
 }
 

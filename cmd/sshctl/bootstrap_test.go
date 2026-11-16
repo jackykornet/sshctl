@@ -25,8 +25,10 @@ const (
 
 // fakeHost is an openssh.Runner playing ssh and the host behind it. It
 // keeps the installed key blobs, logs every call ("resolve", "install",
-// "key-only") with its argv, and answers like a POSIX host unless noPOSIX.
-// With reject the key never logs in on its own.
+// "key-only", "identities") with its argv, and answers like a POSIX host
+// unless noPOSIX. With reject the key never logs in on its own. "ssh -G -i"
+// lists the key and otherIdentities as identity files. onKeyOnly, when set,
+// runs at the key-only check.
 //
 // It also plays ssh-keygen ("keygen"): it writes newKey's pair at the -f
 // path, unless keygenFails.
@@ -35,8 +37,11 @@ type fakeHost struct {
 	noPOSIX     bool
 	reject      bool
 	keygenFails bool
-	calls       []string
-	argv        [][]string
+	// otherIdentities are the identity files ssh_config adds for the host.
+	otherIdentities []string
+	onKeyOnly       func()
+	calls           []string
+	argv            [][]string
 }
 
 var installedBlob = regexp.MustCompile(`k='\\''([A-Za-z0-9+/=]+)'\\''`)
@@ -55,12 +60,22 @@ func (h *fakeHost) run(_ context.Context, argv []string, out io.Writer) error {
 			return err
 		}
 		return os.WriteFile(path+".pub", []byte(newKey+"\n"), 0o644)
+	case slices.Contains(argv, "-G") && slices.Contains(argv, "-i"):
+		h.calls = append(h.calls, "identities")
+		fmt.Fprintf(out, "host web\nidentityfile %s\n", argv[slices.Index(argv, "-i")+1])
+		for _, f := range h.otherIdentities {
+			fmt.Fprintf(out, "identityfile %s\n", f)
+		}
+		return nil
 	case slices.Contains(argv, "-G"):
 		h.calls = append(h.calls, "resolve")
 		fmt.Fprint(out, "host web\nhostname 10.0.0.5\nuser deploy\nport 22\n")
 		return nil
-	case slices.Contains(argv, "BatchMode=yes"):
+	case slices.Contains(argv, "PreferredAuthentications=publickey"):
 		h.calls = append(h.calls, "key-only")
+		if h.onKeyOnly != nil {
+			h.onKeyOnly()
+		}
 		if len(h.keys) == 0 || h.reject {
 			return exitCodeError(255)
 		}
@@ -133,7 +148,7 @@ func TestBootstrapInstallsTheKeyThenPointsTheHostBlockAtIt(t *testing.T) {
 	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
 		t.Fatalf("bootstrap: %v\n%s", err, out)
 	}
-	if want := []string{"resolve", "install", "key-only"}; !slices.Equal(h.calls, want) {
+	if want := []string{"resolve", "install", "key-only", "identities"}; !slices.Equal(h.calls, want) {
 		t.Errorf("ssh calls = %q, want %q", h.calls, want)
 	}
 	key := filepath.Join(a.ssh.Home, ".ssh", "id_ed25519")
@@ -172,7 +187,23 @@ func TestBootstrapCanBeRunAgain(t *testing.T) {
 	}
 }
 
-func TestBootstrapLeavesIdentityFileUnsetWhenTheKeyAloneFails(t *testing.T) {
+func TestBootstrapClearsAnOldIdentityFileBeforeCheckingTheKey(t *testing.T) {
+	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5", IdentityFile: "~/.ssh/old"})
+	during := "unchecked"
+	h.onKeyOnly = func() { during = hostBlock(t, a, "web").IdentityFile }
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if during != "" {
+		t.Errorf("IdentityFile during the key-only check = %q, want none", during)
+	}
+	if got := hostBlock(t, a, "web").IdentityFile; got != "~/.ssh/id_ed25519" {
+		t.Errorf("IdentityFile = %q, want ~/.ssh/id_ed25519", got)
+	}
+}
+
+func TestBootstrapRestoresTheOldIdentityFileWhenTheKeyAloneFails(t *testing.T) {
 	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
 	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5", IdentityFile: "~/.ssh/old"})
 	h.reject = true
@@ -180,7 +211,7 @@ func TestBootstrapLeavesIdentityFileUnsetWhenTheKeyAloneFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "without a password") || !strings.Contains(err.Error(), "IdentityFile was not set") {
 		t.Fatalf("err = %v, want why the key-only check failed\n%s", err, out)
 	}
-	// Step 1 stays; the old IdentityFile is untouched.
+	// Step 1 stays; the old IdentityFile is put back.
 	want := openssh.Endpoint{HostName: "10.0.0.5", User: "deploy", Port: "22", IdentityFile: "~/.ssh/old"}
 	if got := hostBlock(t, a, "web"); got != want {
 		t.Errorf("Host block = %+v, want %+v", got, want)
@@ -193,7 +224,7 @@ func TestBootstrapOnlyInstallsTheKeyOnAConnectionThatIsNotManaged(t *testing.T) 
 	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
 		t.Fatalf("bootstrap: %v\n%s", err, out)
 	}
-	if want := []string{"install", "key-only"}; !slices.Equal(h.calls, want) {
+	if want := []string{"install", "key-only", "identities"}; !slices.Equal(h.calls, want) {
 		t.Errorf("ssh calls = %q, want %q", h.calls, want)
 	}
 	if b, _ := os.ReadFile(a.ssh.SSHConfig); string(b) != sshConfig {
@@ -204,6 +235,41 @@ func TestBootstrapOnlyInstallsTheKeyOnAConnectionThatIsNotManaged(t *testing.T) 
 	}
 	if !strings.Contains(out.String(), "left as it is") {
 		t.Errorf("output lacks the note that the Host block was left alone:\n%s", out)
+	}
+}
+
+func TestBootstrapRestoresTheOldIdentityFileWhenInstallingFails(t *testing.T) {
+	a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5", IdentityFile: "~/.ssh/old"})
+	h.noPOSIX = true
+	if err := a.execute([]string{"bootstrap", "web"}); err == nil {
+		t.Fatal("bootstrap succeeded on a host without POSIX sh")
+	}
+	if got := hostBlock(t, a, "web").IdentityFile; got != "~/.ssh/old" {
+		t.Errorf("IdentityFile = %q, want ~/.ssh/old back", got)
+	}
+}
+
+func TestBootstrapNotesIdentityFilesSSHConfigAlsoOffers(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		others []string
+		note   bool
+	}{
+		{"none", nil, false},
+		{"one", []string{"~/.ssh/old"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, out, h := bootstrapTree(t, "Host web\n  HostName 10.0.0.5\n")
+			h.otherIdentities = tc.others
+			if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+				t.Fatalf("bootstrap: %v\n%s", err, out)
+			}
+			note := "ssh also offered ~/.ssh/old"
+			if got := strings.Contains(out.String(), note); got != tc.note {
+				t.Errorf("output has %q: %v, want %v\n%s", note, got, tc.note, out)
+			}
+		})
 	}
 }
 
@@ -273,7 +339,7 @@ func TestBootstrapGeneratesAndSelectsAKeyWhenThereIsNoSelectedIdentity(t *testin
 	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
 		t.Fatalf("bootstrap: %v\n%s", err, out)
 	}
-	if want := []string{"keygen", "resolve", "install", "key-only"}; !slices.Equal(h.calls, want) {
+	if want := []string{"keygen", "resolve", "install", "key-only", "identities"}; !slices.Equal(h.calls, want) {
 		t.Errorf("calls = %q, want %q", h.calls, want)
 	}
 	key := filepath.Join(a.ssh.Home, ".ssh", "id_ed25519")

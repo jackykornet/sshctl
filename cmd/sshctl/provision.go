@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -19,10 +18,11 @@ func (a *app) provisionCommand(args []string) error {
 	if len(args) > 0 && args[0] == "default" {
 		return a.provisionDefault(args[1:])
 	}
-	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+	alias, ok := aliasArg(args)
+	if !ok {
 		return errors.New("usage: sshctl " + provisionUsage)
 	}
-	return a.provision(args[0])
+	return a.provision(alias)
 }
 
 // provision applies the dotfiles repo to alias's host with chezmoi. It fails
@@ -60,14 +60,12 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 		return "", err
 	}
 	group := ""
-	for _, e := range snap.Entries {
-		if e.Alias == alias && slices.ContainsFunc(snap.Groups, func(g catalog.Group) bool { return g.Name == e.Group }) {
-			group = e.Group
-		}
+	if e, ok := snap.Entry(alias); ok && snap.HasGroup(e.Group) {
+		group = e.Group
 	}
 	unanswered := fmt.Errorf("%w; set one with: sshctl provision default <url>", noRepo)
 	in := bufio.NewReader(a.in)
-	fmt.Fprint(a.out, "Dotfiles repo URL: ")
+	fmt.Fprintf(a.out, "Dotfiles repo URL (%s refuses Provision): ", config.DotfilesNone)
 	repo, ok := readAnswer(in)
 	if !ok || repo == "" {
 		fmt.Fprintln(a.out)
@@ -84,14 +82,21 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 			fmt.Fprintln(a.out)
 			return "", unanswered
 		}
+		// none is the refuse setting, never a repo to apply: it is saved
+		// like one, and Provision stops.
+		var err error
 		switch {
 		case choice == "g":
-			return repo, cat.SetDotfiles(repo)
+			err = cat.SetDotfiles(repo)
 		case choice == "r" && group != "":
-			return repo, cat.SetGroupDotfiles(group, repo)
-		case choice == "o":
-			return repo, nil
+			err = cat.SetGroupDotfiles(group, repo)
+		case choice != "o":
+			continue
 		}
+		if err == nil && repo == config.DotfilesNone {
+			err = catalog.ErrProvisionRefused
+		}
+		return repo, err
 	}
 }
 
