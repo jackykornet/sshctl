@@ -7,10 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
@@ -68,6 +66,22 @@ type Snapshot struct {
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
 	// on a new machine the file was synced to (ADR-0004). AddInclude fixes it.
 	Include *IncludeError
+}
+
+// Entry returns the Connection alias, Orphaned or not, and whether there
+// is one.
+func (s Snapshot) Entry(alias string) (Entry, bool) {
+	for _, e := range s.Entries {
+		if e.Alias == alias {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
+// HasGroup reports whether a Group named name has a record.
+func (s Snapshot) HasGroup(name string) bool {
+	return slices.ContainsFunc(s.Groups, func(g Group) bool { return g.Name == name })
 }
 
 // IncludeError is returned by Save when the user's ssh_config does not yet
@@ -148,9 +162,10 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 
 // missingInclude returns the Include the user's ssh_config lacks when
 // sshctl's hosts file exists, and nil when there is no such file or it is
-// already Included.
+// already Included. A symlink counts as the file even when its target is
+// missing, as when a dotfiles manager has not applied it yet.
 func (c *Catalog) missingInclude() (*IncludeError, error) {
-	if _, err := os.Stat(c.ssh.ManagedPath()); os.IsNotExist(err) {
+	if _, err := os.Lstat(c.ssh.ManagedPath()); os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -163,7 +178,8 @@ func (c *Catalog) missingInclude() (*IncludeError, error) {
 }
 
 func (c *Catalog) includeError() *IncludeError {
-	return &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig)}
+	home, _ := os.UserHomeDir()
+	return &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig, home)}
 }
 
 // RecordOpen records in History that alias was opened.
@@ -432,12 +448,6 @@ func rename(cfg *config.Config, old, alias string) {
 // ssh_config, so OpenSSH reads sshctl's Host blocks.
 func (c *Catalog) AddInclude() error { return c.ssh.AddInclude() }
 
-// displayPath shows path with the home directory as "~".
-func displayPath(path string) string {
-	if home, err := os.UserHomeDir(); err == nil {
-		if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join("~", rel)
-		}
-	}
-	return path
-}
+// displayPath shows path under home as "~/...", with forward slashes on
+// every platform, as ssh_config writes it.
+func displayPath(path, home string) string { return openssh.HomeRelative(path, home) }

@@ -233,12 +233,7 @@ func (a *app) metadata(args []string, edit bool) error {
 	if err != nil {
 		return err
 	}
-	var c catalog.Entry
-	for _, e := range snap.Entries {
-		if e.Alias == alias {
-			c = e
-		}
-	}
+	c, _ := snap.Entry(alias)
 	if edit && c.Description == "" && c.Group == "" {
 		return fmt.Errorf("no sshctl metadata for %q", alias)
 	}
