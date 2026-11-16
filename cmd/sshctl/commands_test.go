@@ -108,6 +108,7 @@ func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 
 func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "staging"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, _ := cliTree(t, "Host web\n", cfg, "\nstaging\n")
 	if err := a.metadata([]string{"web"}, true); err != nil {
@@ -125,6 +126,10 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()
+	c.Groups = []config.Group{{Name: "engineering"}}
+	if err := config.Save(path, c); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	ssh := &openssh.Client{SSHConfig: filepath.Join(t.TempDir(), "sshconfig")}
 	a := &app{in: strings.NewReader("development machine\nengineering\n"), out: &out, cfgPath: path, cfg: c, ssh: ssh}

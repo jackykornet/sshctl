@@ -202,14 +202,14 @@ func (c *Config) renameDigitGroups() {
 			name = fmt.Sprintf("group-%s-%d", old, n)
 		}
 		used[name] = true
-		c.renameGroup(old, name)
+		c.RenameGroup(old, name)
 		c.Notices = append(c.Notices, fmt.Sprintf("renamed group %q to %q: a group name may not be only digits", old, name))
 	}
 }
 
-// renameGroup renames the Group old to name in its record, its members and
-// the collapsed list.
-func (c *Config) renameGroup(old, name string) {
+// RenameGroup renames the Group old to name in its record, its members and
+// the collapsed list. It does not check name; see CheckGroupName.
+func (c *Config) RenameGroup(old, name string) {
 	if i := c.GroupIndex(old); i >= 0 {
 		c.Groups[i].Name = name
 	}
@@ -219,9 +219,37 @@ func (c *Config) renameGroup(old, name string) {
 			c.Connections[alias] = conn
 		}
 	}
-	for i, g := range c.CollapsedGroups {
+	c.renameCollapsed(old, name)
+}
+
+// DeleteGroup removes the Group name's record and leaves its members
+// ungrouped; a member left with no description keeps no metadata.
+func (c *Config) DeleteGroup(name string) {
+	// Members go first: SetMetadata would give a Group still named by a
+	// member its record back.
+	for alias, conn := range c.Connections {
+		if conn.Group == name {
+			c.SetMetadata(alias, conn.Description, "")
+		}
+	}
+	if i := c.GroupIndex(name); i >= 0 {
+		c.Groups = slices.Delete(c.Groups, i, i+1)
+	}
+	c.renameCollapsed(name, "")
+}
+
+// renameCollapsed keeps the per-machine collapsed list in step with a
+// Group renamed from old to name, or deleted when name is "". It is the
+// only code that follows a Group's name into that list.
+func (c *Config) renameCollapsed(old, name string) {
+	groups := c.CollapsedGroups
+	if name == "" {
+		c.CollapsedGroups = slices.DeleteFunc(groups, func(g string) bool { return g == old })
+		return
+	}
+	for i, g := range groups {
 		if g == old {
-			c.CollapsedGroups[i] = name
+			groups[i] = name
 		}
 	}
 }
