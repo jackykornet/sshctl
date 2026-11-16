@@ -153,7 +153,7 @@ func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 func (in *moveInput) paste(text string) { in.group = pasteLine(in.group, text) }
 
 func (in *moveInput) status() (string, bool) {
-	help := "Enter move · empty for none · Esc cancel"
+	help := "Enter move · 0 or empty for none · Esc cancel"
 	if in.swallowed {
 		help = "move prompt open: Esc to cancel"
 	}

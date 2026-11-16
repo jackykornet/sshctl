@@ -623,17 +623,28 @@ func (m *Model) startMove() tea.Cmd {
 	return nil
 }
 
-// moveTo saves alias's new group and moves it there in the list. Only an
-// existing Group is a target. A Connection moved into a collapsed group
-// leaves the cursor on that group's header.
+// moveTo saves alias's new group and moves it there in the list. group is a
+// Group number (0 ungroups) or a name; an unknown name asks to create the
+// Group first. A Connection moved into a collapsed group leaves the cursor
+// on that group's header.
 func (m *Model) moveTo(alias, group string) tea.Cmd {
-	group = strings.TrimSpace(group)
+	typed := strings.TrimSpace(group)
+	group, ok := m.st.ResolveGroup(typed)
+	if !ok {
+		return m.setStatus("no group number "+typed, true)
+	}
 	c := m.st.Get(alias)
 	if c == nil || c.Group == group {
 		return nil
 	}
 	if group != "" && !m.st.HasGroup(group) {
-		return m.setStatus("no group "+group, true)
+		m.askCreateGroup(group, func(m *Model) tea.Cmd {
+			if cmd := m.reload("", ""); m.statusErr {
+				return cmd
+			}
+			return m.moveTo(alias, group)
+		})
+		return nil
 	}
 	from := c.Group
 	if err := m.opts.Catalog.SetGroup(alias, group); err != nil {

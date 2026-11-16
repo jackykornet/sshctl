@@ -183,6 +183,12 @@ func (f *connForm) status() (string, bool) {
 // saved alias.
 func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	s := f.spec()
+	group, ok := m.st.ResolveGroup(s.Group)
+	if !ok {
+		f.err = "no group number " + s.Group
+		return nil
+	}
+	s.Group = group
 	if f.old != "" && s.Alias != f.old {
 		if c := m.st.Get(f.old); c != nil && c.Open() {
 			f.err = "close " + f.old + "'s tabs before renaming it"
@@ -267,8 +273,10 @@ func (m *Model) deleteConnection() tea.Cmd {
 	return nil
 }
 
-// renderForm draws the connection form in a w×h pane.
-func (f *connForm) render(w, h int) []string {
+// render draws the connection form in a w×h pane. Under the group field
+// it lists the stored groups by Group number, since the form covers their
+// headers.
+func (f *connForm) render(w, h int, groups []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -280,6 +288,13 @@ func (f *connForm) render(w, h int) []string {
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))
+		if fl.id == fieldGroup && len(groups) > 0 {
+			numbers := []string{"0 none"}
+			for n, g := range groups {
+				numbers = append(numbers, fmt.Sprintf("%d %s", n+1, g))
+			}
+			lines = append(lines, strings.Repeat(" ", 19)+dimStyle.Render(strings.Join(numbers, " · ")))
+		}
 	}
 	lines = append(lines, "")
 	if !f.managed {

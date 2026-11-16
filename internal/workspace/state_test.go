@@ -370,3 +370,30 @@ func TestOnlyEmptyGroupsStillShowHeaders(t *testing.T) {
 		t.Fatal("HasGroup should know exactly the listed Groups")
 	}
 }
+
+// What the user types for a Group is a Group number (its position among
+// the stored Groups, 0 for ungrouped) or a name.
+func TestResolveGroupTakesANumberOrAName(t *testing.T) {
+	s := NewState([]Entry{{Alias: "stray", Group: "adhoc"}})
+	s.SetGroups([]string{"prod", "staging"})
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"1", "prod", true},
+		{"2", "staging", true},
+		{"0", "", true},
+		{"", "", true},
+		{"3", "", false}, // adhoc has no record, so no number
+		{"01", "prod", true},
+		{"staging", "staging", true},
+		{"new", "new", true},
+		{"prod2", "prod2", true},
+	}
+	for _, tt := range tests {
+		got, ok := s.ResolveGroup(tt.in)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("ResolveGroup(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}

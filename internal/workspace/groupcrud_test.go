@@ -132,6 +132,146 @@ func TestTheFormOffersToCreateANewGroup(t *testing.T) {
 	}
 }
 
+// Each stored Group's header shows its Group number, which follows a
+// reorder or a delete.
+func TestHeadersShowGroupNumbers(t *testing.T) {
+	m, _ := newGroupModel(t)
+	headers := func() []string {
+		var out []string
+		for _, l := range plainList(m) {
+			if _, header, ok := strings.Cut(l, "▾ "); ok {
+				out = append(out, strings.TrimSpace(header))
+			}
+		}
+		return out
+	}
+	if got, want := headers(), []string{"1 web 4", "2 batch 1", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("headers = %q, want %q", got, want)
+	}
+	press(m, tea.KeyPressMsg{Code: 'J', Text: "J"}) // web down below batch
+	if got, want := headers(), []string{"1 batch 1", "2 web 4", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after reorder headers = %q, want %q", got, want)
+	}
+	m.st.SetCursorGroup("batch")
+	press(m, text("d")...)
+	press(m, text("y")...)
+	if got, want := headers(), []string{"1 web 4", "ungrouped 2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after delete headers = %q, want %q", got, want)
+	}
+}
+
+// The move prompt takes a Group number (web is 1, batch 2) as well as a
+// name; 0 ungroups.
+func TestTheMovePromptTakesAGroupNumber(t *testing.T) {
+	tests := []struct {
+		typed, want string
+	}{
+		{"2", "batch"},
+		{"0", ""},
+		{"batch", "batch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.typed, func(t *testing.T) {
+			m, f := newGroupModel(t)
+			m.st.SetCursor("alpha")
+			press(m, keyPrefix, text("m")[0], keyClear)
+			press(m, append(text(tt.typed), keyEnter)...)
+			if got := m.st.Get("alpha").Group; got != tt.want {
+				t.Fatalf("alpha in %q, want %q (status %q)", got, tt.want, m.status)
+			}
+			if want := [][2]string{{"alpha", tt.want}}; !reflect.DeepEqual(f.moves, want) {
+				t.Errorf("saved %v, want %v", f.moves, want)
+			}
+		})
+	}
+}
+
+func TestTheMovePromptRefusesANumberWithNoGroup(t *testing.T) {
+	m, f := newGroupModel(t)
+	m.st.SetCursor("alpha")
+	press(m, keyPrefix, text("m")[0], keyClear)
+	press(m, append(text("3"), keyEnter)...)
+	if m.st.Get("alpha").Group != "web" || len(f.moves) != 0 || len(f.groupOps) != 0 {
+		t.Fatalf("alpha in %q, saved %v, group calls %v", m.st.Get("alpha").Group, f.moves, f.groupOps)
+	}
+	if !m.statusErr || m.status != "no group number 3" {
+		t.Fatalf("status = %q (err %v)", m.status, m.statusErr)
+	}
+}
+
+// An unknown name in the move prompt asks to create the Group, then moves
+// the Connection into it on yes.
+func TestTheMovePromptOffersToCreateANewGroup(t *testing.T) {
+	for _, answer := range []string{"y", "n"} {
+		t.Run(answer, func(t *testing.T) {
+			m, f := newGroupModel(t)
+			m.st.SetCursor("alpha")
+			press(m, keyPrefix, text("m")[0], keyClear)
+			press(m, append(text("dev"), keyEnter)...)
+			if want := "Create group dev? (y/n)"; m.confirm() == nil || m.confirm().question != want {
+				t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
+			}
+			press(m, text(answer)...)
+			if answer == "n" {
+				if m.st.Get("alpha").Group != "web" || len(f.moves) != 0 || len(f.groupOps) != 0 {
+					t.Fatalf("alpha in %q, saved %v, group calls %v", m.st.Get("alpha").Group, f.moves, f.groupOps)
+				}
+				return
+			}
+			if !reflect.DeepEqual(f.groupOps, []string{"add dev"}) || !reflect.DeepEqual(f.moves, [][2]string{{"alpha", "dev"}}) {
+				t.Fatalf("group calls = %v saved %v", f.groupOps, f.moves)
+			}
+			if m.st.Get("alpha").Group != "dev" || m.st.GroupPosition("dev") != 3 {
+				t.Fatalf("alpha in %q, groups %v", m.st.Get("alpha").Group, m.st.Groups())
+			}
+			if m.statusErr || m.status != "moved alpha to group dev" {
+				t.Errorf("status = %q (err %v)", m.status, m.statusErr)
+			}
+		})
+	}
+}
+
+// The form's group field takes a Group number too, and lists the numbers
+// since the form covers the headers.
+func TestTheFormTakesAGroupNumber(t *testing.T) {
+	tests := []struct {
+		typed, want string
+	}{
+		{"2", "batch"},
+		{"0", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.typed, func(t *testing.T) {
+			m, f := newGroupModel(t)
+			m.st.SetCursor("alpha")
+			press(m, text("e")...)
+			if !strings.Contains(screen(m), "0 none · 1 web · 2 batch") {
+				t.Fatalf("screen = \n%s\nwant the Group numbers listed", screen(m))
+			}
+			m.form().focus = len(m.form().fields) - 1
+			press(m, keyClear)
+			press(m, text(tt.typed)...)
+			press(m, keyCtrlS)
+			if m.form() != nil || len(f.specs) != 1 || f.specs[0].Group != tt.want {
+				t.Fatalf("form = %+v specs = %+v, want saved into %q", m.form(), f.specs, tt.want)
+			}
+		})
+	}
+}
+
+func TestTheFormRefusesANumberWithNoGroup(t *testing.T) {
+	m, f := newGroupModel(t)
+	m.st.SetCursor("alpha")
+	press(m, text("e")...)
+	m.form().focus = len(m.form().fields) - 1
+	press(m, keyClear)
+	press(m, text("7")...)
+	press(m, keyCtrlS)
+	if m.form() == nil || m.form().err != "no group number 7" || len(f.saves) != 0 {
+		t.Fatalf("form = %+v saves = %v", m.form(), f.saves)
+	}
+}
+
 func TestEditOnAGroupHeaderRenamesIt(t *testing.T) {
 	m, f := newGroupModel(t)
 	press(m, text("h")...) // collapse web; it stays collapsed under its new name
