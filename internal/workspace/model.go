@@ -46,6 +46,12 @@ type Catalog interface {
 	AddInclude() error
 	// MoveGroup puts the stored Group name at position, counting from 1.
 	MoveGroup(name string, position int) error
+	// AddGroup creates an empty Group after the others.
+	AddGroup(name string) error
+	// RenameGroup renames a Group; its members move with it.
+	RenameGroup(old, name string) error
+	// DeleteGroup deletes a Group; its members become ungrouped.
+	DeleteGroup(name string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.

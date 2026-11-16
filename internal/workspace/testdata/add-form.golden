@@ -1,6 +1,6 @@
-›▾ web 2                    │                                                   
+ ▾ web 2                    │                                                   
      prod-web public site   │  Add connection                                   
-     staging                │                                                   
+›    staging                │                                                   
  ▾ ungrouped 2              │  › Alias          █                               
      db-main postgres       │    HostName       host or IP address              
      old-box (missing)      │    User           OpenSSH default                 

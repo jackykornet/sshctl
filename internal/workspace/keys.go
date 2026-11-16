@@ -110,7 +110,7 @@ var bindings = []binding{
 	},
 	{
 		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
-		help: "add / edit / delete a connection",
+		help: "add / edit / delete the connection or group under the cursor",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.
@@ -166,11 +166,29 @@ var bindings = []binding{
 	},
 }
 
-// crud is the add, edit and delete keys, bound alike in two contexts.
+// crud is the add, edit and delete keys, bound alike in two contexts. They
+// act on the Group whose header is under the cursor, otherwise on a
+// Connection.
 var crud = []boundKey{
-	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startAdd() }),
-	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startEdit() }),
-	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteConnection() }),
+	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if _, ok := m.headerTarget(); ok {
+			m.openModal(&groupInput{})
+			return nil
+		}
+		return m.startAdd()
+	}),
+	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if g, ok := m.headerTarget(); ok {
+			return m.startRenameGroup(g)
+		}
+		return m.startEdit()
+	}),
+	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if g, ok := m.headerTarget(); ok {
+			return m.deleteGroup(g)
+		}
+		return m.deleteConnection()
+	}),
 }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }

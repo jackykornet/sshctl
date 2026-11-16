@@ -45,6 +45,8 @@ type fakeCatalog struct {
 
 	groupMoves   [][2]any // MoveGroup name, position
 	moveGroupErr error
+	groupOps     []string // "add x", "rename x→y", "delete x", one per Group call
+	groupErr     error    // returned by the next Group call, which then changes nothing
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
@@ -113,6 +115,55 @@ func (f *fakeCatalog) MoveGroup(name string, position int) error {
 	}
 	f.groups = slices.Insert(slices.Delete(f.groups, i, i+1), position-1, name)
 	return nil
+}
+
+// groupOp records op and returns groupErr, once.
+func (f *fakeCatalog) groupOp(op string) error {
+	f.groupOps = append(f.groupOps, op)
+	err := f.groupErr
+	f.groupErr = nil
+	return err
+}
+
+func (f *fakeCatalog) AddGroup(name string) error {
+	if err := f.groupOp("add " + name); err != nil {
+		return err
+	}
+	f.groups = append(f.groups, name)
+	return nil
+}
+
+func (f *fakeCatalog) RenameGroup(old, name string) error {
+	if err := f.groupOp("rename " + old + "→" + name); err != nil {
+		return err
+	}
+	f.regroup(old, name)
+	return nil
+}
+
+func (f *fakeCatalog) DeleteGroup(name string) error {
+	if err := f.groupOp("delete " + name); err != nil {
+		return err
+	}
+	f.regroup(name, "")
+	return nil
+}
+
+// regroup renames the Group old to name, or deletes it when name is "",
+// moving its members with it.
+func (f *fakeCatalog) regroup(old, name string) {
+	if i := slices.Index(f.groups, old); i >= 0 {
+		if name == "" {
+			f.groups = slices.Delete(f.groups, i, i+1)
+		} else {
+			f.groups[i] = name
+		}
+	}
+	for i := range f.entries {
+		if f.entries[i].Group == old {
+			f.entries[i].Group = name
+		}
+	}
 }
 
 func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
