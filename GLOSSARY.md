@@ -17,7 +17,7 @@ A Connection whose sshctl description or group remains after its Host alias has 
 _Avoid_: Stale, missing, saved-only connection
 
 **Session**:
-One `ssh` process for a Connection, shown as one tab. A Session is either **live** (the process is running) or **ended** (it has exited but the tab has not been closed). A Connection has zero or more Sessions.
+One run for a Connection, shown as one tab: usually an `ssh` login, or an sshctl action run for that Connection, such as Bootstrap or Provision. A Session is either **live** (still running) or **ended** (it has finished but the tab has not been closed). A Connection has zero or more Sessions.
 _Avoid_: Tab (the tab is only its view), window, terminal
 
 **Open connection**:

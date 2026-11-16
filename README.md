@@ -36,9 +36,9 @@ sshctl key add <private-key-path>
 sshctl agent ensure
 sshctl known-hosts list
 sshctl known-hosts remove <host>
-sshctl bootstrap <alias>
-sshctl provision <alias>
-sshctl provision default [<url|none> | --unset]
+sshctl bootstrap [--] <alias>
+sshctl provision [--] <alias>
+sshctl provision default [<url|none> | --unset] [--group <name>]
 sshctl config show
 ```
 
@@ -56,26 +56,30 @@ Group launching starts a separate terminal for each Connection in the group. The
 
 `bootstrap <alias>` makes a Connection reachable with your selected key (`sshctl key use`), in your terminal:
 
-1. For a Connection in `sshctl_config`, it writes the HostName, User and Port that `ssh -G <alias>` resolves into its Host block, if they are missing.
+1. For a Connection in `sshctl_config`, it writes the HostName, User and Port that `ssh -G <alias>` resolves into its Host block, if they are missing, and clears its `IdentityFile`, so an old key cannot pass the check in step 3.
 2. It adds the key's `.pub` to `~/.ssh/authorized_keys` on the host over plain `ssh <alias>` (no `ssh-copy-id`), so you type your password once. A key that is already there is not added again, and `~/.ssh` and the file are made private (700 and 600).
-3. It proves that the key alone logs in, with a fresh `ssh` that has BatchMode on and password login off.
+3. It proves that the key alone logs in, with a fresh `ssh` that allows only public-key login with that key: no password or keyboard-interactive login. ssh may ask for the key's passphrase. OpenSSH cannot be told to skip an `IdentityFile` your ssh_config gives the host (for example in `Host *`), so when ssh also offers one, Bootstrap says so.
 4. Only then does it set `IdentityFile` in the Host block, written as `~/.ssh/...` when the key is in your home directory.
 
-If the check in step 3 fails, nothing after step 1 changes and sshctl says why. A key with a passphrase must be in the agent for the check (`sshctl agent ensure`). A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. With no selected key, Bootstrap first creates one: `ssh-keygen` makes an ed25519 key at `~/.ssh/id_ed25519`, or at `~/.ssh/sshctl_ed25519` when `id_ed25519` already exists (an existing key is never overwritten), asks you for a passphrase (leave it empty for none), and the new key becomes the selected key. Bootstrap never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
+If step 2 or 3 fails, nothing after step 1 changes, the `IdentityFile` step 1 cleared is put back, and sshctl says why. A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. With no selected key, Bootstrap first creates one: `ssh-keygen` makes an ed25519 key at `~/.ssh/id_ed25519`, or at `~/.ssh/sshctl_ed25519` when `id_ed25519` already exists (an existing key is never overwritten), asks you for a passphrase (leave it empty for none), and the new key becomes the selected key. Bootstrap never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
 
 ### Provision
 
 `provision <alias>` applies your dotfiles to the Connection's host with [chezmoi](https://www.chezmoi.io/), in your terminal over `ssh <alias>` (with the selected key's `-i`). If chezmoi is already on the host (on `PATH` or in `~/.local/bin`), it runs `chezmoi update --apply`. Otherwise it installs chezmoi into `~/.local/bin` with chezmoi's install script, fetched with `curl -fsLS` or, when curl is missing, `wget -qO-`, and runs `init --apply <repo>`; that is the same as running `sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply <repo>` on the host. Provision runs only chezmoi: anything else, such as installing tools with mise, is up to your dotfiles. It never uses sudo and writes only inside the remote home. It never runs on its own and is not part of connecting.
 
-Provision stops before changing anything when no repo is set, when the setting is `none`, when the host has no POSIX `sh`, or when it has neither curl nor wget. A failure while applying, such as a tool failing to build, is shown as it happens and sshctl exits with its exit code. The POSIX check is a separate ssh connection, so a host you log in to with a password asks for it twice.
+Provision stops before changing anything when the setting is `none`, when the host has no POSIX `sh`, or when it has neither curl nor wget. A failure while applying, such as a tool failing to build, is shown as it happens and sshctl exits with its exit code. The POSIX check is a separate ssh connection, so a host you log in to with a password asks for it twice.
 
-The repo is a global setting in sshctl's config: `provision default <url>` sets it, `provision default none` refuses Provision for every Connection, `provision default --unset` clears it, and `provision default` with no arguments shows it:
+The repo is a setting in sshctl's config, global or per Group. A Connection in a Group whose repo is set uses that Group's repo; otherwise it uses the global one. `none` refuses Provision instead of naming a repo: a Group set to `none` refuses it for its Connections whatever the global setting is. `provision default <url>` sets the global repo, `provision default none` refuses Provision, `provision default --unset` clears the setting, and `--group <name>` does the same for that Group. `provision default` with no arguments shows the global setting and each Group's:
 
 ```text
 sshctl provision default https://github.com/you/dotfiles.git
+sshctl provision default none --group lab
 sshctl provision default
 global: https://github.com/you/dotfiles.git
+group lab: none (Provision refused)
 ```
+
+The first time you provision with no repo set, sshctl asks for one (`Dotfiles repo URL`), then asks where to keep it: `Save for: (g)lobal, (r) group <name>, (o)nce` (`r` is offered only for a Connection in a Group). `o` uses it this time only. Typing `none` refuses Provision: with `g` or `r` it saves that setting, and with `o` it only stops. With no answer, Provision stops and saves nothing.
 
 ## Workspace
 
@@ -98,16 +102,17 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`) |
 | prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
+| `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
 | prefix `b` / `r` | Hide the list / reload connections from disk |
-| prefix `?` / `q` | Help / quit |
+| prefix `?` / `q` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) / quit |
 
 ### Adding, editing and deleting connections
 
-`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
+`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). `Ctrl+S` saves it; for a new connection, `Ctrl+O` saves it and then runs Bootstrap in its own tab. A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
 
 `e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
 

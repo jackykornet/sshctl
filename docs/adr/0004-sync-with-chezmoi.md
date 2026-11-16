@@ -13,6 +13,11 @@ To make that work:
 - **The Include is offered at startup.** On a fresh machine `~/.ssh/sshctl_config` can arrive without `~/.ssh/config` including it. The Workspace offers to add the Include at startup (ADR-0002's flow), and `sshctl list` prints a hint.
 - **IdentityFile is written with `~/`** for a key under the user's home, so synced Host blocks work on Windows, Linux and macOS.
 
+## Consequences
+
+- **sshctl's files are private, so chezmoi won't symlink them by default.** sshctl writes `config.json` and `sshctl_config` 0600, so `chezmoi add` stores them as `private_` files, and chezmoi's symlink mode never links a private file. The symlink setup has to clear the attribute (`chezmoi chattr -- -private`, as the README shows). sshctl still writes 0600 through the link.
+- **Encrypted files in the repo that Provision applies need a `.chezmoiignore`.** When a user keeps sshctl's files encrypted in their public dotfiles repo, Provision applies that same repo on servers, which have no age key, and `chezmoi apply` would fail there. The repo has to ignore those files on machines without the key.
+
 ## Considered options
 
 - **A built-in `sshctl sync` over Git:** more self-contained, but sshctl would own credentials, conflict handling and a Git dependency, duplicating what chezmoi does.
