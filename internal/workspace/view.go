@@ -22,6 +22,9 @@ var (
 	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
 	unseenStyle = lipgloss.NewStyle().Bold(true)
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
+	// spaceActiveStyle is the accent colour of the active Space in the
+	// Space bar.
+	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
 )
 
 // unseenMarker flags tabs and Connections with activity the user hasn't seen.
@@ -93,7 +96,10 @@ func (m *Model) render() string {
 func (m *Model) renderList(w, h int) []string {
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
-	if top > 0 {
+	if bar := m.spaceBar(); bar != "" {
+		lines = append(lines, fit(bar, w))
+	}
+	if len(lines) < top {
 		f := "/" + m.st.Filter()
 		if m.filtering {
 			f = "/" + m.filter.withCursor()
@@ -143,6 +149,28 @@ func (m *Model) renderList(w, h int) []string {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
 	return lines
+}
+
+// spaceBar shows every Space by its number, [1] [2] [3]: the active Space
+// in the accent colour, one with a live Session in normal text, an idle one
+// dimmed. It is empty while there is only one Space.
+func (m *Model) spaceBar() string {
+	tabs := m.st.SpaceTabs()
+	if len(tabs) < 2 {
+		return ""
+	}
+	parts := make([]string, len(tabs))
+	for i, t := range tabs {
+		label := fmt.Sprintf("[%d]", i+1)
+		switch {
+		case t.Active:
+			label = spaceActiveStyle.Render(label)
+		case !t.Live:
+			label = dimStyle.Render(label)
+		}
+		parts[i] = label
+	}
+	return " " + strings.Join(parts, " ")
 }
 
 // headerLabel is a group header: its fold marker, Group number (for a stored
@@ -411,16 +439,20 @@ func (m *Model) sessionStatus() string {
 	if m.identity != "" {
 		key = filepath.Base(m.identity)
 	}
+	space := ""
+	if m.spaceBar() != "" {
+		space = m.st.ActiveSpaceName() + " · "
+	}
 	c := m.st.Active()
 	if c == nil {
-		return "no active connection · key: " + key
+		return space + "no active connection · key: " + key
 	}
 	s := c.CurrentSession()
 	state := "connected"
 	if s.Ended {
 		state = fmt.Sprintf("ended (exit %d)", s.ExitCode)
 	}
-	return fmt.Sprintf("%s · tab %d/%d · %s · key: %s", c.Alias, c.Current+1, len(c.Sessions), state, key)
+	return fmt.Sprintf("%s%s · tab %d/%d · %s · key: %s", space, c.Alias, c.Current+1, len(c.Sessions), state, key)
 }
 
 // fit truncates or pads s to exactly w columns.

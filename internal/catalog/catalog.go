@@ -60,6 +60,11 @@ type Entry struct {
 	Host    Host
 }
 
+// CollapsedKey is how Snapshot.Collapsed and SetCollapsed name space's
+// Group group: the Group name in the default Space (""), "space/group" in
+// any other.
+func CollapsedKey(space, group string) string { return config.CollapsedKey(space, group) }
+
 // Snapshot is the Connection list as it is on disk now.
 type Snapshot struct {
 	// Entries lists ssh_config's aliases in ssh_config order, then the
@@ -76,7 +81,7 @@ type Snapshot struct {
 	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
 	Identity string
 	// Collapsed lists the groups the Workspace shows collapsed on this
-	// machine, by config.CollapsedKey (ADR-0004).
+	// machine, by CollapsedKey (ADR-0004).
 	Collapsed []string
 	// Include is set when sshctl's hosts file exists but the user's
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as

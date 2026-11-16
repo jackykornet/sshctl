@@ -16,7 +16,9 @@ type commandCall struct {
 }
 
 // fakeCatalog stands in for the Connection catalog. Snapshot lists entries
-// (with identity and startCollapsed) or fails with loadErr. It records every
+// (with identity and startCollapsed) or fails with loadErr. It has the
+// default Space, then spaces, with activeSpace active and spaceGroups as
+// their Groups; SetActiveSpace records and changes activeSpace. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
 // the deleted alias) on the next Snapshot. Snapshot reports include, the
@@ -25,7 +27,10 @@ type commandCall struct {
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
-	groups         []string // stored Group names, in order
+	groups         []string // the default Space's stored Group names, in order
+	spaces         []Space  // Spaces after the default Space
+	spaceGroups    []Group  // the other Spaces' Groups
+	activeSpace    string
 	identity       string
 	startCollapsed []string
 	loadErr        error
@@ -47,14 +52,18 @@ type fakeCatalog struct {
 	moveGroupErr error
 	groupOps     []string // "add x", "rename x→y", "delete x", one per Group call
 	groupErr     error    // returned by the next Group call, which then changes nothing
+	groupSpaces  []string // the Space of each Group call
+	activeSaves  []string // SetActiveSpace spaces
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
-	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed}
+	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
+	snap.Spaces = append([]Space{{Name: "default", Default: true}}, f.spaces...)
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}
+	snap.Groups = append(snap.Groups, f.spaceGroups...)
 	if f.includes == 0 {
 		snap.Include = f.include
 	}
@@ -90,7 +99,7 @@ func (f *fakeCatalog) Save(old string, s Spec) error {
 		}
 	}
 	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
-	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host})
+	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host})
 	return nil
 }
 
@@ -101,6 +110,12 @@ func (f *fakeCatalog) Delete(alias string) error {
 }
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
+
+func (f *fakeCatalog) SetActiveSpace(space string) error {
+	f.activeSaves = append(f.activeSaves, space)
+	f.activeSpace = space
+	return nil
+}
 
 // MoveGroup records the call and, unless moveGroupErr is set, puts name at
 // position (from 1) in groups.
@@ -117,32 +132,33 @@ func (f *fakeCatalog) MoveGroup(_, name string, position int) error {
 	return nil
 }
 
-// groupOp records op and returns groupErr, once.
-func (f *fakeCatalog) groupOp(op string) error {
+// groupOp records op on space's Group and returns groupErr, once.
+func (f *fakeCatalog) groupOp(space, op string) error {
 	f.groupOps = append(f.groupOps, op)
+	f.groupSpaces = append(f.groupSpaces, space)
 	err := f.groupErr
 	f.groupErr = nil
 	return err
 }
 
-func (f *fakeCatalog) AddGroup(_, name string) error {
-	if err := f.groupOp("add " + name); err != nil {
+func (f *fakeCatalog) AddGroup(space, name string) error {
+	if err := f.groupOp(space, "add "+name); err != nil {
 		return err
 	}
 	f.groups = append(f.groups, name)
 	return nil
 }
 
-func (f *fakeCatalog) RenameGroup(_, old, name string) error {
-	if err := f.groupOp("rename " + old + "→" + name); err != nil {
+func (f *fakeCatalog) RenameGroup(space, old, name string) error {
+	if err := f.groupOp(space, "rename "+old+"→"+name); err != nil {
 		return err
 	}
 	f.regroup(old, name)
 	return nil
 }
 
-func (f *fakeCatalog) DeleteGroup(_, name string) error {
-	if err := f.groupOp("delete " + name); err != nil {
+func (f *fakeCatalog) DeleteGroup(space, name string) error {
+	if err := f.groupOp(space, "delete "+name); err != nil {
 		return err
 	}
 	f.regroup(name, "")

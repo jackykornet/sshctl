@@ -80,16 +80,12 @@ var bindings = []binding{
 		help: "previous / next tab",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			m.st.SelectTabIndex(int(msg.String()[0] - '1'))
-			m.scrolling = false
-			return nil
-		}, "1", "2", "3", "4", "5", "6", "7", "8", "9"),
-		help: "switch to tab 1-9",
+		keys: merge(keysIn(inList, switchSpace, digits...), keysIn(inPrefix, switchSpace, digits...)),
+		help: "switch to Space 1-9",
 	},
 	{
 		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
-		help: "previous / next open connection",
+		help: "previous / next open connection in the Space",
 	},
 	{
 		keys: each(inPrefix, on("n", newTab(false)), on("c", newTab(true))),
@@ -189,6 +185,13 @@ var crud = []boundKey{
 		}
 		return m.deleteConnection()
 	}),
+}
+
+// digits are the keys 1 to 9, for Spaces 1 to 9.
+var digits = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
+func switchSpace(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	return m.switchSpace(int(msg.String()[0] - '0'))
 }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
@@ -340,7 +343,7 @@ func (m *Model) bindingLabel(b binding) string {
 // keyNames shows keys joined by "/", with a run of the digits 1 to 9 as
 // "1-9" and an Alt modifier they all share written once.
 func keyNames(keys []string, prefixKey string) string {
-	if slices.Equal(keys, []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}) {
+	if slices.Equal(keys, digits) {
 		return "1-9"
 	}
 	if !slices.ContainsFunc(keys, func(k string) bool { return !strings.HasPrefix(k, "alt+") }) {

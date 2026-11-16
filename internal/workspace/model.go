@@ -55,6 +55,9 @@ type Catalog interface {
 	RenameGroup(space, old, name string) error
 	// DeleteGroup deletes a Group; its members become ungrouped.
 	DeleteGroup(space, name string) error
+	// SetActiveSpace saves the Space the Workspace shows, by name ("" for
+	// the default Space).
+	SetActiveSpace(space string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -144,10 +147,10 @@ func New(opts Options) (*Model, error) {
 		return nil, err
 	}
 	st := NewState(snap.Entries)
-	st.SetGroups(groupNames(snap.Groups))
-	for _, g := range snap.Collapsed {
-		st.SetCollapsed(g, true)
-	}
+	st.SetSpaces(snap.Spaces, snap.ActiveSpace)
+	st.SetGroups(snap.Groups)
+	st.SetSpace(snap.ActiveSpace)
+	st.RestoreCollapsed(snap.Collapsed)
 	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
@@ -164,15 +167,6 @@ func New(opts Options) (*Model, error) {
 		m.offerInclude(snap.Include)
 	}
 	return m, nil
-}
-
-// groupNames returns the names of groups, in order.
-func groupNames(groups []catalog.Group) []string {
-	out := make([]string, len(groups))
-	for i, g := range groups {
-		out[i] = g.Name
-	}
-	return out
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -568,12 +562,32 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
-	m.st.SetGroups(groupNames(snap.Groups))
+	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
+	m.st.SetGroups(snap.Groups)
 	m.identity = snap.Identity
 	if alias != "" {
 		m.st.SetCursor(alias)
 	}
 	return m.setStatus(status, false)
+}
+
+// switchSpace makes Space number n (counting from 1) the active Space and
+// saves it. The list gets focus unless that Space has an Active
+// connection. Sessions in every Space keep running.
+func (m *Model) switchSpace(n int) tea.Cmd {
+	ref, ok := m.st.SpaceRef(n)
+	if !ok {
+		return m.setStatus(fmt.Sprintf("no space %d", n), true)
+	}
+	m.st.SetSpace(ref)
+	m.scrolling = false
+	if m.st.Active() == nil {
+		m.focus = focusList
+	}
+	if err := m.opts.Catalog.SetActiveSpace(ref); err != nil {
+		return m.setStatus("save active space: "+err.Error(), true)
+	}
+	return nil
 }
 
 // setCollapsed collapses or expands group and saves the collapsed groups.
@@ -610,7 +624,7 @@ func (m *Model) shiftGroup(delta int) tea.Cmd {
 // moveGroup saves group at position (counting from 1) and reloads the list
 // in the new order.
 func (m *Model) moveGroup(group string, position int) tea.Cmd {
-	if err := m.opts.Catalog.MoveGroup("", group, position); err != nil {
+	if err := m.opts.Catalog.MoveGroup(m.st.Space(), group, position); err != nil {
 		return m.setStatus("move group "+group+": "+err.Error(), true)
 	}
 	return m.reload("", fmt.Sprintf("moved group %s to position %d", group, position))
@@ -854,11 +868,15 @@ func (m *Model) paneOffset() int {
 }
 
 // listRows returns the visible rows, the scroll offset into them, and the
-// screen row where they start (after the filter line, if shown).
+// screen row where they start (after the Space bar and the filter line,
+// when shown).
 func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
+	if m.spaceBar() != "" {
+		top++
+	}
 	if m.filtering || m.st.Filter() != "" {
-		top = 1
+		top++
 	}
 	height := m.h - 1 - top
 	cur := m.st.CursorIndex(rows)
