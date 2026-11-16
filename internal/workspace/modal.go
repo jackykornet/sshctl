@@ -14,7 +14,7 @@ import (
 //
 // What each modal lets through:
 //   - confirmation: every key answers it (y or Y is yes, anything else no).
-//   - helpScreen: every key closes it.
+//   - helpScreen: ↑/↓ and PgUp/PgDn scroll it; every other key closes it.
 //   - connForm, moveInput and groupInput: they edit text, so the prefix key arms a
 //     prefix of their own (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the
@@ -86,11 +86,26 @@ func (c *confirmation) paste(string)           {}
 func (c *confirmation) status() (string, bool) { return c.question, true }
 func (c *confirmation) prefixArmed() bool      { return false }
 
-// helpScreen lists the keys over the whole Workspace.
-type helpScreen struct{}
+// helpScreen lists the keys over the whole Workspace, scrolled down by top
+// lines when they do not fit.
+type helpScreen struct{ top int }
 
-func (helpScreen) key(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-	m.modal = nil
+func (h *helpScreen) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	page := max(1, m.helpRows()-1)
+	switch msg.String() {
+	case "up":
+		h.top--
+	case "down":
+		h.top++
+	case "pgup":
+		h.top -= page
+	case "pgdown":
+		h.top += page
+	default:
+		m.modal = nil
+		return nil
+	}
+	h.top = max(0, min(h.top, m.helpMaxTop()))
 	return nil
 }
 
