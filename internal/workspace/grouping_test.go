@@ -156,19 +156,6 @@ func TestPrefixMEscapeAndSaveErrorLeaveGroupAlone(t *testing.T) {
 	}
 }
 
-func TestPrefixMRefusesAGroupThatDoesNotExist(t *testing.T) {
-	g := newGroupingModel(t)
-	g.st.SetCursor("alpha")
-	press(g.Model, keyPrefix, text("m")[0], keyClear)
-	press(g.Model, append(text("db"), keyEnter)...)
-	if got := g.st.Get("alpha").Group; got != "web" || len(g.moves) != 0 {
-		t.Fatalf("group = %q, saved %v; want alpha left in web", got, g.moves)
-	}
-	if !g.statusErr || !strings.Contains(g.status, "no group db") {
-		t.Fatalf("status = %q, want it to say there is no group db", g.status)
-	}
-}
-
 func TestStoredGroupsListInOrderWithEmptyOnesMarked(t *testing.T) {
 	f := &fakeCatalog{entries: groupingEntries, groups: []string{"web", "spare", "batch"}}
 	m, err := New(Options{Catalog: f})
@@ -179,7 +166,7 @@ func TestStoredGroupsListInOrderWithEmptyOnesMarked(t *testing.T) {
 	if got, want := rowNames(m.st.Rows()), []string{"[web]", "alpha", "beta", "[spare]", "[batch]", "job", "[]", "loose"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
-	if got := plainList(m)[3]; !strings.Contains(got, "▾ spare (empty)") {
+	if got := plainList(m)[3]; !strings.Contains(got, "▾ 2 spare (empty)") {
 		t.Fatalf("empty header = %q, want it marked (empty)", got)
 	}
 }

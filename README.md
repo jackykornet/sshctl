@@ -98,7 +98,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`) |
 | prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
-| prefix `m` | Move the connection to a group: type an existing group name, or clear it to remove the connection from its group |
+| prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
@@ -113,7 +113,9 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 
 ### Groups
 
-Once any connection has a group, the list shows each group (alphabetically, with `ungrouped` last) under a header showing its member count, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Collapsed groups are remembered between runs.
+Once any group exists, the list shows each group in the order you set (empty ones too, marked `(empty)`), with `ungrouped` last. Each header shows the group's number (its position, counting from 1, for example `1 prod`), its member count, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Numbers change when groups are reordered or deleted. Collapsed groups are remembered between runs.
+
+The move prompt (prefix `m`) and the form's group field take a group number or a name; `0` means no group. The form lists the numbers under its group field (`0 none · 1 prod · 2 staging`), since it covers the headers. A new name in the move prompt asks `Create group X?` and, on yes, creates the group and moves the connection there.
 
 On a group header, `a` asks for a new group name (added after the others), `e` renames the group (its connections move with it), and `d` deletes it after asking `Delete group X? N connections become ungrouped.`; no connection is deleted. Names follow the same rules as `sshctl group`: unique and not only digits.
 

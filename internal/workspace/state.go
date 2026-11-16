@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -203,6 +204,33 @@ func (s *State) Groups() []string {
 // 1, or 0 when group is not a stored Group.
 func (s *State) GroupPosition(group string) int {
 	return slices.Index(s.groups, group) + 1
+}
+
+// ResolveGroup turns what the user typed for a Group into its name. All
+// digits is a Group number: 0 means ungrouped, and n the stored Group at
+// position n (ok is false when there is none). Anything else is a name, as
+// typed; Group names are never all digits.
+func (s *State) ResolveGroup(input string) (group string, ok bool) {
+	if !isDigits(input) {
+		return input, true
+	}
+	n, err := strconv.Atoi(input)
+	if err == nil && n == 0 {
+		return "", true
+	}
+	if err != nil || n > len(s.groups) {
+		return "", false
+	}
+	return s.groups[n-1], true
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // HasGroup reports whether group is a Group the list shows.

@@ -134,14 +134,18 @@ func (m *Model) renderList(w, h int) []string {
 	return lines
 }
 
-// headerLabel is a group header: its fold marker, name and member count, then
-// how many members are open and whether any has unseen activity.
+// headerLabel is a group header: its fold marker, Group number (for a stored
+// Group), name and member count, then how many members are open and whether
+// any has unseen activity.
 func (m *Model) headerLabel(group string) string {
 	fold := "▾ "
 	if m.st.Collapsed(group) && m.st.Filter() == "" {
 		fold = "▸ "
 	}
 	name := boldStyle.Render(group)
+	if n := m.st.GroupPosition(group); n > 0 {
+		name = dimStyle.Render(fmt.Sprint(n)) + " " + name
+	}
 	if group == "" {
 		name = dimStyle.Render("ungrouped")
 	}
@@ -285,7 +289,7 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h)
+		return f.render(w, h, m.st.groups)
 	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}

@@ -22,6 +22,7 @@ func newTestModel(t *testing.T, w, h int) *Model {
 			{Alias: "db-main", Description: "postgres"},
 			{Alias: "old-box", Description: "retired", Orphaned: true},
 		},
+		groups:   []string{"web"},
 		identity: "/home/me/.ssh/id_ed25519",
 	}})
 	if err != nil {
@@ -121,6 +122,12 @@ func TestLayoutGolden(t *testing.T) {
 		m.st.SetCursor("staging") // on a header, a adds a Group
 		press(m, text("a")...)
 		golden(t, "add-form", m)
+	})
+	t.Run("move prompt", func(t *testing.T) {
+		m := newTestModel(t, 80, 10)
+		m.st.SetCursor("staging")
+		press(m, keyPrefix, text("m")[0])
+		golden(t, "move-prompt", m)
 	})
 }
 
