@@ -43,7 +43,10 @@ type formField struct {
 type connForm struct {
 	prefixGate
 	// old is the alias being edited, or "" when adding.
-	old     string
+	old string
+	// space is the Space the Connection is saved in, "" for the default
+	// Space.
+	space   string
 	managed bool
 	fields  []formField
 	focus   int
@@ -56,7 +59,7 @@ func newAddForm(group string) *connForm {
 
 func newEditForm(c *Connection) *connForm {
 	s := Spec{Alias: c.Alias, Description: c.Description, Group: c.Group, Managed: c.Managed, Host: c.Host}
-	f := &connForm{old: c.Alias, managed: c.Managed}
+	f := &connForm{old: c.Alias, space: c.Space, managed: c.Managed}
 	if c.Managed {
 		f.fields = managedFields(s)
 	} else {
@@ -93,7 +96,7 @@ func (f *connForm) title() string {
 
 // spec returns the form's values with surrounding spaces trimmed.
 func (f *connForm) spec() Spec {
-	s := Spec{Alias: f.old, Managed: f.managed}
+	s := Spec{Alias: f.old, Space: f.space, Managed: f.managed}
 	for _, fl := range f.fields {
 		v := strings.TrimSpace(fl.value.String())
 		switch fl.id {

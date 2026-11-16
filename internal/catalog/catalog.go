@@ -18,8 +18,12 @@ import (
 type Host = openssh.Endpoint
 
 // Group is a stored Group record (ADR-0003). A Group's number is its
-// position in Snapshot.Groups counting from 1.
+// position among its Space's Groups in Snapshot.Groups, counting from 1.
 type Group = config.Group
+
+// Space is a stored Space record (ADR-0005). A Space's number is its
+// position in Snapshot.Spaces counting from 1.
+type Space = config.Space
 
 // ErrUnknownGroup is returned when a Connection is moved into a Group that
 // has no record.
@@ -29,7 +33,10 @@ var ErrUnknownGroup = errors.New("no such group")
 type Spec struct {
 	Alias       string
 	Description string
-	Group       string
+	// Space is the Space's name, or "" for the default Space. Group is a
+	// Group of that Space.
+	Space string
+	Group string
 	// Managed is true when sshctl writes the Host block, so Host applies.
 	// For a Connection defined elsewhere in ssh_config only the description
 	// and group are saved.
@@ -41,7 +48,10 @@ type Spec struct {
 type Entry struct {
 	Alias       string
 	Description string
-	Group       string
+	// Space is the Space the Connection belongs to, "" for the default
+	// Space, as Group.Space and Snapshot.ActiveSpace name it.
+	Space string
+	Group string
 	// Orphaned is true when sshctl metadata exists but the Host alias is gone.
 	Orphaned bool
 	// Managed is true when the Host block is in sshctl's own ssh_config file,
@@ -55,12 +65,18 @@ type Snapshot struct {
 	// Entries lists ssh_config's aliases in ssh_config order, then the
 	// Orphaned connections sorted by alias.
 	Entries []Entry
-	// Groups lists every Group in the user's order, including empty ones.
+	// Spaces lists every Space in the user's order.
+	Spaces []Space
+	// ActiveSpace is the Space the Workspace shows on this machine, ""
+	// for the default Space.
+	ActiveSpace string
+	// Groups lists every Group of every Space in the user's order,
+	// including empty ones.
 	Groups []Group
 	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
 	Identity string
 	// Collapsed lists the groups the Workspace shows collapsed on this
-	// machine, by name (ADR-0004).
+	// machine, by config.CollapsedKey (ADR-0004).
 	Collapsed []string
 	// Include is set when sshctl's hosts file exists but the user's
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
@@ -79,9 +95,10 @@ func (s Snapshot) Entry(alias string) (Entry, bool) {
 	return Entry{}, false
 }
 
-// HasGroup reports whether a Group named name has a record.
-func (s Snapshot) HasGroup(name string) bool {
-	return slices.ContainsFunc(s.Groups, func(g Group) bool { return g.Name == name })
+// HasGroup reports whether space ("" for the default Space) has a Group
+// named name.
+func (s Snapshot) HasGroup(space, name string) bool {
+	return slices.ContainsFunc(s.Groups, func(g Group) bool { return g.Space == space && g.Name == name })
 }
 
 // IncludeError is returned by Save when the user's ssh_config does not yet
@@ -131,7 +148,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.SelectedIdentity, Collapsed: cfg.CollapsedGroups}
+	snap := Snapshot{Spaces: cfg.Spaces, ActiveSpace: cfg.ActiveSpace, Groups: cfg.Groups, Identity: cfg.SelectedIdentity, Collapsed: cfg.CollapsedGroups}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -139,7 +156,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, alias := range aliases {
 		seen[alias] = true
 		m := cfg.Connections[alias]
-		e := Entry{Alias: alias, Description: m.Description, Group: m.Group}
+		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group}
 		if h, ok := managed[alias]; ok {
 			e.Managed = true
 			e.Host = h.Endpoint
@@ -155,7 +172,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	sort.Strings(orphans)
 	for _, alias := range orphans {
 		m := cfg.Connections[alias]
-		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Group: m.Group, Orphaned: true})
+		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Orphaned: true})
 	}
 	return snap, nil
 }
@@ -190,17 +207,18 @@ func (c *Catalog) RecordOpen(alias string) error {
 	})
 }
 
-// SetGroup puts alias in group ("" for none), keeping its description. The
-// Group must already have a record; otherwise SetGroup returns
-// ErrUnknownGroup and changes nothing.
+// SetGroup puts alias in group ("" for none), a Group of alias's Space,
+// keeping its description. The Group must already have a record;
+// otherwise SetGroup returns ErrUnknownGroup and changes nothing.
 func (c *Catalog) SetGroup(alias, group string) error {
 	return c.update(func(cfg *config.Config) error {
+		m := cfg.Connections[alias]
 		if group != "" {
-			if err := knownGroup(cfg, group); err != nil {
+			if err := knownGroup(cfg, m.Space, group); err != nil {
 				return err
 			}
 		}
-		cfg.SetMetadata(alias, cfg.Connections[alias].Description, group)
+		cfg.SetMetadata(alias, m.Space, m.Description, group)
 		return nil
 	})
 }
@@ -240,16 +258,20 @@ func (c *Catalog) SetDotfiles(repo string) error {
 	})
 }
 
-// SetGroupDotfiles saves group's dotfiles setting on its record ("" unsets
-// it, so the global setting applies). The Group must already have a record;
-// otherwise SetGroupDotfiles returns ErrUnknownGroup and changes nothing.
-func (c *Catalog) SetGroupDotfiles(group, repo string) error {
+// SetGroupDotfiles saves the dotfiles setting on the record of space's
+// Group group ("" unsets it, so the global setting applies). The Group must
+// already have a record; otherwise SetGroupDotfiles returns ErrUnknownGroup
+// and changes nothing.
+func (c *Catalog) SetGroupDotfiles(space, group, repo string) error {
 	return c.update(func(cfg *config.Config) error {
-		i := cfg.GroupIndex(group)
-		if i < 0 {
-			return fmt.Errorf("%q: %w", group, ErrUnknownGroup)
+		ref, err := spaceRef(cfg, space)
+		if err != nil {
+			return err
 		}
-		cfg.Groups[i].Dotfiles = repo
+		if err := knownGroup(cfg, ref, group); err != nil {
+			return err
+		}
+		cfg.Groups[cfg.GroupIndex(ref, group)].Dotfiles = repo
 		return nil
 	})
 }
@@ -271,8 +293,9 @@ func (c *Catalog) ProvisionRepo(alias string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if group := cfg.Connections[alias].Group; group != "" {
-		if i := cfg.GroupIndex(group); i >= 0 {
+	if m := cfg.Connections[alias]; m.Group != "" {
+		group := m.Group
+		if i := cfg.GroupIndex(m.Space, group); i >= 0 {
 			switch repo := cfg.Groups[i].Dotfiles; repo {
 			case "":
 			case config.DotfilesNone:
@@ -316,9 +339,10 @@ func (c *Catalog) update(change func(*config.Config) error) error {
 // Nothing is changed when Save fails: the sshctl config is read before the
 // Host block is written, and the Host block is put back when the config
 // cannot be written. Save returns an *IncludeError when ssh_config must
-// first Include sshctl's file, and refuses a Group name config.CheckGroupName
-// refuses and, with ErrUnknownGroup, a Group with no record (AddGroup
-// creates one).
+// first Include sshctl's file, and refuses an unknown Space
+// (ErrUnknownSpace), a Group name config.CheckGroupName refuses and, with
+// ErrUnknownGroup, a Group the Space has no record of (AddGroup creates
+// one).
 func (c *Catalog) Save(old string, s Spec) error {
 	if s.Group != "" {
 		if err := config.CheckGroupName(s.Group); err != nil {
@@ -329,8 +353,12 @@ func (c *Catalog) Save(old string, s Spec) error {
 	if err != nil {
 		return err
 	}
+	space, err := spaceRef(cfg, s.Space)
+	if err != nil {
+		return err
+	}
 	if s.Group != "" {
-		if err := knownGroup(cfg, s.Group); err != nil {
+		if err := knownGroup(cfg, space, s.Group); err != nil {
 			return err
 		}
 	}
@@ -343,7 +371,7 @@ func (c *Catalog) Save(old string, s Spec) error {
 	if old != "" && old != s.Alias {
 		rename(cfg, old, s.Alias)
 	}
-	cfg.SetMetadata(s.Alias, s.Description, s.Group)
+	cfg.SetMetadata(s.Alias, space, s.Description, s.Group)
 	if err := c.saveConfig(c.configPath, cfg); err != nil {
 		if uerr := undo(); uerr != nil {
 			return fmt.Errorf("%w (and restoring the Host block failed: %v)", err, uerr)
@@ -416,8 +444,9 @@ func (c *Catalog) Delete(alias string) error {
 // ErrNoMetadata is returned by DeleteMetadata when alias has no sshctl metadata.
 var ErrNoMetadata = errors.New("no sshctl metadata")
 
-// DeleteMetadata removes alias's description and group and nothing else:
-// its Host block, even one sshctl manages, and its History stay.
+// DeleteMetadata removes alias's description, group and Space, which
+// leaves it in the default Space, and nothing else: its Host block, even
+// one sshctl manages, and its History stay.
 func (c *Catalog) DeleteMetadata(alias string) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {

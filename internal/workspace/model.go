@@ -44,14 +44,17 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
-	// MoveGroup puts the stored Group name at position, counting from 1.
-	MoveGroup(name string, position int) error
-	// AddGroup creates an empty Group after the others.
-	AddGroup(name string) error
+	// The Group methods take the Space by name, "" for the default Space.
+
+	// MoveGroup puts space's Group name at position among space's Groups,
+	// counting from 1.
+	MoveGroup(space, name string, position int) error
+	// AddGroup creates an empty Group after space's others.
+	AddGroup(space, name string) error
 	// RenameGroup renames a Group; its members move with it.
-	RenameGroup(old, name string) error
+	RenameGroup(space, old, name string) error
 	// DeleteGroup deletes a Group; its members become ungrouped.
-	DeleteGroup(name string) error
+	DeleteGroup(space, name string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -607,7 +610,7 @@ func (m *Model) shiftGroup(delta int) tea.Cmd {
 // moveGroup saves group at position (counting from 1) and reloads the list
 // in the new order.
 func (m *Model) moveGroup(group string, position int) tea.Cmd {
-	if err := m.opts.Catalog.MoveGroup(group, position); err != nil {
+	if err := m.opts.Catalog.MoveGroup("", group, position); err != nil {
 		return m.setStatus("move group "+group+": "+err.Error(), true)
 	}
 	return m.reload("", fmt.Sprintf("moved group %s to position %d", group, position))

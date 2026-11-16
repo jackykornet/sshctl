@@ -308,7 +308,7 @@ func TestLoadMovesMachineLocalValuesOutOfASingleFileConfig(t *testing.T) {
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("Load = %+v, want %+v", c, want)
 	}
-	if got, want := fileKeys(t, path), []string{"connections", "groups", "provision", "version", "workspace", "workspace.prefixKey"}; !reflect.DeepEqual(got, want) {
+	if got, want := fileKeys(t, path), []string{"connections", "groups", "provision", "spaces", "version", "workspace", "workspace.prefixKey"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("config.json keys after migration = %v, want %v", got, want)
 	}
 	again, err := Load(path, nil)
@@ -353,7 +353,7 @@ func TestReplacingConfigKeepsThisMachinesState(t *testing.T) {
 }
 
 func TestLoadTreatsAMissingStateFileAsEmpty(t *testing.T) {
-	path := writeConfig(t, `{"version":3,"connections":{"web":{"alias":"web","description":"site"}}}`)
+	path := writeConfig(t, `{"version":4,"spaces":[{"name":"default","default":true}],"connections":{"web":{"alias":"web","description":"site"}}}`)
 	c, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestSaveKeepsMachineLocalStateInStateFile(t *testing.T) {
 	if err := Save(path, c); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := fileKeys(t, path), []string{"connections", "groups", "provision", "version", "workspace", "workspace.prefixKey"}; !reflect.DeepEqual(got, want) {
+	if got, want := fileKeys(t, path), []string{"connections", "groups", "provision", "spaces", "version", "workspace", "workspace.prefixKey"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("config.json keys = %v, want %v", got, want)
 	}
 	if got, want := fileKeys(t, filepath.Join(dir, "state.json")), []string{"collapsedGroups", "defaultKey", "history", "keys", "listWidth", "version"}; !reflect.DeepEqual(got, want) {

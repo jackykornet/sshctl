@@ -62,9 +62,9 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	group := ""
-	if e, ok := snap.Entry(alias); ok && snap.HasGroup(e.Group) {
-		group = e.Group
+	space, group := "", ""
+	if e, ok := snap.Entry(alias); ok && snap.HasGroup(e.Space, e.Group) {
+		space, group = e.Space, e.Group
 	}
 	unanswered := fmt.Errorf("%w; set one with: sshctl provision default <url>", noRepo)
 	in := bufio.NewReader(a.in)
@@ -92,7 +92,7 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 		case choice == "g":
 			err = cat.SetDotfiles(repo)
 		case choice == "r" && group != "":
-			err = cat.SetGroupDotfiles(group, repo)
+			err = cat.SetGroupDotfiles(space, group, repo)
 		case choice != "o":
 			continue
 		}
@@ -141,7 +141,7 @@ func (a *app) provisionDefault(args []string) error {
 		return errors.New(provisionDefaultUsage)
 	}
 	if grouped {
-		return a.catalog().SetGroupDotfiles(group, repo)
+		return a.catalog().SetGroupDotfiles("", group, repo)
 	}
 	return a.catalog().SetDotfiles(repo)
 }

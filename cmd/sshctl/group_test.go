@@ -50,10 +50,10 @@ func groupList(t *testing.T, a *app) []string {
 
 func TestGroupListShowsNumberNameMemberCountAndDotfiles(t *testing.T) {
 	a, out := groupTree(t, "")
-	if err := a.catalog().SetGroupDotfiles("prod", "https://example.com/dots.git"); err != nil {
+	if err := a.catalog().SetGroupDotfiles("", "prod", "https://example.com/dots.git"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.catalog().SetGroupDotfiles("data", config.DotfilesNone); err != nil {
+	if err := a.catalog().SetGroupDotfiles("", "data", config.DotfilesNone); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.execute([]string{"group", "list"}); err != nil {

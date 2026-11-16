@@ -123,7 +123,7 @@ func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 func (tr *tree) addGroups(t *testing.T, names ...string) {
 	t.Helper()
 	for _, name := range names {
-		if err := tr.cat.AddGroup(name); err != nil {
+		if err := tr.cat.AddGroup("", name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -533,7 +533,7 @@ func TestSetGroupRefusesAGroupWithNoRecord(t *testing.T) {
 	if web := got.Connections["web"]; web.Group != "prod" {
 		t.Errorf("web = %+v, want it left in prod", web)
 	}
-	if got.GroupIndex("nowhere") >= 0 {
+	if got.GroupIndex("", "nowhere") >= 0 {
 		t.Error("a refused move must not create the group")
 	}
 }
@@ -652,7 +652,7 @@ func TestSetGroupDotfilesSavesOnTheGroupRecord(t *testing.T) {
 	cfg := config.New()
 	cfg.Groups = []config.Group{{Name: "dev"}, {Name: "prod"}}
 	tr.seed(t, cfg)
-	if err := tr.cat.SetGroupDotfiles("prod", repo); err != nil {
+	if err := tr.cat.SetGroupDotfiles("", "prod", repo); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := tr.cat.Snapshot()
@@ -662,7 +662,7 @@ func TestSetGroupDotfilesSavesOnTheGroupRecord(t *testing.T) {
 	if want := []Group{{Name: "dev"}, {Name: "prod", Dotfiles: repo}}; !slices.Equal(snap.Groups, want) {
 		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
 	}
-	if err := tr.cat.SetGroupDotfiles("prod", ""); err != nil {
+	if err := tr.cat.SetGroupDotfiles("", "prod", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := tr.config(t).Groups[1]; got.Dotfiles != "" {
@@ -673,7 +673,7 @@ func TestSetGroupDotfilesSavesOnTheGroupRecord(t *testing.T) {
 func TestSetGroupDotfilesRefusesAGroupWithNoRecord(t *testing.T) {
 	tr := newTree(t, true, "")
 	tr.seed(t, config.New())
-	if err := tr.cat.SetGroupDotfiles("nowhere", config.DotfilesNone); !errors.Is(err, ErrUnknownGroup) {
+	if err := tr.cat.SetGroupDotfiles("", "nowhere", config.DotfilesNone); !errors.Is(err, ErrUnknownGroup) {
 		t.Fatalf("err = %v, want ErrUnknownGroup", err)
 	}
 	if got := tr.config(t).Groups; len(got) != 0 {
@@ -729,7 +729,7 @@ func TestSnapshotFindsAnEntryAndAGroup(t *testing.T) {
 	if e, ok := snap.Entry("nope"); ok {
 		t.Errorf("Entry(nope) = %+v, want none", e)
 	}
-	if !snap.HasGroup("prod") || snap.HasGroup("dev") || snap.HasGroup("") {
-		t.Errorf("HasGroup: prod %v, dev %v, empty %v; want only prod", snap.HasGroup("prod"), snap.HasGroup("dev"), snap.HasGroup(""))
+	if !snap.HasGroup("", "prod") || snap.HasGroup("", "dev") || snap.HasGroup("", "") {
+		t.Errorf("HasGroup: prod %v, dev %v, empty %v; want only prod", snap.HasGroup("", "prod"), snap.HasGroup("", "dev"), snap.HasGroup("", ""))
 	}
 }
