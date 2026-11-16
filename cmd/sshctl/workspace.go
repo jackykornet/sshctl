@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -28,19 +29,29 @@ func (a *app) runWorkspace() error {
 		Catalog:         catalog.New(a.cfgPath, a.legacy, a.ssh),
 		Command:         a.sessionCommand,
 		PrefixKey:       a.cfg.Workspace.PrefixKey,
-		ListWidth:       a.cfg.Workspace.ListWidth,
+		ListWidth:       a.cfg.ListWidth,
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
+		Notice:          strings.Join(a.cfg.Notices, "; "),
 	})
 }
 
-// sessionCommand builds ssh for a new tab using the Selected identity as it
-// is now, so a change made with "sshctl key use" applies to the next tab.
-// claude runs claude on the remote host.
-func (a *app) sessionCommand(alias string, claude bool) ([]string, error) {
+// sessionCommand builds the command line for a new tab. An Action runs this
+// sshctl binary's own command for alias ("sshctl bootstrap -- <alias>"), which
+// reads the config itself. Otherwise it builds ssh using the Selected
+// identity as it is now, so a change made with "sshctl key use" applies to
+// the next tab; Claude runs claude on the remote host.
+func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error) {
+	if l.Action != "" {
+		self, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		return []string{self, string(l.Action), "--", alias}, nil
+	}
 	cfg, err := config.Load(a.cfgPath, a.legacy)
 	if err != nil {
 		return nil, err
 	}
 	a.cfg = cfg
-	return openssh.ConnectArgs(alias, cfg.DefaultKey, claude), nil
+	return openssh.ConnectArgs(alias, cfg.SelectedIdentity, l.Claude), nil
 }

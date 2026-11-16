@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,92 @@ import (
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
+// fakeHome points the home directory and the config folders at a temporary
+// directory, so run never reads or moves the real config.
+func fakeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AppData", filepath.Join(home, "AppData", "Roaming"))
+	return home
+}
+
+func TestRunMovesTheOldConfigOnceWithANotice(t *testing.T) {
+	home := fakeHome(t)
+	var old string
+	switch runtime.GOOS {
+	case "darwin":
+		old = filepath.Join(home, "Library", "Application Support", "sshctl")
+	case "windows":
+		old = filepath.Join(home, "AppData", "Roaming", "sshctl")
+	default:
+		t.Skip("no old config folder on " + runtime.GOOS)
+	}
+	if err := os.MkdirAll(old, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "config.json"), []byte(`{"version":3}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []bool{true, false} {
+		var out, errOut bytes.Buffer
+		if err := run([]string{"config", "show"}, strings.NewReader(""), &out, &errOut); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(errOut.String(), "moved the config"); got != want {
+			t.Errorf("run %d: stderr = %q, want notice %v", i+1, errOut.String(), want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "sshctl", "config.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The Selected identity is read and written through the Connection catalog,
+// so a change made elsewhere since sshctl started is what the CLI sees.
+func TestSelectedIdentityGoesThroughTheCatalog(t *testing.T) {
+	home := fakeHome(t)
+	key := filepath.Join(home, ".ssh", "id_work")
+	if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{key, key + ".pub"} {
+		if err := os.WriteFile(f, []byte("k"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, out := cliTree(t, "", config.New(), "")
+	if err := a.catalog().SetIdentity(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"config", "show"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Selected identity: " + key + "\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("config show = %q, want %q", out, want)
+	}
+	if strings.Contains(strings.ToLower(out.String()), "default key") {
+		t.Errorf("config show says default key: %q", out)
+	}
+	out.Reset()
+	if err := a.execute([]string{"key", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := key + ".pub (Selected identity)\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("key list = %q, want %q", out, want)
+	}
+	if err := a.execute([]string{"key", "use", "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if snap, err := a.catalog().Snapshot(); err != nil || snap.Identity != "" {
+		t.Errorf("after key use none: Identity = %q, %v; want none", snap.Identity, err)
+	}
+}
+
 func TestHelpAndUnknownCommand(t *testing.T) {
+	fakeHome(t)
 	var out bytes.Buffer
 	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
@@ -62,6 +148,36 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	}
 }
 
+// A hosts file synced without the Include (ADR-0004) gets a one-line hint.
+func TestListHintsAtAMissingInclude(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		sshConfig string
+		want      bool
+	}{
+		{"not included", "Host db\n  HostName 10.0.0.2\n", true},
+		{"included", openssh.IncludeLine + "\nHost db\n  HostName 10.0.0.2\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, out := cliTree(t, tc.sshConfig, config.New(), "")
+			if err := os.WriteFile(a.ssh.ManagedPath(), []byte("Host synced\n  HostName 10.0.0.9\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.list(); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+			hint := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "does not contain "+openssh.IncludeLine) })
+			if got := hint >= 0; got != tc.want {
+				t.Fatalf("hint shown %v, want %v:\n%s", got, tc.want, out.String())
+			}
+			if tc.want && !strings.Contains(lines[hint], "sshctl") {
+				t.Errorf("hint %q should say how to fix it", lines[hint])
+			}
+		})
+	}
+}
+
 func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 	a, _ := cliTree(t, "Host web\n", config.New(), "\n\n")
 	if err := a.metadata([]string{"web"}, false); err != nil {
@@ -78,6 +194,7 @@ func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 
 func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "staging"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, _ := cliTree(t, "Host web\n", cfg, "\nstaging\n")
 	if err := a.metadata([]string{"web"}, true); err != nil {
@@ -95,6 +212,10 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()
+	c.Groups = []config.Group{{Name: "engineering"}}
+	if err := config.Save(path, c); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	ssh := &openssh.Client{SSHConfig: filepath.Join(t.TempDir(), "sshconfig")}
 	a := &app{in: strings.NewReader("development machine\nengineering\n"), out: &out, cfgPath: path, cfg: c, ssh: ssh}

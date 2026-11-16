@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -24,9 +25,30 @@ type Session struct {
 	// Unseen is true when the Session had activity (output or a bell) while
 	// it was not the shown tab. Showing the tab clears it.
 	Unseen bool
-	// Claude is true for a Session that runs claude on the remote host.
-	Claude bool
+	// Launch is what the Session's process runs.
+	Launch
 }
+
+// A Launch is what a Session's process runs for its Connection: ssh to it
+// (a login shell, or claude), or one of sshctl's own Actions on it.
+type Launch struct {
+	// Claude runs claude on the remote host instead of a login shell.
+	Claude bool
+	// Action, when set, runs sshctl's own command of that name on the
+	// Connection ("sshctl bootstrap <alias>") instead of ssh. Its tab is
+	// labelled with the Action, and when it exits with status 0 the
+	// connection list is reloaded, since an Action may change Host blocks.
+	Action Action
+}
+
+// An Action is an sshctl command a Session can run on its Connection.
+type Action string
+
+// ActionBootstrap runs Bootstrap ("sshctl bootstrap <alias>").
+const ActionBootstrap Action = "bootstrap"
+
+// ActionProvision runs Provision ("sshctl provision <alias>").
+const ActionProvision Action = "provision"
 
 // Connection is a Connection together with its Sessions in this Workspace.
 type Connection struct {
@@ -115,6 +137,7 @@ func keyOf(r Row) rowKey {
 type State struct {
 	conns     map[string]*Connection
 	loaded    map[string]bool // aliases returned by the last Reload
+	groups    []string        // the stored Groups in the user's order
 	collapsed map[string]bool
 	// showUngrouped lists the ungrouped header even when it has no members,
 	// so a Connection can be dragged out of its group.
@@ -157,12 +180,71 @@ func (s *State) Reload(entries []Entry) {
 	s.fixCursor()
 }
 
+// SetGroups sets the stored Groups, in the user's order.
+func (s *State) SetGroups(groups []string) {
+	s.groups = slices.Clone(groups)
+	s.fixCursor()
+}
+
+// Groups returns every Group in list order: the stored Groups in the user's
+// order, then any Group only a Connection names, alphabetically.
+func (s *State) Groups() []string {
+	out := slices.Clone(s.groups)
+	var extra []string
+	for _, c := range s.conns {
+		if c.Group != "" && !slices.Contains(out, c.Group) && !slices.Contains(extra, c.Group) {
+			extra = append(extra, c.Group)
+		}
+	}
+	sort.Strings(extra)
+	return append(out, extra...)
+}
+
+// GroupPosition is group's position among the stored Groups, counting from
+// 1, or 0 when group is not a stored Group.
+func (s *State) GroupPosition(group string) int {
+	return slices.Index(s.groups, group) + 1
+}
+
+// ResolveGroup turns what the user typed for a Group into its name. All
+// digits is a Group number: 0 means ungrouped, and n the stored Group at
+// position n (ok is false when there is none). Anything else is a name, as
+// typed; Group names are never all digits.
+func (s *State) ResolveGroup(input string) (group string, ok bool) {
+	if !isDigits(input) {
+		return input, true
+	}
+	n, err := strconv.Atoi(input)
+	if err == nil && n == 0 {
+		return "", true
+	}
+	if err != nil || n > len(s.groups) {
+		return "", false
+	}
+	return s.groups[n-1], true
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// HasGroup reports whether group is a Group the list shows.
+func (s *State) HasGroup(group string) bool {
+	return group != "" && slices.Contains(s.Groups(), group)
+}
+
 // Rows returns the connection list in display order. Without any groups it
-// is every Connection alphabetically. With groups, each group (alphabetically,
-// the ungrouped section last) is a header followed by its members
-// alphabetically, unless the group is collapsed. Opening a Connection never
-// moves it. The filter hides Connections that are not open, and groups left
-// with no rows; while filtering, every group is shown expanded.
+// is every Connection alphabetically. With groups, each group (in Groups
+// order, empty ones included, the ungrouped section last) is a header
+// followed by its members alphabetically, unless the group is collapsed.
+// Opening a Connection never moves it. The filter hides Connections that
+// are not open, and groups left with no rows; while filtering, every group
+// is shown expanded.
 func (s *State) Rows() []Row {
 	conns := s.ordered()
 	if !s.grouped() {
@@ -176,31 +258,38 @@ func (s *State) Rows() []Row {
 	}
 	filtering := s.filter != ""
 	var rows []Row
-	for i := 0; i < len(conns); {
-		group := conns[i].Group
+	section := func(group string) {
 		var members []Row
-		for ; i < len(conns) && conns[i].Group == group; i++ {
-			if c := conns[i]; c.Open() || s.matches(c) {
+		for _, c := range conns {
+			if c.Group == group && (c.Open() || s.matches(c)) {
 				members = append(members, Row{Group: group, Conn: c})
 			}
 		}
 		if filtering && len(members) == 0 {
-			continue
+			return
 		}
 		rows = append(rows, Row{Group: group})
 		if filtering || !s.collapsed[group] {
 			rows = append(rows, members...)
 		}
 	}
-	if s.showUngrouped && !filtering && (len(conns) == 0 || conns[len(conns)-1].Group != "") {
-		rows = append(rows, Row{})
+	for _, g := range s.Groups() {
+		section(g)
+	}
+	hasUngrouped := slices.ContainsFunc(conns, func(c *Connection) bool { return c.Group == "" })
+	if hasUngrouped || (s.showUngrouped && !filtering) {
+		section("")
 	}
 	return rows
 }
 
-// ordered returns every Connection sorted by group (alphabetically, ungrouped
-// last), then by alias.
+// ordered returns every Connection sorted by group (in Groups order,
+// ungrouped last), then by alias.
 func (s *State) ordered() []*Connection {
+	rank := map[string]int{"": len(s.groups) + len(s.conns)}
+	for i, g := range s.Groups() {
+		rank[g] = i
+	}
 	out := make([]*Connection, 0, len(s.conns))
 	for _, c := range s.conns {
 		out = append(out, c)
@@ -208,26 +297,16 @@ func (s *State) ordered() []*Connection {
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Group != b.Group {
-			if a.Group == "" || b.Group == "" {
-				return b.Group == ""
-			}
-			return a.Group < b.Group
+			return rank[a.Group] < rank[b.Group]
 		}
 		return a.Alias < b.Alias
 	})
 	return out
 }
 
-// grouped reports whether any Connection is in a group, which is when the
-// list shows group headers.
-func (s *State) grouped() bool {
-	for _, c := range s.conns {
-		if c.Group != "" {
-			return true
-		}
-	}
-	return false
-}
+// grouped reports whether there is any Group, which is when the list shows
+// group headers.
+func (s *State) grouped() bool { return len(s.Groups()) > 0 }
 
 // Members returns every Connection in group alphabetically, ignoring the
 // filter and whether the group is collapsed.

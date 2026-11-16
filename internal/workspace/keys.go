@@ -1,10 +1,13 @@
 package workspace
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // keyContext is where a binding's keys apply. Modals take their own keys
@@ -58,6 +61,10 @@ var bindings = []binding{
 		help: "on a group: collapse / expand it",
 	},
 	{
+		keys: each(inList, on("shift+up", shiftGroup(-1)), on("shift+down", shiftGroup(1)), on("K", shiftGroup(-1)), on("J", shiftGroup(1))),
+		help: "on a group: move it up / down (or drag its header)",
+	},
+	{
 		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.filtering = true; return nil }, "/"),
 		help: "filter the connection list",
 	},
@@ -89,6 +96,11 @@ var bindings = []binding{
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
+		// Each sshctl Action on a Connection runs in its own labelled tab.
+		keys: each(inPrefix, on("i", actionTab(ActionBootstrap)), on("p", provisionTab)),
+		help: "bootstrap / provision the connection in its own tab",
+	},
+	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
 		help: "open the connection's group as tabs",
 	},
@@ -98,15 +110,13 @@ var bindings = []binding{
 	},
 	{
 		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
-		help: "add / edit / delete a connection",
+		help: "add / edit / delete the connection or group under the cursor",
 	},
 	{
-		keys: merge(keysIn(inPrefix, closeTab, "w"), keysIn(inEnded, closeTab, "x")),
-		help: "close tab (x on an ended tab)",
-	},
-	{
-		keys: keysIn(inEnded, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }, "r"),
-		help: "on an ended tab: reconnect",
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(keysIn(inPrefix, closeTab, "w"), each(inEnded, on("x", closeTab),
+			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }))),
+		help: "close tab (on an ended tab: x close, r reconnect)",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -147,7 +157,7 @@ var bindings = []binding{
 		help: "send the prefix key to the session",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(helpScreen{}); return nil }, "?"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }, "?"),
 		help: "show this help",
 	},
 	{
@@ -156,11 +166,29 @@ var bindings = []binding{
 	},
 }
 
-// crud is the add, edit and delete keys, bound alike in two contexts.
+// crud is the add, edit and delete keys, bound alike in two contexts. They
+// act on the Group whose header is under the cursor, otherwise on a
+// Connection.
 var crud = []boundKey{
-	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startAdd() }),
-	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startEdit() }),
-	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteConnection() }),
+	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if _, ok := m.headerTarget(); ok {
+			m.openModal(&groupInput{})
+			return nil
+		}
+		return m.startAdd()
+	}),
+	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if g, ok := m.headerTarget(); ok {
+			return m.startRenameGroup(g)
+		}
+		return m.startEdit()
+	}),
+	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if g, ok := m.headerTarget(); ok {
+			return m.deleteGroup(g)
+		}
+		return m.deleteConnection()
+	}),
 }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
@@ -168,6 +196,10 @@ func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
 
 func moveCursor(delta int) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.MoveCursor(delta); return nil }
+}
+
+func shiftGroup(delta int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.shiftGroup(delta) }
 }
 
 func selectTab(delta int) action {
@@ -212,8 +244,38 @@ func newTab(claude bool) action {
 		if target == nil {
 			return nil
 		}
-		return m.open(target.Alias, claude)
+		return m.open(target.Alias, Launch{Claude: claude})
 	}
+}
+
+// actionTab runs a in a new tab of the Active connection, or of the one
+// under the cursor while the list has focus.
+func actionTab(a Action) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		target := m.moveTarget()
+		if target == nil {
+			return m.setStatus(fmt.Sprintf("no connection to %s", a), false)
+		}
+		return m.open(target.Alias, Launch{Action: a})
+	}
+}
+
+// provisionTab asks before running Provision in a new tab of the Connection
+// actionTab would pick. A dotfiles setting of none refuses at once, with no
+// tab; with no repo set, the tab itself asks for one.
+func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	target := m.moveTarget()
+	if target == nil {
+		return m.setStatus(fmt.Sprintf("no connection to %s", ActionProvision), false)
+	}
+	alias := target.Alias
+	if _, err := m.opts.Catalog.ProvisionRepo(alias); err != nil && !errors.Is(err, catalog.ErrNoDotfiles) {
+		return m.setStatus(alias+": "+err.Error(), true)
+	}
+	m.ask(fmt.Sprintf("Provision %s with your dotfiles? y/n", alias), func(m *Model) tea.Cmd {
+		return m.open(alias, Launch{Action: ActionProvision})
+	})
+	return nil
 }
 
 func on(key string, run action) boundKey { return boundKey{key: key, run: run} }
@@ -294,13 +356,17 @@ func keyNames(keys []string, prefixKey string) string {
 			k = prefixKey
 		}
 		names[i] = keyName(k)
+		// A Shift modifier shared with the key before is written once.
+		if i > 0 && strings.HasPrefix(k, "shift+") && strings.HasPrefix(keys[i-1], "shift+") {
+			names[i] = strings.TrimPrefix(names[i], "Shift+")
+		}
 	}
 	return strings.Join(names, "/")
 }
 
 var keyNameReplacer = strings.NewReplacer(
 	"left", "←", "right", "→", "up", "↑", "down", "↓",
-	"alt+", "Alt+", "enter", "Enter", "space", "Space", "esc", "Esc", "tab", "Tab",
+	"alt+", "Alt+", "shift+", "Shift+", "enter", "Enter", "space", "Space", "esc", "Esc", "tab", "Tab",
 )
 
 func keyName(k string) string {

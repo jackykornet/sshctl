@@ -1,0 +1,10 @@
+ ▾ 1 web 2                  │                                                   
+     prod-web public site   │                                                   
+›    staging                │  Select a connection and press Enter.             
+ ▾ ungrouped 2              │                                                   
+     db-main postgres       │                                                   
+     old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ move staging to group: web█  Enter move · 0 or empty for none · Esc cancel     

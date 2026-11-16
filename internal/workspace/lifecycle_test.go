@@ -11,10 +11,10 @@ import (
 
 func TestFailedStartLeavesNoTabAndKeepsActiveConnection(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}, {Alias: "beta"}}, "beta")
-	if _, err := m.sessions.open("alpha", false); err != nil {
+	if _, err := m.sessions.open("alpha", Launch{}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := m.sessions.open("beta", false)
+	_, err := m.sessions.open("beta", Launch{})
 	var se *startError
 	if !errors.As(err, &se) || se.alias != "beta" {
 		t.Fatalf("err = %v, want a startError for beta", err)
@@ -32,7 +32,7 @@ func TestFailedStartLeavesNoTabAndKeepsActiveConnection(t *testing.T) {
 
 func TestEndedProcessEndsSessionWithExitCode(t *testing.T) {
 	m, _ := newSessionModel(t, script{sh: `exit 3`, cmd: `exit 3`})
-	sess, err := m.sessions.open("alpha", false)
+	sess, err := m.sessions.open("alpha", Launch{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestEndedProcessEndsSessionWithExitCode(t *testing.T) {
 
 func TestReconnectRestartsEndedSessionAndIgnoresOldRunner(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}})
-	sess, err := m.sessions.open("alpha", true)
+	sess, err := m.sessions.open("alpha", Launch{Claude: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,14 +60,14 @@ func TestReconnectRestartsEndedSessionAndIgnoresOldRunner(t *testing.T) {
 	if sess.Ended {
 		t.Fatal("an ended message from the replaced runner must be ignored")
 	}
-	if want := (commandCall{"alpha", true}); len(r.calls) != 2 || r.calls[1] != want {
+	if want := (commandCall{"alpha", Launch{Claude: true}}); len(r.calls) != 2 || r.calls[1] != want {
 		t.Fatalf("Command calls = %v, want a second %v", r.calls, want)
 	}
 }
 
 func TestReconnectRefusesLiveOrOrphanedSession(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}})
-	sess, err := m.sessions.open("alpha", false)
+	sess, err := m.sessions.open("alpha", Launch{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +83,8 @@ func TestReconnectRefusesLiveOrOrphanedSession(t *testing.T) {
 
 func TestClosingLastTabClosesConnectionAndRunner(t *testing.T) {
 	m, _ := newSessionModel(t, script{sh: `sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
-	a, _ := m.sessions.open("alpha", false)
-	b, _ := m.sessions.open("alpha", false)
+	a, _ := m.sessions.open("alpha", Launch{})
+	b, _ := m.sessions.open("alpha", Launch{})
 	if m.sessions.runner(a) == nil || m.sessions.runner(b) == nil {
 		t.Fatal("both tabs should have a process")
 	}

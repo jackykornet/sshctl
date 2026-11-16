@@ -59,6 +59,7 @@ func (tr *tree) hosts(t *testing.T) map[string]openssh.Host {
 
 func TestSaveAddsManagedConnection(t *testing.T) {
 	tr := newTree(t, true, "")
+	tr.addGroups(t, "prod")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}})
 	if err != nil {
 		t.Fatal(err)
@@ -71,8 +72,36 @@ func TestSaveAddsManagedConnection(t *testing.T) {
 	}
 }
 
+func TestSaveStoresIdentityFileUnderHomeWithTilde(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.ssh.Home = filepath.Join(t.TempDir(), "jo")
+	key := filepath.Join(tr.ssh.Home, ".ssh", "id_ed25519")
+	if err := tr.cat.Save("", Spec{Alias: "api", Managed: true, Host: Host{HostName: "h", IdentityFile: key}}); err != nil {
+		t.Fatal(err)
+	}
+	entry := func() Entry {
+		t.Helper()
+		snap, err := tr.cat.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.Entries[0]
+	}
+	e := entry()
+	if e.Host.IdentityFile != "~/.ssh/id_ed25519" {
+		t.Fatalf("edit form would show IdentityFile %q, want ~/.ssh/id_ed25519", e.Host.IdentityFile)
+	}
+	if err := tr.cat.Save("api", Spec{Alias: e.Alias, Managed: true, Host: e.Host}); err != nil {
+		t.Fatal(err)
+	}
+	if got := entry().Host.IdentityFile; got != "~/.ssh/id_ed25519" {
+		t.Fatalf("after saving the edit unchanged IdentityFile = %q", got)
+	}
+}
+
 func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	tr := newTree(t, false, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}})
 	var inc *IncludeError
 	// Config may be shown from "~" when the temporary directory is under home.
@@ -90,6 +119,16 @@ func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	}
 }
 
+// addGroups creates the Groups names, in order.
+func (tr *tree) addGroups(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if err := tr.cat.AddGroup(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // seed saves cfg as the sshctl config.
 func (tr *tree) seed(t *testing.T, cfg *config.Config) {
 	t.Helper()
@@ -100,6 +139,7 @@ func (tr *tree) seed(t *testing.T, cfg *config.Config) {
 
 func TestSaveRenamesManagedConnectionWithItsMetadataAndHistory(t *testing.T) {
 	tr := newTree(t, true, "")
+	tr.addGroups(t, "prod")
 	if err := tr.cat.Save("", Spec{Alias: "api", Description: "API", Group: "prod", Managed: true, Host: Host{HostName: "h", User: "deploy"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +169,7 @@ func TestSaveRenamesManagedConnectionWithItsMetadataAndHistory(t *testing.T) {
 func TestSaveEditsUnmanagedConnectionsMetadataOnly(t *testing.T) {
 	const userConfig = "Host mine\n  HostName example.com\n"
 	tr := newTree(t, false, userConfig) // no Include needed: ssh_config is not written
+	tr.addGroups(t, "home")
 	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop", Group: "home"}); err != nil {
 		t.Fatal(err)
 	}
@@ -171,10 +212,11 @@ func TestSaveRefusesToRenameOrWriteTheUsersHostBlock(t *testing.T) {
 }
 
 // renamable is a tree with Managed connection api (group prod) in History,
-// and the user's own Host mine.
+// the user's own Host mine, and Groups prod and staging.
 func renamable(t *testing.T) *tree {
 	t.Helper()
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod", "staging")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -354,6 +396,7 @@ func TestSetGroupKeepsDescriptionAndDropsEmptiedMetadata(t *testing.T) {
 	cfg := config.New()
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "prod"}
 	cfg.Connections["tmp"] = config.Connection{Alias: "tmp", Group: "scratch"}
+	cfg.Groups = []config.Group{{Name: "staging"}, {Name: "data"}}
 	tr.seed(t, cfg)
 	for _, mv := range [][2]string{{"web", "staging"}, {"db", "data"}, {"tmp", ""}} {
 		if err := tr.cat.SetGroup(mv[0], mv[1]); err != nil {
@@ -377,7 +420,7 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	if err := tr.cat.SetCollapsed([]string{"data", "staging"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := tr.config(t).Workspace.CollapsedGroups, []string{"data", "staging"}; !slices.Equal(got, want) {
+	if got, want := tr.config(t).CollapsedGroups, []string{"data", "staging"}; !slices.Equal(got, want) {
 		t.Errorf("collapsed = %v, want %v", got, want)
 	}
 	snap, err := tr.cat.Snapshot()
@@ -389,8 +432,61 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	}
 }
 
+func TestSetIdentitySelectsTheKey(t *testing.T) {
+	tr := newTree(t, true, "")
+	for _, key := range []string{"/k/id_ed25519", ""} {
+		if err := tr.cat.SetIdentity(key); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := tr.cat.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Identity != key {
+			t.Errorf("identity = %q, want %q", snap.Identity, key)
+		}
+	}
+}
+
+func TestSyncedConfigLeavesThisMachinesStateAlone(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	tr.addGroups(t, "prod")
+	if err := tr.cat.Save("web", Spec{Alias: "web", Group: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.RecordOpen("web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetCollapsed([]string{"prod"}); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := os.ReadFile(tr.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another machine's config.json, as chezmoi apply writes it.
+	other := `{"version":3,"groups":[{"name":"prod"}],"connections":{"web":{"alias":"web","description":"from elsewhere","group":"prod"}}}`
+	if err := os.WriteFile(tr.cfg, []byte(other), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(snap.Collapsed, []string{"prod"}) || snap.Entries[0].Description != "from elsewhere" {
+		t.Errorf("snapshot = %+v, want the synced description and this machine's collapsed groups", snap)
+	}
+	if got := tr.config(t).History; !slices.Equal(got, []string{"web"}) {
+		t.Errorf("History = %v, want [web]", got)
+	}
+	if strings.Contains(string(synced), "history") || strings.Contains(string(synced), "collapsed") {
+		t.Errorf("config.json holds machine-local state:\n%s", synced)
+	}
+}
+
 func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -398,8 +494,8 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := tr.config(t)
-	cfg.DefaultKey = "/k/id"
-	cfg.Workspace.CollapsedGroups = []string{"prod"}
+	cfg.SelectedIdentity = "/k/id"
+	cfg.CollapsedGroups = []string{"prod"}
 	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
 	tr.seed(t, cfg)
@@ -422,5 +518,218 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	}
 	if !slices.Equal(snap.Collapsed, []string{"prod"}) {
 		t.Errorf("collapsed = %v, want [prod]", snap.Collapsed)
+	}
+}
+
+func TestSetGroupRefusesAGroupWithNoRecord(t *testing.T) {
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroup("web", "nowhere"); !errors.Is(err, ErrUnknownGroup) {
+		t.Fatalf("err = %v, want ErrUnknownGroup", err)
+	}
+	got := tr.config(t)
+	if web := got.Connections["web"]; web.Group != "prod" {
+		t.Errorf("web = %+v, want it left in prod", web)
+	}
+	if got.GroupIndex("nowhere") >= 0 {
+		t.Error("a refused move must not create the group")
+	}
+}
+
+func TestGroupOutlivesItsLastMemberInStoredOrder(t *testing.T) {
+	tr := newTree(t, true, "Host web\nHost db\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "zeta"}, {Name: "prod"}, {Name: "alpha"}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	cfg.Connections["db"] = config.Connection{Alias: "db", Group: "alpha"}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroup("web", "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Group{{Name: "zeta"}, {Name: "prod"}, {Name: "alpha"}}; !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v, empty ones included", snap.Groups, want)
+	}
+}
+
+func TestSaveRefusesAnAllDigitGroup(t *testing.T) {
+	tr := newTree(t, true, "")
+	err := tr.cat.Save("", Spec{Alias: "api", Group: "42", Managed: true, Host: Host{HostName: "h"}})
+	if !errors.Is(err, config.ErrGroupName) {
+		t.Fatalf("err = %v, want ErrGroupName", err)
+	}
+	if _, ok := tr.hosts(t)["api"]; ok {
+		t.Error("a refused Save must not write the Host block")
+	}
+}
+
+// A hosts file synced to a new machine is invisible to ssh until the user's
+// ssh_config Includes it (ADR-0004).
+func TestSnapshotReportsAnUnincludedHostsFile(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		included, hostFile bool
+		want               bool
+	}{
+		{"hosts file not included", false, true, true},
+		{"hosts file included", true, true, false},
+		{"no hosts file", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, tc.included, "Host user-box\n    HostName 10.0.0.1\n")
+			if tc.hostFile {
+				if err := os.WriteFile(tr.ssh.ManagedPath(), []byte("Host synced\n    HostName 10.0.0.2\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snap, err := tr.cat.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snap.Include != nil; got != tc.want {
+				t.Fatalf("Include = %+v, want set %v", snap.Include, tc.want)
+			}
+			if tc.want && snap.Include.Line != openssh.IncludeLine {
+				t.Fatalf("Include.Line = %q, want %q", snap.Include.Line, openssh.IncludeLine)
+			}
+		})
+	}
+}
+
+func TestProvisionRepoTakesTheGroupsRepoThenTheGlobalOne(t *testing.T) {
+	const global, group = "https://example.com/global.git", "https://example.com/prod.git"
+	for _, tc := range []struct {
+		name          string
+		global, group string
+		member        bool
+		want          string
+		err           error
+	}{
+		{"group repo wins", global, group, true, group, nil},
+		{"unset group falls back to global", global, "", true, global, nil},
+		{"ungrouped uses global", global, group, false, global, nil},
+		{"group none refuses despite global", global, config.DotfilesNone, true, "", ErrProvisionRefused},
+		{"global none refuses", config.DotfilesNone, "", true, "", ErrProvisionRefused},
+		{"group repo without global", "", group, true, group, nil},
+		{"nothing set", "", "", true, "", ErrNoDotfiles},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, true, "Host web\n")
+			cfg := config.New()
+			cfg.Provision.Dotfiles = tc.global
+			cfg.Groups = []config.Group{{Name: "prod", Dotfiles: tc.group}}
+			if tc.member {
+				cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+			}
+			tr.seed(t, cfg)
+			got, err := tr.cat.ProvisionRepo("web")
+			if !errors.Is(err, tc.err) || got != tc.want {
+				t.Errorf("ProvisionRepo = %q, %v; want %q, %v", got, err, tc.want, tc.err)
+			}
+		})
+	}
+}
+
+func TestProvisionRefusedByAGroupNamesTheGroup(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod", Dotfiles: config.DotfilesNone}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
+	tr.seed(t, cfg)
+	if _, err := tr.cat.ProvisionRepo("web"); err == nil || !strings.Contains(err.Error(), "prod") {
+		t.Errorf("err = %v, want one naming group prod", err)
+	}
+}
+
+func TestSetGroupDotfilesSavesOnTheGroupRecord(t *testing.T) {
+	const repo = "https://example.com/prod.git"
+	tr := newTree(t, true, "")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "dev"}, {Name: "prod"}}
+	tr.seed(t, cfg)
+	if err := tr.cat.SetGroupDotfiles("prod", repo); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Group{{Name: "dev"}, {Name: "prod", Dotfiles: repo}}; !slices.Equal(snap.Groups, want) {
+		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
+	}
+	if err := tr.cat.SetGroupDotfiles("prod", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.config(t).Groups[1]; got.Dotfiles != "" {
+		t.Errorf("after unset prod = %+v", got)
+	}
+}
+
+func TestSetGroupDotfilesRefusesAGroupWithNoRecord(t *testing.T) {
+	tr := newTree(t, true, "")
+	tr.seed(t, config.New())
+	if err := tr.cat.SetGroupDotfiles("nowhere", config.DotfilesNone); !errors.Is(err, ErrUnknownGroup) {
+		t.Fatalf("err = %v, want ErrUnknownGroup", err)
+	}
+	if got := tr.config(t).Groups; len(got) != 0 {
+		t.Errorf("groups = %+v, want none created", got)
+	}
+}
+
+// A dangling sshctl_config symlink, as a dotfiles manager leaves before it
+// has applied its target, still counts as sshctl's hosts file.
+func TestSnapshotReportsAnUnincludedDanglingHostsLink(t *testing.T) {
+	tr := newTree(t, false, "Host user-box\n")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), tr.ssh.ManagedPath()); err != nil {
+		t.Skipf("cannot create a symlink: %v", err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Include == nil {
+		t.Fatal("Include = nil, want the missing Include offered")
+	}
+}
+
+func TestDisplayPathUsesForwardSlashesUnderHome(t *testing.T) {
+	for _, tc := range []struct{ path, home, want string }{
+		{"/home/jo/.ssh/config", "/home/jo", "~/.ssh/config"},
+		{`C:\Users\jo\.ssh\config`, `C:\Users\jo`, "~/.ssh/config"},
+		{"/etc/ssh/ssh_config", "/home/jo", "/etc/ssh/ssh_config"},
+	} {
+		if got := displayPath(tc.path, tc.home); got != tc.want {
+			t.Errorf("displayPath(%q, %q) = %q, want %q", tc.path, tc.home, got, tc.want)
+		}
+	}
+}
+
+func TestSnapshotFindsAnEntryAndAGroup(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod"}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod", Description: "front"}
+	cfg.Connections["gone"] = config.Connection{Alias: "gone", Description: "retired"}
+	tr.seed(t, cfg)
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := snap.Entry("web"); !ok || e != (Entry{Alias: "web", Group: "prod", Description: "front"}) {
+		t.Errorf("Entry(web) = %+v, %v", e, ok)
+	}
+	if e, ok := snap.Entry("gone"); !ok || !e.Orphaned {
+		t.Errorf("Entry(gone) = %+v, %v, want the Orphaned connection", e, ok)
+	}
+	if e, ok := snap.Entry("nope"); ok {
+		t.Errorf("Entry(nope) = %+v, want none", e)
+	}
+	if !snap.HasGroup("prod") || snap.HasGroup("dev") || snap.HasGroup("") {
+		t.Errorf("HasGroup: prod %v, dev %v, empty %v; want only prod", snap.HasGroup("prod"), snap.HasGroup("dev"), snap.HasGroup(""))
 	}
 }
