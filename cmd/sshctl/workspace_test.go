@@ -13,7 +13,7 @@ import (
 func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()
-	c.DefaultKey = "/k/id"
+	c.SelectedIdentity = "/k/id"
 	if err := config.Save(path, c); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSessionCommandRunsActionAsSshctlItself(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{self, string(action), "web"}; !slices.Equal(got, want) {
+		if want := []string{self, string(action), "--", "web"}; !slices.Equal(got, want) {
 			t.Errorf("sessionCommand(web, %s) = %v, want %v", action, got, want)
 		}
 	}

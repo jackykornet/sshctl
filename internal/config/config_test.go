@@ -202,6 +202,30 @@ func TestSaveWritesThroughSymlink(t *testing.T) {
 	}
 }
 
+// A state.json the user linked elsewhere is written through the link too.
+func TestSaveWritesStateThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	target := filepath.Join(dir, "elsewhere-state.json")
+	if err := os.WriteFile(target, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, target, StatePath(path))
+
+	c := New()
+	c.History = []string{"web"}
+	if err := Save(path, c); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(StatePath(path)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("state.json link replaced: %v, %v", fi, err)
+	}
+	b, err := os.ReadFile(target)
+	if err != nil || !strings.Contains(string(b), `"web"`) {
+		t.Fatalf("link target = %q, %v; want the History", b, err)
+	}
+}
+
 func TestSaveRefusesDanglingSymlink(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "config.json")
@@ -346,7 +370,7 @@ func TestLoadTreatsAMissingStateFileAsEmpty(t *testing.T) {
 func machineLocal(c *Config) {
 	c.History = []string{"web", "db"}
 	c.Keys = []string{"/k/id", "/k/other"}
-	c.DefaultKey = "/k/id"
+	c.SelectedIdentity = "/k/id"
 	c.CollapsedGroups = []string{"prod"}
 	c.ListWidth = 40
 }

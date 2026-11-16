@@ -117,6 +117,12 @@ func TestLayoutGolden(t *testing.T) {
 		press(m, keyPrefix, text("?")[0])
 		golden(t, "help", m)
 	})
+	t.Run("help scrolled", func(t *testing.T) {
+		m := newTestModel(t, 80, 12)
+		press(m, keyPrefix, text("?")[0])
+		press(m, keyDown)
+		golden(t, "help-scrolled", m)
+	})
 	t.Run("add form", func(t *testing.T) {
 		m := newTestModel(t, 80, 16)
 		m.st.SetCursor("staging") // on a header, a adds a Group

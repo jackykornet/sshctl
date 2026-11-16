@@ -157,7 +157,7 @@ var bindings = []binding{
 		help: "send the prefix key to the session",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(helpScreen{}); return nil }, "?"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }, "?"),
 		help: "show this help",
 	},
 	{

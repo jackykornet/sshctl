@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/config"
 )
 
@@ -277,7 +278,7 @@ func (e exitCodeError) ExitCode() int { return int(e) }
 func provisionTree(t *testing.T, repo string) (*app, *sshRecorder) {
 	t.Helper()
 	cfg := config.New()
-	cfg.DefaultKey = "/k/id"
+	cfg.SelectedIdentity = "/k/id"
 	cfg.Provision.Dotfiles = repo
 	a, _ := cliTree(t, "Host web\n", cfg, "")
 	r := &sshRecorder{}
@@ -478,7 +479,7 @@ func TestProvisionAsksForTheRepoAndCanUseItOnce(t *testing.T) {
 	if err := a.execute([]string{"provision", "web"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Dotfiles repo URL: ") {
+	if !strings.Contains(out.String(), "Dotfiles repo URL") {
 		t.Errorf("output %q does not ask for the repo", out.String())
 	}
 	if !provisionedWith(r, repo) {
@@ -567,5 +568,51 @@ func TestProvisionNeverAsksWhenRefused(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "URL") {
 		t.Errorf("output %q asks for a repo", out.String())
+	}
+}
+
+// Typing none at the first-time prompt is the refuse setting, never a repo.
+func TestProvisionTypedNoneRefusesAndNeverReachesChezmoi(t *testing.T) {
+	for _, tc := range []struct {
+		choice             string
+		wantGlobal, wantGr string
+	}{
+		{"g", config.DotfilesNone, ""},
+		{"r", "", config.DotfilesNone},
+		{"o", "", ""},
+	} {
+		t.Run(tc.choice, func(t *testing.T) {
+			a, _, r := askTree(t, "prod", "none\n"+tc.choice+"\n")
+			err := a.execute([]string{"provision", "web"})
+			if !errors.Is(err, catalog.ErrProvisionRefused) {
+				t.Errorf("err = %v, want the refusal", err)
+			}
+			if len(r.calls) != 0 {
+				t.Errorf("ssh ran %q, want nothing", r.calls)
+			}
+			c := load(t, a)
+			if c.Provision.Dotfiles != tc.wantGlobal || c.Groups[0].Dotfiles != tc.wantGr {
+				t.Errorf("saved global %q, group %q; want %q, %q", c.Provision.Dotfiles, c.Groups[0].Dotfiles, tc.wantGlobal, tc.wantGr)
+			}
+		})
+	}
+}
+
+func TestBootstrapAndProvisionTakeTheAliasAfterDashDash(t *testing.T) {
+	a, r := provisionTree(t, dotfiles)
+	if err := a.execute([]string{"provision", "--", "web"}); err != nil {
+		t.Fatalf("provision -- web: %v", err)
+	}
+	if len(r.calls) != 2 {
+		t.Errorf("ssh ran %q, want the check and the script", r.calls)
+	}
+	b, out, _ := bootstrapTree(t, "Host web\n  HostName 10.0.0.5\n")
+	if err := b.execute([]string{"bootstrap", "--", "web"}); err != nil {
+		t.Fatalf("bootstrap -- web: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{{"bootstrap", "--"}, {"bootstrap", "--", "web", "db"}, {"provision", "-x"}} {
+		if err := a.execute(args); err == nil || !strings.Contains(err.Error(), "usage") {
+			t.Errorf("%q: err = %v, want usage", args, err)
+		}
 	}
 }

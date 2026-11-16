@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/atomicfile"
 )
 
 // Version is the config format written by Save. Version 2 stores Groups
@@ -81,8 +82,8 @@ type State struct {
 	History []string `json:"history,omitempty"`
 	// Keys lists the private keys "sshctl key add" registered.
 	Keys []string `json:"keys,omitempty"`
-	// DefaultKey is the Selected identity's key path, or "".
-	DefaultKey string `json:"defaultKey,omitempty"`
+	// SelectedIdentity is the Selected identity's key path, or "".
+	SelectedIdentity string `json:"defaultKey,omitempty"`
 	// CollapsedGroups lists the groups whose members the connection list hides.
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 	// ListWidth is the width of the connection list in columns.
@@ -98,17 +99,17 @@ type stateFile struct {
 // singleFileState is where a config before Version 3 kept the values that
 // are now in State.
 type singleFileState struct {
-	History    []string `json:"history"`
-	Keys       []string `json:"keys"`
-	DefaultKey string   `json:"defaultKey"`
-	Workspace  struct {
+	History          []string `json:"history"`
+	Keys             []string `json:"keys"`
+	SelectedIdentity string   `json:"defaultKey"`
+	Workspace        struct {
 		ListWidth       int      `json:"listWidth"`
 		CollapsedGroups []string `json:"collapsedGroups"`
 	} `json:"workspace"`
 }
 
 func (s singleFileState) state() State {
-	return State{History: s.History, Keys: s.Keys, DefaultKey: s.DefaultKey, CollapsedGroups: s.Workspace.CollapsedGroups, ListWidth: s.Workspace.ListWidth}
+	return State{History: s.History, Keys: s.Keys, SelectedIdentity: s.SelectedIdentity, CollapsedGroups: s.Workspace.CollapsedGroups, ListWidth: s.Workspace.ListWidth}
 }
 
 // StatePath returns the path of the state.json that goes with the config at
@@ -380,7 +381,7 @@ func moveFile(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(to, b, 0600); err != nil {
+	if err := atomicfile.Write(to, b, 0600); err != nil {
 		return err
 	}
 	return os.Remove(from)
@@ -482,64 +483,18 @@ func Save(path string, c *Config) error {
 	if c.Connections == nil {
 		c.Connections = map[string]Connection{}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(path, append(b, '\n'), 0600); err != nil {
+	if err := atomicfile.Write(path, append(b, '\n'), 0600); err != nil {
 		return err
 	}
 	b, err = json.MarshalIndent(stateFile{Version: StateVersion, State: c.State}, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeAtomic(StatePath(path), append(b, '\n'), 0600)
-}
-
-// writeAtomic replaces path through a temporary file in the same directory,
-// so an interrupted write never leaves it truncated. When path is a symlink
-// (chezmoi can link it into its source directory, see ADR-0004) the write
-// goes to the symlink's target and the symlink stays.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	path, err := resolveSymlink(path)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err = tmp.Chmod(mode); err == nil {
-		_, err = tmp.Write(data)
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(name, path)
-}
-
-// resolveSymlink returns the file a save to path should replace: path itself,
-// or the final target when path is a symlink. A symlink to nothing is an error,
-// so the save does not silently replace the link with a plain file.
-func resolveSymlink(path string) (string, error) {
-	fi, err := os.Lstat(path)
-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		return path, nil
-	}
-	target, err := filepath.EvalSymlinks(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		dest, _ := os.Readlink(path)
-		return "", fmt.Errorf("%s is a symlink to %s, which does not exist", path, dest)
-	}
-	return target, err
+	return atomicfile.Write(StatePath(path), append(b, '\n'), 0600)
 }
 
 func migrate(b []byte) (*Config, error) {

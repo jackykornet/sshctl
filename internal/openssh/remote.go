@@ -78,15 +78,20 @@ func posixResult(err error, output string) error {
 	return err
 }
 
-// keyOnlyOptions make ssh log in with a public key or fail, without asking.
+// keyOnlyOptions make ssh log in with a public key or fail: no password or
+// keyboard-interactive login, and no agent key but the given one. ssh may
+// still ask for that key's passphrase.
 var keyOnlyOptions = []string{
-	"-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
+	"-o", "PasswordAuthentication=no",
 	"-o", "KbdInteractiveAuthentication=no", "-o", "PreferredAuthentications=publickey", "-o", "IdentitiesOnly=yes",
 }
 
-// CheckKeyOnly proves that key alone logs in to alias's host: ssh may
-// neither ask anything nor use any login but that public key. It runs
-// "exit 0", which every login shell understands.
+// CheckKeyOnly proves that key logs in to alias's host with no other login:
+// ssh may ask only for the key's passphrase. It runs "exit 0", which every
+// login shell understands.
+//
+// OpenSSH cannot be told to skip an IdentityFile that ssh_config gives
+// alias, so ssh offers those too; OtherIdentities lists them.
 func CheckKeyOnly(ctx context.Context, run Runner, alias, key string) error {
 	argv := []string{"ssh"}
 	if key != "" {
@@ -94,6 +99,24 @@ func CheckKeyOnly(ctx context.Context, run Runner, alias, key string) error {
 	}
 	argv = append(append(argv, keyOnlyOptions...), alias, "exit 0")
 	return run(ctx, argv, io.Discard)
+}
+
+// OtherIdentities returns the identity files ssh offers for alias besides
+// key (a private key path under home or elsewhere), as "ssh -G -i key"
+// prints them after reading all of ssh_config. It does not connect.
+func OtherIdentities(ctx context.Context, run Runner, alias, key, home string) ([]string, error) {
+	var out bytes.Buffer
+	if err := run(ctx, []string{"ssh", "-G", "-i", key, alias}, &out); err != nil {
+		return nil, fmt.Errorf("ssh -G %s: %w", alias, err)
+	}
+	var others []string
+	for _, line := range strings.Split(out.String(), "\n") {
+		keyword, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if keyword == "identityfile" && value != key && value != HomeRelative(key, home) {
+			others = append(others, value)
+		}
+	}
+	return others, nil
 }
 
 // Resolve returns the HostName, User and Port that ssh uses for alias, as

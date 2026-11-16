@@ -494,7 +494,7 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := tr.config(t)
-	cfg.DefaultKey = "/k/id"
+	cfg.SelectedIdentity = "/k/id"
 	cfg.CollapsedGroups = []string{"prod"}
 	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
@@ -678,5 +678,58 @@ func TestSetGroupDotfilesRefusesAGroupWithNoRecord(t *testing.T) {
 	}
 	if got := tr.config(t).Groups; len(got) != 0 {
 		t.Errorf("groups = %+v, want none created", got)
+	}
+}
+
+// A dangling sshctl_config symlink, as a dotfiles manager leaves before it
+// has applied its target, still counts as sshctl's hosts file.
+func TestSnapshotReportsAnUnincludedDanglingHostsLink(t *testing.T) {
+	tr := newTree(t, false, "Host user-box\n")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), tr.ssh.ManagedPath()); err != nil {
+		t.Skipf("cannot create a symlink: %v", err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Include == nil {
+		t.Fatal("Include = nil, want the missing Include offered")
+	}
+}
+
+func TestDisplayPathUsesForwardSlashesUnderHome(t *testing.T) {
+	for _, tc := range []struct{ path, home, want string }{
+		{"/home/jo/.ssh/config", "/home/jo", "~/.ssh/config"},
+		{`C:\Users\jo\.ssh\config`, `C:\Users\jo`, "~/.ssh/config"},
+		{"/etc/ssh/ssh_config", "/home/jo", "/etc/ssh/ssh_config"},
+	} {
+		if got := displayPath(tc.path, tc.home); got != tc.want {
+			t.Errorf("displayPath(%q, %q) = %q, want %q", tc.path, tc.home, got, tc.want)
+		}
+	}
+}
+
+func TestSnapshotFindsAnEntryAndAGroup(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	cfg := config.New()
+	cfg.Groups = []config.Group{{Name: "prod"}}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod", Description: "front"}
+	cfg.Connections["gone"] = config.Connection{Alias: "gone", Description: "retired"}
+	tr.seed(t, cfg)
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := snap.Entry("web"); !ok || e != (Entry{Alias: "web", Group: "prod", Description: "front"}) {
+		t.Errorf("Entry(web) = %+v, %v", e, ok)
+	}
+	if e, ok := snap.Entry("gone"); !ok || !e.Orphaned {
+		t.Errorf("Entry(gone) = %+v, %v, want the Orphaned connection", e, ok)
+	}
+	if e, ok := snap.Entry("nope"); ok {
+		t.Errorf("Entry(nope) = %+v, want none", e)
+	}
+	if !snap.HasGroup("prod") || snap.HasGroup("dev") || snap.HasGroup("") {
+		t.Errorf("HasGroup: prod %v, dev %v, empty %v; want only prod", snap.HasGroup("prod"), snap.HasGroup("dev"), snap.HasGroup(""))
 	}
 }

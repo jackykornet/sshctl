@@ -47,13 +47,24 @@ func (m *Model) render() string {
 		return ""
 	}
 	mainH := m.h - 1
-	if _, ok := m.modal.(helpScreen); ok {
-		// Help covers the whole Workspace without resizing the Sessions under it.
+	if h, ok := m.modal.(*helpScreen); ok {
+		// Help covers the whole Workspace without resizing the Sessions
+		// under it. Its title stays; the bindings scroll below it.
+		title, body := m.helpLines()
 		lines := make([]string, 0, m.h)
-		for _, l := range m.helpLines() {
-			if len(lines) < mainH {
-				lines = append(lines, fit(l, m.w))
-			}
+		lines = append(lines, fit(title, m.w))
+		top := max(0, min(h.top, m.helpMaxTop()))
+		end := min(len(body), top+m.helpRows())
+		more := len(body) - end
+		if more > 0 {
+			end-- // the last row says how much is below
+			more++
+		}
+		for _, l := range body[top:end] {
+			lines = append(lines, fit(l, m.w))
+		}
+		if more > 0 {
+			lines = append(lines, fit("  "+dimStyle.Render(fmt.Sprintf("↓ %d more below (↓ / PgDn)", more)), m.w))
 		}
 		for len(lines) < mainH {
 			lines = append(lines, strings.Repeat(" ", m.w))
@@ -318,20 +329,29 @@ func (m *Model) renderPane(w, h int) []string {
 	return lines
 }
 
-// helpLines lists every binding (see bindings) with its keys and help text.
-func (m *Model) helpLines() []string {
+// helpRows is how many rows the help screen has for bindings, below its
+// title and above the status line.
+func (m *Model) helpRows() int { return max(1, m.h-2) }
+
+// helpMaxTop is the furthest the help screen scrolls: the top line that
+// shows the last binding on the last row.
+func (m *Model) helpMaxTop() int { return max(0, len(bindings)-m.helpRows()) }
+
+// helpLines returns the help screen's title and a line for every binding
+// (see bindings) with its keys and help text.
+func (m *Model) helpLines() (title string, body []string) {
 	labels := make([]string, len(bindings))
 	width := 0
 	for i, b := range bindings {
 		labels[i] = m.bindingLabel(b)
 		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	lines := []string{"  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)")}
+	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  (↑/↓ PgUp/PgDn scroll · any other key closes)")
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
-		lines = append(lines, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
+		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
 	}
-	return lines
+	return title, body
 }
 
 func (m *Model) renderStatus(w int) string {

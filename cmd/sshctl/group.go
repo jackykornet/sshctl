@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -79,7 +78,7 @@ func (a *app) groupDelete(name string, yes bool) error {
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(snap.Groups, func(g catalog.Group) bool { return g.Name == name }) {
+	if !snap.HasGroup(name) {
 		return fmt.Errorf("no group %q", name)
 	}
 	if !yes {
