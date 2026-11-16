@@ -1,11 +1,13 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // keyContext is where a binding's keys apply. Modals take their own keys
@@ -91,8 +93,8 @@ var bindings = []binding{
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.
-		keys: each(inPrefix, on("i", actionTab(ActionBootstrap))),
-		help: "bootstrap the connection in its own tab",
+		keys: each(inPrefix, on("i", actionTab(ActionBootstrap)), on("p", provisionTab)),
+		help: "bootstrap / provision the connection in its own tab",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
@@ -232,6 +234,24 @@ func actionTab(a Action) action {
 		}
 		return m.open(target.Alias, Launch{Action: a})
 	}
+}
+
+// provisionTab asks before running Provision in a new tab of the Connection
+// actionTab would pick. A dotfiles setting of none refuses at once, with no
+// tab; with no repo set, the tab itself asks for one.
+func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	target := m.moveTarget()
+	if target == nil {
+		return m.setStatus(fmt.Sprintf("no connection to %s", ActionProvision), false)
+	}
+	alias := target.Alias
+	if _, err := m.opts.Catalog.ProvisionRepo(alias); err != nil && !errors.Is(err, catalog.ErrNoDotfiles) {
+		return m.setStatus(alias+": "+err.Error(), true)
+	}
+	m.ask(fmt.Sprintf("Provision %s with your dotfiles? y/n", alias), func(m *Model) tea.Cmd {
+		return m.open(alias, Launch{Action: ActionProvision})
+	})
+	return nil
 }
 
 func on(key string, run action) boundKey { return boundKey{key: key, run: run} }

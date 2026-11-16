@@ -20,7 +20,8 @@ type commandCall struct {
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
 // the deleted alias) on the next Snapshot. Snapshot reports include, the
-// Include ssh_config lacks, until AddInclude is called. The catalog's own rules are
+// Include ssh_config lacks, until AddInclude is called. ProvisionRepo fails
+// with provision[alias], or returns a repo. The catalog's own rules are
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
@@ -30,6 +31,7 @@ type fakeCatalog struct {
 	loadErr        error
 	failGroup      bool
 	include        *IncludeError
+	provision      map[string]error // ProvisionRepo's error per alias
 
 	loads     int
 	opened    []string    // RecordOpen aliases
@@ -94,6 +96,13 @@ func (f *fakeCatalog) Delete(alias string) error {
 }
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
+
+func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
+	if err := f.provision[alias]; err != nil {
+		return "", err
+	}
+	return "https://example.com/dotfiles.git", nil
+}
 
 // recorder records what a Workspace asks of its Options.Command seam, and
 // through its fakeCatalog which Connections were recorded as opened.
