@@ -59,6 +59,7 @@ func (tr *tree) hosts(t *testing.T) map[string]openssh.Host {
 
 func TestSaveAddsManagedConnection(t *testing.T) {
 	tr := newTree(t, true, "")
+	tr.addGroups(t, "prod")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}})
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +101,7 @@ func TestSaveStoresIdentityFileUnderHomeWithTilde(t *testing.T) {
 
 func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	tr := newTree(t, false, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod")
 	err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}})
 	var inc *IncludeError
 	// Config may be shown from "~" when the temporary directory is under home.
@@ -117,6 +119,16 @@ func TestSaveAsksForIncludeBeforeWritingAnything(t *testing.T) {
 	}
 }
 
+// addGroups creates the Groups names, in order.
+func (tr *tree) addGroups(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if err := tr.cat.AddGroup(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // seed saves cfg as the sshctl config.
 func (tr *tree) seed(t *testing.T, cfg *config.Config) {
 	t.Helper()
@@ -127,6 +139,7 @@ func (tr *tree) seed(t *testing.T, cfg *config.Config) {
 
 func TestSaveRenamesManagedConnectionWithItsMetadataAndHistory(t *testing.T) {
 	tr := newTree(t, true, "")
+	tr.addGroups(t, "prod")
 	if err := tr.cat.Save("", Spec{Alias: "api", Description: "API", Group: "prod", Managed: true, Host: Host{HostName: "h", User: "deploy"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -156,6 +169,7 @@ func TestSaveRenamesManagedConnectionWithItsMetadataAndHistory(t *testing.T) {
 func TestSaveEditsUnmanagedConnectionsMetadataOnly(t *testing.T) {
 	const userConfig = "Host mine\n  HostName example.com\n"
 	tr := newTree(t, false, userConfig) // no Include needed: ssh_config is not written
+	tr.addGroups(t, "home")
 	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop", Group: "home"}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,10 +212,11 @@ func TestSaveRefusesToRenameOrWriteTheUsersHostBlock(t *testing.T) {
 }
 
 // renamable is a tree with Managed connection api (group prod) in History,
-// and the user's own Host mine.
+// the user's own Host mine, and Groups prod and staging.
 func renamable(t *testing.T) *tree {
 	t.Helper()
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod", "staging")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "h"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -435,6 +450,7 @@ func TestSetIdentitySelectsTheKey(t *testing.T) {
 
 func TestSyncedConfigLeavesThisMachinesStateAlone(t *testing.T) {
 	tr := newTree(t, true, "Host web\n")
+	tr.addGroups(t, "prod")
 	if err := tr.cat.Save("web", Spec{Alias: "web", Group: "prod"}); err != nil {
 		t.Fatal(err)
 	}
@@ -470,6 +486,7 @@ func TestSyncedConfigLeavesThisMachinesStateAlone(t *testing.T) {
 
 func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 	tr := newTree(t, true, "Host mine\n  HostName example.com\n")
+	tr.addGroups(t, "prod")
 	if err := tr.cat.Save("", Spec{Alias: "api", Group: "prod", Managed: true, Host: Host{HostName: "10.0.0.9", Port: "2222"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -548,23 +565,6 @@ func TestSaveRefusesAnAllDigitGroup(t *testing.T) {
 	}
 	if _, ok := tr.hosts(t)["api"]; ok {
 		t.Error("a refused Save must not write the Host block")
-	}
-}
-
-func TestSaveIntoANewGroupAddsItsRecordLast(t *testing.T) {
-	tr := newTree(t, true, "Host mine\n")
-	cfg := config.New()
-	cfg.Groups = []config.Group{{Name: "zeta"}}
-	tr.seed(t, cfg)
-	if err := tr.cat.Save("mine", Spec{Alias: "mine", Group: "alpha"}); err != nil {
-		t.Fatal(err)
-	}
-	snap, err := tr.cat.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []Group{{Name: "zeta"}, {Name: "alpha"}}; !slices.Equal(snap.Groups, want) {
-		t.Errorf("groups = %+v, want %+v", snap.Groups, want)
 	}
 }
 

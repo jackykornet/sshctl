@@ -202,14 +202,14 @@ func (c *Config) renameDigitGroups() {
 			name = fmt.Sprintf("group-%s-%d", old, n)
 		}
 		used[name] = true
-		c.renameGroup(old, name)
+		c.RenameGroup(old, name)
 		c.Notices = append(c.Notices, fmt.Sprintf("renamed group %q to %q: a group name may not be only digits", old, name))
 	}
 }
 
-// renameGroup renames the Group old to name in its record, its members and
-// the collapsed list.
-func (c *Config) renameGroup(old, name string) {
+// RenameGroup renames the Group old to name in its record, its members and
+// the collapsed list. It does not check name; see CheckGroupName.
+func (c *Config) RenameGroup(old, name string) {
 	if i := c.GroupIndex(old); i >= 0 {
 		c.Groups[i].Name = name
 	}
@@ -219,9 +219,37 @@ func (c *Config) renameGroup(old, name string) {
 			c.Connections[alias] = conn
 		}
 	}
-	for i, g := range c.CollapsedGroups {
+	c.renameCollapsed(old, name)
+}
+
+// DeleteGroup removes the Group name's record and leaves its members
+// ungrouped; a member left with no description keeps no metadata.
+func (c *Config) DeleteGroup(name string) {
+	// Members go first: SetMetadata would give a Group still named by a
+	// member its record back.
+	for alias, conn := range c.Connections {
+		if conn.Group == name {
+			c.SetMetadata(alias, conn.Description, "")
+		}
+	}
+	if i := c.GroupIndex(name); i >= 0 {
+		c.Groups = slices.Delete(c.Groups, i, i+1)
+	}
+	c.renameCollapsed(name, "")
+}
+
+// renameCollapsed keeps the per-machine collapsed list in step with a
+// Group renamed from old to name, or deleted when name is "". It is the
+// only code that follows a Group's name into that list.
+func (c *Config) renameCollapsed(old, name string) {
+	groups := c.CollapsedGroups
+	if name == "" {
+		c.CollapsedGroups = slices.DeleteFunc(groups, func(g string) bool { return g == old })
+		return
+	}
+	for i, g := range groups {
 		if g == old {
-			c.CollapsedGroups[i] = name
+			groups[i] = name
 		}
 	}
 }
@@ -256,21 +284,106 @@ func (c *Config) RecordOpen(alias string) {
 
 func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }
 
+// Paths returns the config path and the legacy files Load migrates from.
+// The config lives in ~/.config/sshctl/ on every OS, or in
+// $XDG_CONFIG_HOME/sshctl/ when that is set (ADR-0004).
 func Paths() (string, []string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", nil, err
-	}
-	primary := filepath.Join(dir, "sshctl", "config.json")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", nil, err
 	}
+	dir, _ := configDirs(runtime.GOOS, home, os.Getenv)
+	primary := filepath.Join(dir, "config.json")
 	legacy := []string{filepath.Join(home, ".sshctl", "connections.json"), filepath.Join(home, ".sshyeah", "connections.json")}
 	if runtime.GOOS == "windows" {
 		legacy = append(legacy, filepath.Join(home, "sshctl", "connections.json"), filepath.Join(home, "sshyeah", "connections.json"))
 	}
 	return primary, legacy, nil
+}
+
+// configDirs returns sshctl's config directory and, on macOS and Windows,
+// the old OS-specific one that MoveOld moves from ("" when there is none).
+// A relative XDG_CONFIG_HOME is ignored, as the XDG spec says.
+func configDirs(goos, home string, getenv func(string) string) (dir, old string) {
+	base := getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(home, ".config")
+	}
+	switch goos {
+	case "darwin":
+		old = filepath.Join(home, "Library", "Application Support", "sshctl")
+	case "windows":
+		if appData := getenv("AppData"); appData != "" {
+			old = filepath.Join(appData, "sshctl")
+		}
+	}
+	return filepath.Join(base, "sshctl"), old
+}
+
+// MoveOld moves config.json and state.json from the old OS-specific config
+// folder (~/Library/Application Support/sshctl on macOS, %AppData%\sshctl
+// on Windows) to the folder of path, the config Paths returns. Call it
+// before Load. It returns a one-line notice when it moved something, or a
+// hint when both folders hold a config: the new one wins and the old one is
+// left as it is. It returns "" when there is nothing to move.
+func MoveOld(path string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	_, old := configDirs(runtime.GOOS, home, os.Getenv)
+	return moveOld(old, path)
+}
+
+func moveOld(oldDir, path string) (string, error) {
+	newDir := filepath.Dir(path)
+	if oldDir == "" || filepath.Clean(oldDir) == filepath.Clean(newDir) {
+		return "", nil
+	}
+	names := []string{"state.json", "config.json"} // config.json last: once it is moved, the move is done
+	var found []string
+	for _, name := range names {
+		if exists(filepath.Join(oldDir, name)) {
+			found = append(found, name)
+		}
+	}
+	if len(found) == 0 {
+		return "", nil
+	}
+	if exists(path) || exists(StatePath(path)) {
+		return fmt.Sprintf("using the config in %s; the old one in %s is ignored and can be removed", newDir, oldDir), nil
+	}
+	if err := os.MkdirAll(newDir, 0700); err != nil {
+		return "", err
+	}
+	for _, name := range found {
+		if err := moveFile(filepath.Join(oldDir, name), filepath.Join(newDir, name)); err != nil {
+			return "", fmt.Errorf("move config to %s: %w", newDir, err)
+		}
+	}
+	_ = os.Remove(oldDir) // only succeeds when nothing else is left in it
+	return fmt.Sprintf("moved the config from %s to %s", oldDir, newDir), nil
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// moveFile renames from to to, or copies and removes it when a rename
+// cannot cross filesystems.
+func moveFile(from, to string) error {
+	if err := os.Rename(from, to); err == nil {
+		return nil
+	}
+	b, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(to, b, 0600); err != nil {
+		return err
+	}
+	return os.Remove(from)
 }
 
 // Load reads the config at path and the state.json next to it (StatePath).
