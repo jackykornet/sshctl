@@ -494,7 +494,7 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := tr.config(t)
-	cfg.DefaultKey = "/k/id"
+	cfg.SelectedIdentity = "/k/id"
 	cfg.CollapsedGroups = []string{"prod"}
 	cfg.Connections["zz-gone"] = config.Connection{Alias: "zz-gone", Description: "retired"}
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}

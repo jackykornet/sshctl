@@ -82,7 +82,7 @@ Commands:
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
   key list|use|add             List, select, or register keys
-  agent ensure                 Inspect SSH agent and optionally add default key
+  agent ensure                 Inspect SSH agent and optionally add the Selected identity
   known-hosts list|remove      Show or remove known hosts
   bootstrap <alias>            Install your key on the host and use it
   provision <alias>            Apply your dotfiles to the host with chezmoi
@@ -169,6 +169,13 @@ func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
 // catalog is the Connection catalog over a's config files, read fresh on each call.
 func (a *app) catalog() *catalog.Catalog { return catalog.New(a.cfgPath, a.legacy, a.ssh) }
 
+// identity returns the Selected identity as the catalog holds it now, or ""
+// when OpenSSH chooses keys.
+func (a *app) identity() (string, error) {
+	snap, err := a.catalog().Snapshot()
+	return snap.Identity, err
+}
+
 // list prints the Connections the Workspace lists: ssh_config's aliases, then
 // the Orphaned connections. When sshctl's hosts file is not Included in
 // ssh_config it adds a one-line hint on stderr.
@@ -213,7 +220,11 @@ func (a *app) connect(args []string) error {
 		return errors.New("usage: sshctl connect <alias> [--claude]")
 	}
 	alias := pos[0]
-	if err := a.ssh.Connect(context.Background(), alias, a.cfg.DefaultKey, claude); err != nil {
+	key, err := a.identity()
+	if err != nil {
+		return err
+	}
+	if err := a.ssh.Connect(context.Background(), alias, key, claude); err != nil {
 		return err
 	}
 	return a.recordHistory(alias)
@@ -277,10 +288,14 @@ func (a *app) groupConnect(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: sshctl group connect <group>")
 	}
+	snap, err := a.catalog().Snapshot()
+	if err != nil {
+		return err
+	}
 	var names []string
-	for n, c := range a.cfg.Connections {
-		if c.Group == args[0] {
-			names = append(names, n)
+	for _, e := range snap.Entries {
+		if e.Group == args[0] {
+			names = append(names, e.Alias)
 		}
 	}
 	sort.Strings(names)
@@ -288,7 +303,7 @@ func (a *app) groupConnect(args []string) error {
 		return fmt.Errorf("group %q has no Connections", args[0])
 	}
 	for _, n := range names {
-		if err := platform.OpenSSH(n, a.cfg.DefaultKey); err != nil {
+		if err := platform.OpenSSH(n, snap.Identity); err != nil {
 			return err
 		}
 	}
@@ -321,10 +336,14 @@ func (a *app) keys(args []string) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+		selected, err := a.identity()
+		if err != nil {
+			return err
+		}
 		for _, k := range keys {
 			tag := ""
-			if k == a.cfg.DefaultKey || strings.TrimSuffix(k, ".pub") == a.cfg.DefaultKey {
-				tag = " (default)"
+			if selected != "" && (k == selected || strings.TrimSuffix(k, ".pub") == selected) {
+				tag = " (Selected identity)"
 			}
 			fmt.Fprintln(a.out, k+tag)
 		}
@@ -364,8 +383,7 @@ func (a *app) keys(args []string) error {
 		} else {
 			k = ""
 		}
-		a.cfg.DefaultKey = k
-		return a.save()
+		return a.catalog().SetIdentity(k)
 	}
 	return errors.New("usage: sshctl key list|use|add")
 }
@@ -375,11 +393,15 @@ func (a *app) agentEnsure() error {
 		return err
 	}
 	fmt.Fprintln(a.out, "SSH agent:", status)
-	if a.cfg.DefaultKey == "" {
-		fmt.Fprintln(a.out, "No sshctl default key selected; OpenSSH config identities remain in effect.")
+	key, err := a.identity()
+	if err != nil {
+		return err
+	}
+	if key == "" {
+		fmt.Fprintln(a.out, "No Selected identity; OpenSSH config identities remain in effect.")
 		return nil
 	}
-	loaded, checkable, err := openssh.KeyLoaded(a.cfg.DefaultKey)
+	loaded, checkable, err := openssh.KeyLoaded(key)
 	if err != nil {
 		return err
 	}
@@ -390,11 +412,11 @@ func (a *app) agentEnsure() error {
 	if !checkable {
 		fmt.Fprintln(a.out, "No adjacent .pub file; loaded status cannot be checked without unlocking the private key.")
 	}
-	fmt.Fprintf(a.out, "Add default key %q to the agent? [y/N] ", a.cfg.DefaultKey)
+	fmt.Fprintf(a.out, "Add the Selected identity %q to the agent? [y/N] ", key)
 	if !confirm(a.in) {
 		return nil
 	}
-	return openssh.AddKey(a.cfg.DefaultKey)
+	return openssh.AddKey(key)
 }
 func (a *app) knownHosts(args []string) error {
 	if len(args) == 0 {
@@ -439,7 +461,14 @@ func confirm(in io.Reader) bool {
 	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
 }
 func (a *app) showConfig() error {
-	fmt.Fprintf(a.out, "sshctl config: %s\nsshctl state: %s\nOpenSSH config: %s\nKnown hosts: %s\nDefault key override: %s\n", a.cfgPath, config.StatePath(a.cfgPath), a.ssh.SSHConfig, openssh.KnownHostsPath(), a.cfg.DefaultKey)
+	key, err := a.identity()
+	if err != nil {
+		return err
+	}
+	if key == "" {
+		key = "none (OpenSSH chooses keys)"
+	}
+	fmt.Fprintf(a.out, "sshctl config: %s\nsshctl state: %s\nOpenSSH config: %s\nKnown hosts: %s\nSelected identity: %s\n", a.cfgPath, config.StatePath(a.cfgPath), a.ssh.SSHConfig, openssh.KnownHostsPath(), key)
 	settings, err := a.ssh.SafeSettings()
 	if err != nil {
 		return err

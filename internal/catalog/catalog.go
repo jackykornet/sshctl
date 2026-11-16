@@ -131,7 +131,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.DefaultKey, Collapsed: cfg.CollapsedGroups}
+	snap := Snapshot{Groups: cfg.Groups, Identity: cfg.SelectedIdentity, Collapsed: cfg.CollapsedGroups}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -217,7 +217,7 @@ func (c *Catalog) SetCollapsed(groups []string) error {
 // leaves the choice of keys to OpenSSH.
 func (c *Catalog) SetIdentity(key string) error {
 	return c.update(func(cfg *config.Config) error {
-		cfg.DefaultKey = key
+		cfg.SelectedIdentity = key
 		return nil
 	})
 }

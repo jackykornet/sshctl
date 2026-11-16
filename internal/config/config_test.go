@@ -346,7 +346,7 @@ func TestLoadTreatsAMissingStateFileAsEmpty(t *testing.T) {
 func machineLocal(c *Config) {
 	c.History = []string{"web", "db"}
 	c.Keys = []string{"/k/id", "/k/other"}
-	c.DefaultKey = "/k/id"
+	c.SelectedIdentity = "/k/id"
 	c.CollapsedGroups = []string{"prod"}
 	c.ListWidth = 40
 }

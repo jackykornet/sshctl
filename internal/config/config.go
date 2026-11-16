@@ -81,8 +81,8 @@ type State struct {
 	History []string `json:"history,omitempty"`
 	// Keys lists the private keys "sshctl key add" registered.
 	Keys []string `json:"keys,omitempty"`
-	// DefaultKey is the Selected identity's key path, or "".
-	DefaultKey string `json:"defaultKey,omitempty"`
+	// SelectedIdentity is the Selected identity's key path, or "".
+	SelectedIdentity string `json:"defaultKey,omitempty"`
 	// CollapsedGroups lists the groups whose members the connection list hides.
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 	// ListWidth is the width of the connection list in columns.
@@ -98,17 +98,17 @@ type stateFile struct {
 // singleFileState is where a config before Version 3 kept the values that
 // are now in State.
 type singleFileState struct {
-	History    []string `json:"history"`
-	Keys       []string `json:"keys"`
-	DefaultKey string   `json:"defaultKey"`
-	Workspace  struct {
+	History          []string `json:"history"`
+	Keys             []string `json:"keys"`
+	SelectedIdentity string   `json:"defaultKey"`
+	Workspace        struct {
 		ListWidth       int      `json:"listWidth"`
 		CollapsedGroups []string `json:"collapsedGroups"`
 	} `json:"workspace"`
 }
 
 func (s singleFileState) state() State {
-	return State{History: s.History, Keys: s.Keys, DefaultKey: s.DefaultKey, CollapsedGroups: s.Workspace.CollapsedGroups, ListWidth: s.Workspace.ListWidth}
+	return State{History: s.History, Keys: s.Keys, SelectedIdentity: s.SelectedIdentity, CollapsedGroups: s.Workspace.CollapsedGroups, ListWidth: s.Workspace.ListWidth}
 }
 
 // StatePath returns the path of the state.json that goes with the config at

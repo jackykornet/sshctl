@@ -109,7 +109,7 @@ func bootstrapTree(t *testing.T, sshConfig string) (*app, *strings.Builder, *fak
 		t.Fatal(err)
 	}
 	cfg := config.New()
-	cfg.DefaultKey = key
+	cfg.SelectedIdentity = key
 	a, _ := cliTree(t, sshConfig, cfg, "")
 	var out strings.Builder
 	a.out, a.err = &out, &out

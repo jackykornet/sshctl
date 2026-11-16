@@ -53,5 +53,5 @@ func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error)
 		return nil, err
 	}
 	a.cfg = cfg
-	return openssh.ConnectArgs(alias, cfg.DefaultKey, l.Claude), nil
+	return openssh.ConnectArgs(alias, cfg.SelectedIdentity, l.Claude), nil
 }

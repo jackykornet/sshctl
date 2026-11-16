@@ -56,6 +56,47 @@ func TestRunMovesTheOldConfigOnceWithANotice(t *testing.T) {
 	}
 }
 
+// The Selected identity is read and written through the Connection catalog,
+// so a change made elsewhere since sshctl started is what the CLI sees.
+func TestSelectedIdentityGoesThroughTheCatalog(t *testing.T) {
+	home := fakeHome(t)
+	key := filepath.Join(home, ".ssh", "id_work")
+	if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{key, key + ".pub"} {
+		if err := os.WriteFile(f, []byte("k"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, out := cliTree(t, "", config.New(), "")
+	if err := a.catalog().SetIdentity(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"config", "show"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Selected identity: " + key + "\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("config show = %q, want %q", out, want)
+	}
+	if strings.Contains(strings.ToLower(out.String()), "default key") {
+		t.Errorf("config show says default key: %q", out)
+	}
+	out.Reset()
+	if err := a.execute([]string{"key", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := key + ".pub (Selected identity)\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("key list = %q, want %q", out, want)
+	}
+	if err := a.execute([]string{"key", "use", "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if snap, err := a.catalog().Snapshot(); err != nil || snap.Identity != "" {
+		t.Errorf("after key use none: Identity = %q, %v; want none", snap.Identity, err)
+	}
+}
+
 func TestHelpAndUnknownCommand(t *testing.T) {
 	fakeHome(t)
 	var out bytes.Buffer

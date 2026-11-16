@@ -278,7 +278,7 @@ func (e exitCodeError) ExitCode() int { return int(e) }
 func provisionTree(t *testing.T, repo string) (*app, *sshRecorder) {
 	t.Helper()
 	cfg := config.New()
-	cfg.DefaultKey = "/k/id"
+	cfg.SelectedIdentity = "/k/id"
 	cfg.Provision.Dotfiles = repo
 	a, _ := cliTree(t, "Host web\n", cfg, "")
 	r := &sshRecorder{}

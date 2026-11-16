@@ -13,7 +13,7 @@ import (
 func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()
-	c.DefaultKey = "/k/id"
+	c.SelectedIdentity = "/k/id"
 	if err := config.Save(path, c); err != nil {
 		t.Fatal(err)
 	}

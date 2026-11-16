@@ -37,7 +37,10 @@ func (a *app) provision(alias string) error {
 		return err
 	}
 	ctx := context.Background()
-	key := a.cfg.DefaultKey
+	key, err := a.identity()
+	if err != nil {
+		return err
+	}
 	if err := openssh.CheckPOSIX(ctx, a.runSSH, alias, key); err != nil {
 		if errors.Is(err, openssh.ErrNoPOSIX) {
 			return fmt.Errorf("cannot provision %s: %w", alias, err)
