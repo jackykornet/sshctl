@@ -44,6 +44,12 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
+	// AddGroup creates an empty Group after the others.
+	AddGroup(name string) error
+	// RenameGroup renames a Group; its members move with it.
+	RenameGroup(old, name string) error
+	// DeleteGroup deletes a Group; its members become ungrouped.
+	DeleteGroup(name string) error
 }
 
 // Options configures a Workspace.

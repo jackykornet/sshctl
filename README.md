@@ -95,8 +95,8 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
-| prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete a connection |
-| prefix `m` | Move the connection to a group: type an existing or new group name, or clear it to remove the connection from its group |
+| prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
+| prefix `m` | Move the connection to a group: type an existing group name, or clear it to remove the connection from its group |
 | prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `[` | Scroll back through the tab's history (`q` to leave) |
@@ -105,13 +105,15 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 
 ### Adding, editing and deleting connections
 
-`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
+`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
 
 `e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
 
 ### Groups
 
 Once any connection has a group, the list shows each group (alphabetically, with `ungrouped` last) under a header showing its member count, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Collapsed groups are remembered between runs.
+
+On a group header, `a` asks for a new group name (added after the others), `e` renames the group (its connections move with it), and `d` deletes it after asking `Delete group X? N connections become ungrouped.`; no connection is deleted. Names follow the same rules as `sshctl group`: unique and not only digits.
 
 ### Mouse and settings
 

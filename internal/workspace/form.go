@@ -195,6 +195,11 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 		})
 		return nil
 	}
+	if errors.Is(err, catalog.ErrUnknownGroup) {
+		f.err = "no group " + s.Group
+		m.askCreateGroup(s.Group, func(m *Model) tea.Cmd { return m.saveForm(f) })
+		return nil
+	}
 	if err != nil {
 		f.err = err.Error()
 		return nil

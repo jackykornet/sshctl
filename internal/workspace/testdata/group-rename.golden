@@ -1,0 +1,10 @@
+›▾ web 2                    │                                                   
+     prod-web public site   │                                                   
+     staging                │  Select a connection and press Enter.             
+ ▾ ungrouped 2              │                                                   
+     db-main postgres       │                                                   
+     old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ rename group web to: web-1█  Enter rename · Esc cancel               ^B ? help 
