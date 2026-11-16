@@ -17,7 +17,7 @@ A Connection whose sshctl description or group remains after its Host alias has 
 _Avoid_: Stale, missing, saved-only connection
 
 **Session**:
-One `ssh` process for a Connection, shown as one tab. A Session is either **live** (the process is running) or **ended** (it has exited but the tab has not been closed). A Connection has zero or more Sessions.
+One run for a Connection, shown as one tab: usually an `ssh` login, or an sshctl action run for that Connection, such as Bootstrap or Provision. A Session is either **live** (still running) or **ended** (it has finished but the tab has not been closed). A Connection has zero or more Sessions.
 _Avoid_: Tab (the tab is only its view), window, terminal
 
 **Open connection**:
@@ -29,12 +29,30 @@ The single Connection currently selected in the workspace, whose Sessions are sh
 _Avoid_: Current, focused, selected connection
 
 **Group**:
-A name in a Connection's sshctl metadata that gathers it with other Connections. The connection list shows each group under a header that can be collapsed to hide its members. A Connection is in at most one group; one with none is **ungrouped**.
+A named, ordered set of Connections that exists from when the user creates it until they delete it, even with no members. It keeps its place in the connection list and its dotfiles repo for Provision (or that Provision is ruled out). A Connection is in at most one group; one with none is **ungrouped**, and deleting a group leaves its Connections ungrouped.
 _Avoid_: Folder, tag, category
+
+**Group number**:
+A Group's current position in the connection list, counting from 1, shown in its header; 0 stands for ungrouped. It changes when Groups are reordered or deleted, which is why a group name may not be only digits.
+_Avoid_: Group ID, index
 
 **History**:
 The 20 most recently opened Connections, most recent first. A Connection is opened when a Workspace Session for it starts or when `sshctl connect` runs it.
 _Avoid_: Recents, log
+
+## Setting up a host
+
+**Bootstrap**:
+Making a Connection reachable with the user's own key: installing the Selected identity's public key on the host, proving that the key alone logs in, and then pointing a Managed connection's Host block at that key. With no Selected identity, it first generates a key and makes it the Selected identity. It never changes the host's SSH server settings and never includes Provision.
+_Avoid_: Setup, onboard, copy-id
+
+**Provision**:
+Applying the user's dotfiles to a Connection's host, which in turn installs the tools the dotfiles ask for, without root and only inside the remote user's home. It happens only when the user chooses it for that Connection.
+_Avoid_: Setup, personalize, deploy
+
+**Harden**:
+Changing a host's SSH server settings, such as turning off password login, so that the change undoes itself if the user would be locked out. It needs root and is never part of Bootstrap or Provision.
+_Avoid_: Lock down, secure
 
 ## Workspace
 

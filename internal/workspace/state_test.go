@@ -341,3 +341,59 @@ func mustOpen(t *testing.T, s *State, alias string) *Session {
 	}
 	return sess
 }
+
+func TestRowsListStoredGroupsInOrderIncludingEmptyOnes(t *testing.T) {
+	s := NewState([]Entry{
+		{Alias: "zed", Group: "batch"},
+		{Alias: "web-1", Group: "web"},
+		{Alias: "stray", Group: "adhoc"}, // no record: listed after the stored Groups
+		{Alias: "loose"},
+	})
+	s.SetGroups([]string{"web", "spare", "batch"})
+	want := []string{"[web]", "web-1", "[spare]", "[batch]", "zed", "[adhoc]", "stray", "[]", "loose"}
+	if got := rowNames(s.Rows()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	s.SetFilter("web")
+	if got, want := rowNames(s.Rows()), []string{"[web]", "web-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered rows = %v, want %v", got, want)
+	}
+}
+
+func TestOnlyEmptyGroupsStillShowHeaders(t *testing.T) {
+	s := NewState([]Entry{{Alias: "a"}})
+	s.SetGroups([]string{"spare"})
+	if got, want := rowNames(s.Rows()), []string{"[spare]", "[]", "a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	if !s.HasGroup("spare") || s.HasGroup("nowhere") || s.HasGroup("") {
+		t.Fatal("HasGroup should know exactly the listed Groups")
+	}
+}
+
+// What the user types for a Group is a Group number (its position among
+// the stored Groups, 0 for ungrouped) or a name.
+func TestResolveGroupTakesANumberOrAName(t *testing.T) {
+	s := NewState([]Entry{{Alias: "stray", Group: "adhoc"}})
+	s.SetGroups([]string{"prod", "staging"})
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"1", "prod", true},
+		{"2", "staging", true},
+		{"0", "", true},
+		{"", "", true},
+		{"3", "", false}, // adhoc has no record, so no number
+		{"01", "prod", true},
+		{"staging", "staging", true},
+		{"new", "new", true},
+		{"prod2", "prod2", true},
+	}
+	for _, tt := range tests {
+		got, ok := s.ResolveGroup(tt.in)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("ResolveGroup(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}

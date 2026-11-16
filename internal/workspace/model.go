@@ -44,6 +44,18 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
+	// MoveGroup puts the stored Group name at position, counting from 1.
+	MoveGroup(name string, position int) error
+	// AddGroup creates an empty Group after the others.
+	AddGroup(name string) error
+	// RenameGroup renames a Group; its members move with it.
+	RenameGroup(old, name string) error
+	// DeleteGroup deletes a Group; its members become ungrouped.
+	DeleteGroup(name string) error
+	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
+	// catalog.ErrNoDotfiles when none is set, or an error wrapping
+	// catalog.ErrProvisionRefused when the setting that applies is none.
+	ProvisionRepo(alias string) (string, error)
 }
 
 // Options configures a Workspace.
@@ -51,14 +63,18 @@ type Options struct {
 	// Catalog loads and saves Connections and the Workspace's saved state.
 	// It is required.
 	Catalog Catalog
-	// Command returns the command line for a new Session of alias; claude asks
-	// for a Session that runs claude on the remote host. It is called each time
-	// a tab opens or reconnects, so it can use the Selected identity at that
-	// moment. When nil, Sessions get no process (used by layout tests).
-	Command         func(alias string, claude bool) ([]string, error)
+	// Command returns the command line for a new Session of alias that runs
+	// what l says: ssh, claude on the remote host, or one of sshctl's own
+	// Actions. It is called each time a tab opens or reconnects, so it can
+	// use the Selected identity at that moment. When nil, Sessions get no
+	// process (used by layout tests).
+	Command         func(alias string, l Launch) ([]string, error)
 	PrefixKey       string
 	ListWidth       int
 	ScrollbackLines int
+	// Notice is shown on the status line at startup, such as what loading
+	// the config migrated.
+	Notice string
 }
 
 type focus int
@@ -70,13 +86,16 @@ const (
 
 type clearStatusMsg struct{ id int }
 
-// drag is a Connection held down with the left mouse button in the list.
+// drag is a Connection, or a Group header when group is set, held down with
+// the left mouse button in the list.
 type drag struct {
 	alias string
+	group string
 	fromY int
 	// moving is set once the pointer leaves the row it was pressed on.
 	moving bool
-	// target is the group under the pointer; ok is false off the list.
+	// target is the group under the pointer; ok is false off the list, and
+	// for a header drag anywhere but another stored Group's header.
 	target string
 	ok     bool
 }
@@ -120,6 +139,7 @@ func New(opts Options) (*Model, error) {
 		return nil, err
 	}
 	st := NewState(snap.Entries)
+	st.SetGroups(groupNames(snap.Groups))
 	for _, g := range snap.Collapsed {
 		st.SetCollapsed(g, true)
 	}
@@ -132,7 +152,22 @@ func New(opts Options) (*Model, error) {
 		size:       m.paneSize,
 		runners:    map[*Session]*runner{},
 	}
+	if opts.Notice != "" {
+		m.status = opts.Notice
+	}
+	if snap.Include != nil {
+		m.offerInclude(snap.Include)
+	}
 	return m, nil
+}
+
+// groupNames returns the names of groups, in order.
+func groupNames(groups []catalog.Group) []string {
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		out[i] = g.Name
+	}
+	return out
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -170,7 +205,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.ev.listen()
 	case sessionEndedMsg:
 		m.sessions.takeActivity() // its last output may not have been redrawn yet
-		m.sessions.ended(msg)
+		if m.sessions.ended(msg) && msg.sess.Action != "" && msg.code == 0 {
+			// An Action may have rewritten the Connection's Host block.
+			return tea.Batch(m.reload("", string(msg.sess.Action)+" finished; connection list refreshed"), m.ev.listen())
+		}
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
@@ -341,13 +379,13 @@ func (m *Model) enter() tea.Cmd {
 		m.focus = focusPane
 		return nil
 	}
-	return m.open(c.Alias, false)
+	return m.open(c.Alias, Launch{})
 }
 
-// open starts a new Session (tab) for alias, running claude when claude is
-// set, and shows any error on the status line.
-func (m *Model) open(alias string, claude bool) tea.Cmd {
-	if err := m.openSession(alias, claude); err != nil {
+// open starts a new Session (tab) for alias running what l says, and shows
+// any error on the status line.
+func (m *Model) open(alias string, l Launch) tea.Cmd {
+	if err := m.openSession(alias, l); err != nil {
 		return m.setStatus(err.Error(), true)
 	}
 	return nil
@@ -356,10 +394,10 @@ func (m *Model) open(alias string, claude bool) tea.Cmd {
 // openSession starts a new Session (tab) for alias. When the Session cannot
 // start, the Connection is left as it was and the error is a *startError.
 // A History error is returned with the Session left running.
-func (m *Model) openSession(alias string, claude bool) error {
+func (m *Model) openSession(alias string, l Launch) error {
 	c := m.st.Get(alias)
 	first := c != nil && !c.Open()
-	if _, err := m.sessions.open(alias, claude); err != nil {
+	if _, err := m.sessions.open(alias, l); err != nil {
 		if errors.Is(err, ErrOrphaned) {
 			return errors.New(alias + " is missing from ssh_config")
 		}
@@ -403,7 +441,7 @@ func (m *Model) openGroup() tea.Cmd {
 	var failed []*startError
 	var other error // e.g. a History error; the Session still opened
 	for _, member := range members {
-		err := m.openSession(member.Alias, false)
+		err := m.openSession(member.Alias, Launch{})
 		var se *startError
 		switch {
 		case errors.As(err, &se):
@@ -517,6 +555,7 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
+	m.st.SetGroups(groupNames(snap.Groups))
 	m.identity = snap.Identity
 	if alias != "" {
 		m.st.SetCursor(alias)
@@ -536,7 +575,35 @@ func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
 	return nil
 }
 
-// moveTarget is the Connection a move applies to: the Active connection
+// shiftGroup moves the Group whose header is under the cursor delta places
+// up or down. It does nothing on a Connection row, on the ungrouped header,
+// or when the Group is already first or last.
+func (m *Model) shiftGroup(delta int) tea.Cmd {
+	r, ok := m.st.CursorRow()
+	if !ok || !r.Header() {
+		return nil
+	}
+	pos := m.st.GroupPosition(r.Group)
+	if pos == 0 {
+		return nil
+	}
+	to := pos + delta
+	if to < 1 || to > len(m.st.groups) {
+		return nil
+	}
+	return m.moveGroup(r.Group, to)
+}
+
+// moveGroup saves group at position (counting from 1) and reloads the list
+// in the new order.
+func (m *Model) moveGroup(group string, position int) tea.Cmd {
+	if err := m.opts.Catalog.MoveGroup(group, position); err != nil {
+		return m.setStatus("move group "+group+": "+err.Error(), true)
+	}
+	return m.reload("", fmt.Sprintf("moved group %s to position %d", group, position))
+}
+
+// moveTarget is the Connection a move or an Action applies to: the Active connection
 // while the terminal has focus, otherwise the one under the cursor.
 func (m *Model) moveTarget() *Connection {
 	if m.focus == focusPane {
@@ -556,12 +623,27 @@ func (m *Model) startMove() tea.Cmd {
 	return nil
 }
 
-// moveTo saves alias's new group and moves it there in the list. A Connection
-// moved into a collapsed group leaves the cursor on that group's header.
+// moveTo saves alias's new group and moves it there in the list. group is a
+// Group number (0 ungroups) or a name; an unknown name asks to create the
+// Group first. A Connection moved into a collapsed group leaves the cursor
+// on that group's header.
 func (m *Model) moveTo(alias, group string) tea.Cmd {
-	group = strings.TrimSpace(group)
+	typed := strings.TrimSpace(group)
+	group, ok := m.st.ResolveGroup(typed)
+	if !ok {
+		return m.setStatus("no group number "+typed, true)
+	}
 	c := m.st.Get(alias)
 	if c == nil || c.Group == group {
+		return nil
+	}
+	if group != "" && !m.st.HasGroup(group) {
+		m.askCreateGroup(group, func(m *Model) tea.Cmd {
+			if cmd := m.reload("", ""); m.statusErr {
+				return cmd
+			}
+			return m.moveTo(alias, group)
+		})
 		return nil
 	}
 	from := c.Group
@@ -663,9 +745,11 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			return nil
 		}
 		if row.Header() {
+			// Released where it was pressed, it toggles; see drop.
 			m.st.SetCursorGroup(row.Group)
 			m.focus = focusList
-			return m.setCollapsed(row.Group, !m.st.Collapsed(row.Group))
+			m.drag = &drag{group: row.Group, fromY: mm.Y}
+			return nil
 		}
 		c := row.Conn
 		m.drag = &drag{alias: c.Alias, fromY: mm.Y}
@@ -702,17 +786,33 @@ func (m *Model) dragOver(mm tea.Mouse) {
 			return
 		}
 		d.moving = true
-		m.st.ShowUngrouped(true)
+		if d.group == "" {
+			m.st.ShowUngrouped(true)
+		}
 	}
 	row, ok := m.rowAt(mm.X, mm.Y)
+	if d.group != "" {
+		ok = ok && row.Header() && row.Group != d.group && m.st.GroupPosition(row.Group) > 0
+	}
 	d.target, d.ok = row.Group, ok
 }
 
-// drop moves the held Connection to the group of the row it is released on.
-// Released off the list, or without having moved, nothing changes.
+// drop moves the held Connection to the group of the row it is released on,
+// or the held Group to the position of the Group header it is released on.
+// Released off the list, or without having moved, nothing changes, except
+// that a Group header pressed and released in place toggles.
 func (m *Model) drop(mm tea.Mouse) tea.Cmd {
 	d := m.drag
 	m.drag = nil
+	if d.group != "" {
+		switch {
+		case !d.moving:
+			return m.setCollapsed(d.group, !m.st.Collapsed(d.group))
+		case d.ok:
+			return m.moveGroup(d.group, m.st.GroupPosition(d.target))
+		}
+		return m.setStatus("move cancelled", false)
+	}
 	if !d.moving {
 		return nil
 	}

@@ -47,13 +47,24 @@ func (m *Model) render() string {
 		return ""
 	}
 	mainH := m.h - 1
-	if _, ok := m.modal.(helpScreen); ok {
-		// Help covers the whole Workspace without resizing the Sessions under it.
+	if h, ok := m.modal.(*helpScreen); ok {
+		// Help covers the whole Workspace without resizing the Sessions
+		// under it. Its title stays; the bindings scroll below it.
+		title, body := m.helpLines()
 		lines := make([]string, 0, m.h)
-		for _, l := range m.helpLines() {
-			if len(lines) < mainH {
-				lines = append(lines, fit(l, m.w))
-			}
+		lines = append(lines, fit(title, m.w))
+		top := max(0, min(h.top, m.helpMaxTop()))
+		end := min(len(body), top+m.helpRows())
+		more := len(body) - end
+		if more > 0 {
+			end-- // the last row says how much is below
+			more++
+		}
+		for _, l := range body[top:end] {
+			lines = append(lines, fit(l, m.w))
+		}
+		if more > 0 {
+			lines = append(lines, fit("  "+dimStyle.Render(fmt.Sprintf("↓ %d more below (↓ / PgDn)", more)), m.w))
 		}
 		for len(lines) < mainH {
 			lines = append(lines, strings.Repeat(" ", m.w))
@@ -111,7 +122,8 @@ func (m *Model) renderList(w, h int) []string {
 		}
 		line = fit(line, w)
 		switch {
-		case m.drag != nil && m.drag.moving && !r.Header() && r.Conn.Alias == m.drag.alias:
+		case m.drag != nil && m.drag.moving && m.drag.group == "" && !r.Header() && r.Conn.Alias == m.drag.alias,
+			m.drag != nil && m.drag.moving && m.drag.group != "" && r.Header() && r.Group == m.drag.group:
 			line = dimStyle.Render(ansi.Strip(line))
 		case m.drag != nil && m.drag.moving && m.drag.ok && r.Group == m.drag.target:
 			line = dropStyle.Render(ansi.Strip(line))
@@ -133,14 +145,18 @@ func (m *Model) renderList(w, h int) []string {
 	return lines
 }
 
-// headerLabel is a group header: its fold marker, name and member count, then
-// how many members are open and whether any has unseen activity.
+// headerLabel is a group header: its fold marker, Group number (for a stored
+// Group), name and member count, then how many members are open and whether
+// any has unseen activity.
 func (m *Model) headerLabel(group string) string {
 	fold := "▾ "
 	if m.st.Collapsed(group) && m.st.Filter() == "" {
 		fold = "▸ "
 	}
 	name := boldStyle.Render(group)
+	if n := m.st.GroupPosition(group); n > 0 {
+		name = dimStyle.Render(fmt.Sprint(n)) + " " + name
+	}
 	if group == "" {
 		name = dimStyle.Render("ungrouped")
 	}
@@ -152,7 +168,11 @@ func (m *Model) headerLabel(group string) string {
 		}
 		unseen = unseen || c.Unseen()
 	}
-	line := fold + name + " " + dimStyle.Render(fmt.Sprint(len(members)))
+	count := fmt.Sprint(len(members))
+	if len(members) == 0 && group != "" {
+		count = "(empty)"
+	}
+	line := fold + name + " " + dimStyle.Render(count)
 	if open > 0 {
 		line += " " + openStyle.Render(fmt.Sprintf("●%d", open))
 	}
@@ -213,7 +233,10 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	styles := make([]lipgloss.Style, len(c.Sessions))
 	for i, s := range c.Sessions {
 		label := fmt.Sprintf("%s %d", c.Alias, s.N)
-		if s.Claude {
+		switch {
+		case s.Action != "":
+			label += " " + string(s.Action)
+		case s.Claude:
 			label += " claude"
 		}
 		marker, style := tabState(s)
@@ -277,7 +300,7 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h)
+		return f.render(w, h, m.st.groups)
 	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
@@ -306,20 +329,29 @@ func (m *Model) renderPane(w, h int) []string {
 	return lines
 }
 
-// helpLines lists every binding (see bindings) with its keys and help text.
-func (m *Model) helpLines() []string {
+// helpRows is how many rows the help screen has for bindings, below its
+// title and above the status line.
+func (m *Model) helpRows() int { return max(1, m.h-2) }
+
+// helpMaxTop is the furthest the help screen scrolls: the top line that
+// shows the last binding on the last row.
+func (m *Model) helpMaxTop() int { return max(0, len(bindings)-m.helpRows()) }
+
+// helpLines returns the help screen's title and a line for every binding
+// (see bindings) with its keys and help text.
+func (m *Model) helpLines() (title string, body []string) {
 	labels := make([]string, len(bindings))
 	width := 0
 	for i, b := range bindings {
 		labels[i] = m.bindingLabel(b)
 		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	lines := []string{"  " + boldStyle.Render("Keys") + dimStyle.Render("  (press any key to close)"), ""}
+	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  (↑/↓ PgUp/PgDn scroll · any other key closes)")
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
-		lines = append(lines, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
+		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
 	}
-	return lines
+	return title, body
 }
 
 func (m *Model) renderStatus(w int) string {
@@ -331,6 +363,11 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case ok:
 		left = modalStatus
+	case m.drag != nil && m.drag.moving && m.drag.group != "":
+		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
+		if m.drag.ok {
+			left = fmt.Sprintf("move group %s to position %d · release to drop", m.drag.group, m.st.GroupPosition(m.drag.target))
+		}
 	case m.drag != nil && m.drag.moving:
 		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
 		if m.drag.ok {

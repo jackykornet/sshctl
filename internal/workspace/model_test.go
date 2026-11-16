@@ -22,6 +22,7 @@ func newTestModel(t *testing.T, w, h int) *Model {
 			{Alias: "db-main", Description: "postgres"},
 			{Alias: "old-box", Description: "retired", Orphaned: true},
 		},
+		groups:   []string{"web"},
 		identity: "/home/me/.ssh/id_ed25519",
 	}})
 	if err != nil {
@@ -100,10 +101,39 @@ func TestLayoutGolden(t *testing.T) {
 		press(m, keyEnter)
 		golden(t, "narrow", m)
 	})
+	t.Run("delete group asks", func(t *testing.T) {
+		m := newTestModel(t, 80, 10)
+		press(m, text("d")...) // the cursor starts on web's header
+		golden(t, "group-delete", m)
+	})
+	t.Run("rename group prompt", func(t *testing.T) {
+		m := newTestModel(t, 80, 10)
+		press(m, text("e")...)
+		press(m, text("-1")...)
+		golden(t, "group-rename", m)
+	})
 	t.Run("help", func(t *testing.T) {
 		m := newTestModel(t, 80, 24)
 		press(m, keyPrefix, text("?")[0])
 		golden(t, "help", m)
+	})
+	t.Run("help scrolled", func(t *testing.T) {
+		m := newTestModel(t, 80, 12)
+		press(m, keyPrefix, text("?")[0])
+		press(m, keyDown)
+		golden(t, "help-scrolled", m)
+	})
+	t.Run("add form", func(t *testing.T) {
+		m := newTestModel(t, 80, 16)
+		m.st.SetCursor("staging") // on a header, a adds a Group
+		press(m, text("a")...)
+		golden(t, "add-form", m)
+	})
+	t.Run("move prompt", func(t *testing.T) {
+		m := newTestModel(t, 80, 10)
+		m.st.SetCursor("staging")
+		press(m, keyPrefix, text("m")[0])
+		golden(t, "move-prompt", m)
 	})
 }
 

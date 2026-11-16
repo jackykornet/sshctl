@@ -151,9 +151,13 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			f.focus++
 			return nil
 		}
-		return m.saveForm(f)
+		return m.saveForm(f, false)
 	case "ctrl+s":
-		return m.saveForm(f)
+		return m.saveForm(f, false)
+	case "ctrl+o":
+		if f.old == "" {
+			return m.saveForm(f, true)
+		}
 	default:
 		fl.value, _ = editLine(fl.value, msg)
 	}
@@ -175,8 +179,16 @@ func (f *connForm) status() (string, bool) {
 // saveForm saves the form through the Catalog and reloads the
 // list. Errors stay in the form so they can be corrected; when ssh_config
 // must Include sshctl's hosts file first, it asks before adding the line.
-func (m *Model) saveForm(f *connForm) tea.Cmd {
+// With bootstrap, a successful save then opens a Bootstrap tab for the
+// saved alias.
+func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	s := f.spec()
+	group, ok := m.st.ResolveGroup(s.Group)
+	if !ok {
+		f.err = "no group number " + s.Group
+		return nil
+	}
+	s.Group = group
 	if f.old != "" && s.Alias != f.old {
 		if c := m.st.Get(f.old); c != nil && c.Open() {
 			f.err = "close " + f.old + "'s tabs before renaming it"
@@ -186,13 +198,18 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 	err := m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
 	if errors.As(err, &inc) {
-		m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), func(m *Model) tea.Cmd {
+		m.askInclude(inc, func(m *Model) tea.Cmd {
 			if err := m.opts.Catalog.AddInclude(); err != nil {
 				f.err = err.Error()
 				return nil
 			}
-			return m.saveForm(f)
+			return m.saveForm(f, bootstrap)
 		})
+		return nil
+	}
+	if errors.Is(err, catalog.ErrUnknownGroup) {
+		f.err = "no group " + s.Group
+		m.askCreateGroup(s.Group, func(m *Model) tea.Cmd { return m.saveForm(f, bootstrap) })
 		return nil
 	}
 	if err != nil {
@@ -204,7 +221,29 @@ func (m *Model) saveForm(f *connForm) tea.Cmd {
 	if f.old == "" {
 		verb = "added"
 	}
-	return m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	cmd := m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	if bootstrap {
+		return tea.Batch(cmd, m.open(s.Alias, Launch{Action: ActionBootstrap}))
+	}
+	return cmd
+}
+
+// askInclude asks before adding inc's Include line to the user's ssh_config
+// (ADR-0002); yes runs on y.
+func (m *Model) askInclude(inc *IncludeError, yes func(*Model) tea.Cmd) {
+	m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), yes)
+}
+
+// offerInclude asks at startup to add the Include that sshctl's existing
+// hosts file lacks (ADR-0004). It is asked once per Workspace, so no
+// leaves everything unchanged for the rest of the session.
+func (m *Model) offerInclude(inc *IncludeError) {
+	m.askInclude(inc, func(m *Model) tea.Cmd {
+		if err := m.opts.Catalog.AddInclude(); err != nil {
+			return m.setStatus("add include: "+err.Error(), true)
+		}
+		return m.reload("", fmt.Sprintf("added %q to %s", inc.Line, inc.Config))
+	})
 }
 
 // deleteConnection asks before deleting the target Connection: its Host
@@ -234,8 +273,10 @@ func (m *Model) deleteConnection() tea.Cmd {
 	return nil
 }
 
-// renderForm draws the connection form in a w×h pane.
-func (f *connForm) render(w, h int) []string {
+// render draws the connection form in a w×h pane. Under the group field
+// it lists the stored groups by Group number, since the form covers their
+// headers.
+func (f *connForm) render(w, h int, groups []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -247,6 +288,13 @@ func (f *connForm) render(w, h int) []string {
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))
+		if fl.id == fieldGroup && len(groups) > 0 {
+			numbers := []string{"0 none"}
+			for n, g := range groups {
+				numbers = append(numbers, fmt.Sprintf("%d %s", n+1, g))
+			}
+			lines = append(lines, strings.Repeat(" ", 19)+dimStyle.Render(strings.Join(numbers, " · ")))
+		}
 	}
 	lines = append(lines, "")
 	if !f.managed {
@@ -256,6 +304,9 @@ func (f *connForm) render(w, h int) []string {
 		lines = append(lines, "  "+errStyle.Render(f.err))
 	}
 	lines = append(lines, "  "+dimStyle.Render("Tab/↑↓ move · Ctrl+S save · Esc cancel"))
+	if f.old == "" {
+		lines = append(lines, "  "+dimStyle.Render("Ctrl+O save and Bootstrap"))
+	}
 	out := make([]string, 0, h)
 	for _, l := range lines {
 		if len(out) < h {

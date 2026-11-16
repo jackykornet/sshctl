@@ -7,25 +7,31 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 type commandCall struct {
 	alias  string
-	claude bool
+	launch Launch
 }
 
 // fakeCatalog stands in for the Connection catalog. Snapshot lists entries
 // (with identity and startCollapsed) or fails with loadErr. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
-// the deleted alias) on the next Snapshot. The catalog's own rules are
+// the deleted alias) on the next Snapshot. Snapshot reports include, the
+// Include ssh_config lacks, until AddInclude is called. ProvisionRepo fails
+// with provision[alias], or returns a repo. The catalog's own rules are
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
+	groups         []string // stored Group names, in order
 	identity       string
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
+	include        *IncludeError
+	provision      map[string]error // ProvisionRepo's error per alias
 
 	loads     int
 	opened    []string    // RecordOpen aliases
@@ -36,11 +42,22 @@ type fakeCatalog struct {
 	deletes   []string
 	includes  int
 	saveErrs  []error
+
+	groupMoves   [][2]any // MoveGroup name, position
+	moveGroupErr error
+	groupOps     []string // "add x", "rename x→y", "delete x", one per Group call
+	groupErr     error    // returned by the next Group call, which then changes nothing
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed}
+	for _, g := range f.groups {
+		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
+	}
+	if f.includes == 0 {
+		snap.Include = f.include
+	}
 	return snap, f.loadErr
 }
 
@@ -85,6 +102,77 @@ func (f *fakeCatalog) Delete(alias string) error {
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
 
+// MoveGroup records the call and, unless moveGroupErr is set, puts name at
+// position (from 1) in groups.
+func (f *fakeCatalog) MoveGroup(name string, position int) error {
+	f.groupMoves = append(f.groupMoves, [2]any{name, position})
+	if f.moveGroupErr != nil {
+		return f.moveGroupErr
+	}
+	i := slices.Index(f.groups, name)
+	if i < 0 || position < 1 || position > len(f.groups) {
+		return errors.New("bad group move")
+	}
+	f.groups = slices.Insert(slices.Delete(f.groups, i, i+1), position-1, name)
+	return nil
+}
+
+// groupOp records op and returns groupErr, once.
+func (f *fakeCatalog) groupOp(op string) error {
+	f.groupOps = append(f.groupOps, op)
+	err := f.groupErr
+	f.groupErr = nil
+	return err
+}
+
+func (f *fakeCatalog) AddGroup(name string) error {
+	if err := f.groupOp("add " + name); err != nil {
+		return err
+	}
+	f.groups = append(f.groups, name)
+	return nil
+}
+
+func (f *fakeCatalog) RenameGroup(old, name string) error {
+	if err := f.groupOp("rename " + old + "→" + name); err != nil {
+		return err
+	}
+	f.regroup(old, name)
+	return nil
+}
+
+func (f *fakeCatalog) DeleteGroup(name string) error {
+	if err := f.groupOp("delete " + name); err != nil {
+		return err
+	}
+	f.regroup(name, "")
+	return nil
+}
+
+// regroup renames the Group old to name, or deletes it when name is "",
+// moving its members with it.
+func (f *fakeCatalog) regroup(old, name string) {
+	if i := slices.Index(f.groups, old); i >= 0 {
+		if name == "" {
+			f.groups = slices.Delete(f.groups, i, i+1)
+		} else {
+			f.groups[i] = name
+		}
+	}
+	for i := range f.entries {
+		if f.entries[i].Group == old {
+			f.entries[i].Group = name
+		}
+	}
+}
+
+func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
+	if err := f.provision[alias]; err != nil {
+		return "", err
+	}
+	return "https://example.com/dotfiles.git", nil
+}
+
 // recorder records what a Workspace asks of its Options.Command seam, and
 // through its fakeCatalog which Connections were recorded as opened.
 type recorder struct {
@@ -115,8 +203,8 @@ func newRecordingModel(t *testing.T, entries []Entry, fail ...string) (*Model, *
 	r := &recorder{fakeCatalog: &fakeCatalog{entries: entries}}
 	m, err := New(Options{
 		Catalog: r.fakeCatalog,
-		Command: func(alias string, claude bool) ([]string, error) {
-			r.calls = append(r.calls, commandCall{alias, claude})
+		Command: func(alias string, l Launch) ([]string, error) {
+			r.calls = append(r.calls, commandCall{alias, l})
 			for _, f := range fail {
 				if f == alias {
 					return nil, errors.New("no route to host")

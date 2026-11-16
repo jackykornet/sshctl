@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/atomicfile"
 )
 
 // ManagedFile is the file, relative to the ssh directory, that holds the Host
@@ -130,6 +132,7 @@ func (c *Client) SaveHost(old string, h Host) error {
 			return fmt.Errorf("%s: %w", old, ErrUnknownHost)
 		}
 	}
+	h.IdentityFile = HomeRelative(h.IdentityFile, c.home())
 	if err := h.Validate(); err != nil {
 		return err
 	}
@@ -157,6 +160,39 @@ func (c *Client) SaveHost(old string, h Host) error {
 		hosts[i] = h
 	}
 	return c.writeManaged(hosts)
+}
+
+func (c *Client) home() string {
+	if c.Home != "" {
+		return c.Home
+	}
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// HomeRelative returns path as "~/…" when it is an absolute path inside
+// home, and unchanged otherwise. OpenSSH expands "~" on Windows, Linux and
+// macOS, so a Host block synced between machines keeps naming the same key
+// (ADR-0004).
+//
+// A Windows home (one with a drive letter or a \\server share) matches
+// regardless of case and of / versus \; any other home matches exactly. The
+// result always uses /, which OpenSSH reads on Windows too.
+func HomeRelative(path, home string) string {
+	windows := len(home) >= 2 && home[1] == ':' || strings.HasPrefix(home, `\\`)
+	p := path
+	if windows {
+		p = strings.ReplaceAll(p, `\`, "/")
+		home = strings.ReplaceAll(home, `\`, "/")
+	}
+	home = strings.TrimRight(home, "/")
+	if home == "" || len(p) <= len(home)+1 || p[len(home)] != '/' {
+		return path
+	}
+	if prefix := p[:len(home)]; prefix != home && !(windows && strings.EqualFold(prefix, home)) {
+		return path
+	}
+	return "~/" + p[len(home)+1:]
 }
 
 // DeleteHost removes alias's block from the managed file.
@@ -192,7 +228,7 @@ func (c *Client) writeManaged(hosts []Host) error {
 			b.WriteString("    " + x + "\n")
 		}
 	}
-	return writeAtomic(c.ManagedPath(), []byte(b.String()), 0o600)
+	return atomicfile.Write(c.ManagedPath(), []byte(b.String()), 0o600)
 }
 
 // Validate checks that h can be written as a Host block that OpenSSH reads
@@ -265,7 +301,7 @@ func (c *Client) AddInclude() error {
 		if fi, err := os.Stat(c.SSHConfig); err == nil {
 			mode = fi.Mode().Perm()
 		}
-		if err := writeAtomic(c.SSHConfig+".sshctl-backup", old, mode); err != nil {
+		if err := atomicfile.Write(c.SSHConfig+".sshctl-backup", old, mode); err != nil {
 			return err
 		}
 	case !os.IsNotExist(err):
@@ -275,31 +311,7 @@ func (c *Client) AddInclude() error {
 	if len(old) > 0 {
 		head += "\n"
 	}
-	return writeAtomic(c.SSHConfig, append([]byte(head), old...), mode)
-}
-
-// writeAtomic replaces path through a temporary file in the same directory,
-// so an interrupted write never leaves it truncated.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err = tmp.Chmod(mode); err == nil {
-		_, err = tmp.Write(data)
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return atomicfile.Write(c.SSHConfig, append([]byte(head), old...), mode)
 }
 
 // splitQuoted is splitDirective with double-quoted arguments, which OpenSSH

@@ -13,21 +13,21 @@ type sessions struct {
 	st *State
 	ev *events
 	// command returns the argv for a Session; nil starts no process (tests).
-	command    func(alias string, claude bool) ([]string, error)
+	command    func(alias string, l Launch) ([]string, error)
 	scrollback int
 	// size is the pane size a new process starts at.
 	size    func() (w, h int)
 	runners map[*Session]*runner
 }
 
-// open starts a new Session (tab) for alias, running claude when claude is
-// set, and makes it the Active connection's current tab. When the process
-// cannot start, State is left as it was and the error is a *startError.
-func (s *sessions) open(alias string, claude bool) (*Session, error) {
+// open starts a new Session (tab) for alias running what l says, and makes
+// it the Active connection's current tab. When the process cannot start,
+// State is left as it was and the error is a *startError.
+func (s *sessions) open(alias string, l Launch) (*Session, error) {
 	if err := s.st.checkOpen(alias); err != nil {
 		return nil, err
 	}
-	sess := &Session{Claude: claude}
+	sess := &Session{Launch: l}
 	if err := s.start(alias, sess); err != nil {
 		return nil, &startError{alias, err}
 	}
@@ -37,12 +37,13 @@ func (s *sessions) open(alias string, claude bool) (*Session, error) {
 
 // ended records that a runner's process exited. It ends the Session only
 // when r is still its runner, so a runner replaced by reconnect or released
-// by close is ignored.
-func (s *sessions) ended(msg sessionEndedMsg) {
+// by close is ignored, and reports whether it ended the Session.
+func (s *sessions) ended(msg sessionEndedMsg) bool {
 	if s.runners[msg.sess] != msg.r {
-		return
+		return false
 	}
 	msg.sess.Ended, msg.sess.ExitCode = true, msg.code
+	return true
 }
 
 // reconnect starts a new process in sess's tab after it ended. It refuses a
@@ -81,7 +82,7 @@ func (s *sessions) start(alias string, sess *Session) error {
 	if s.command == nil {
 		return nil
 	}
-	argv, err := s.command(alias, sess.Claude)
+	argv, err := s.command(alias, sess.Launch)
 	if err != nil {
 		return err
 	}

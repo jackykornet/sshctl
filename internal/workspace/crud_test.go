@@ -75,9 +75,47 @@ func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 	}
 }
 
+// A hosts file synced to a new machine without the Include (ADR-0004) is
+// offered the Include as soon as the Workspace starts.
+func TestStartupOffersTheMissingInclude(t *testing.T) {
+	f := &fakeCatalog{entries: storeEntries(), include: needInclude}
+	m := newStoreModel(t, f)
+	if m.confirm() == nil || !strings.Contains(m.confirm().question, `"Include sshctl_config" to the top of ~/.ssh/config`) {
+		t.Fatalf("want the Include question at startup, got %+v", m.confirm())
+	}
+	press(m, text("y")...)
+	if m.confirm() != nil || f.includes != 1 {
+		t.Fatalf("confirm = %+v includes = %d", m.confirm(), f.includes)
+	}
+	if m.statusErr || !strings.Contains(m.status, "Include sshctl_config") {
+		t.Errorf("status = %q (err %v)", m.status, m.statusErr)
+	}
+}
+
+func TestDecliningTheStartupIncludeLastsTheSession(t *testing.T) {
+	f := &fakeCatalog{entries: storeEntries(), include: needInclude}
+	m := newStoreModel(t, f)
+	press(m, text("n")...)
+	if m.confirm() != nil || f.includes != 0 || len(f.saves) != 0 {
+		t.Fatalf("confirm = %+v includes = %d saves = %v", m.confirm(), f.includes, f.saves)
+	}
+	press(m, keyPrefix, text("r")[0])
+	if m.confirm() != nil || m.status != "connection list refreshed" {
+		t.Fatalf("refresh asked again: confirm = %+v status = %q", m.confirm(), m.status)
+	}
+}
+
+func TestStartupAsksNothingWhenTheIncludeIsFine(t *testing.T) {
+	m := newStoreModel(t, &fakeCatalog{entries: storeEntries()})
+	if m.confirm() != nil {
+		t.Fatalf("unexpected question %q", m.confirm().question)
+	}
+}
+
 func TestDecliningIncludeKeepsTheForm(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
+	m.st.SetCursor("mine") // on a header, a adds a Group
 	press(m, keyPrefix, text("a")[0])
 	fill(m, "api", "h")
 	press(m, keyCtrlS, text("n")[0])
@@ -89,6 +127,7 @@ func TestDecliningIncludeKeepsTheForm(t *testing.T) {
 func TestSaveErrorStaysInForm(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{errors.New("hostname is required")}}
 	m := newStoreModel(t, f)
+	m.st.SetCursor("mine")
 	press(m, text("a")...)
 	press(m, keyCtrlS)
 	if m.form() == nil || m.form().err != "hostname is required" {
@@ -196,6 +235,7 @@ func TestDeleteRefusesOpenOrForeignConnections(t *testing.T) {
 func TestFormIsDrawnInThePane(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries()}
 	m := newStoreModel(t, f)
+	m.st.SetCursor("mine")
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
 	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "Ctrl+S save"} {
