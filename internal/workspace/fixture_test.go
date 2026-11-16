@@ -104,7 +104,7 @@ func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
 
 // MoveGroup records the call and, unless moveGroupErr is set, puts name at
 // position (from 1) in groups.
-func (f *fakeCatalog) MoveGroup(name string, position int) error {
+func (f *fakeCatalog) MoveGroup(_, name string, position int) error {
 	f.groupMoves = append(f.groupMoves, [2]any{name, position})
 	if f.moveGroupErr != nil {
 		return f.moveGroupErr
@@ -125,7 +125,7 @@ func (f *fakeCatalog) groupOp(op string) error {
 	return err
 }
 
-func (f *fakeCatalog) AddGroup(name string) error {
+func (f *fakeCatalog) AddGroup(_, name string) error {
 	if err := f.groupOp("add " + name); err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (f *fakeCatalog) AddGroup(name string) error {
 	return nil
 }
 
-func (f *fakeCatalog) RenameGroup(old, name string) error {
+func (f *fakeCatalog) RenameGroup(_, old, name string) error {
 	if err := f.groupOp("rename " + old + "→" + name); err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (f *fakeCatalog) RenameGroup(old, name string) error {
 	return nil
 }
 
-func (f *fakeCatalog) DeleteGroup(name string) error {
+func (f *fakeCatalog) DeleteGroup(_, name string) error {
 	if err := f.groupOp("delete " + name); err != nil {
 		return err
 	}

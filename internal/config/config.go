@@ -16,8 +16,9 @@ import (
 
 // Version is the config format written by Save. Version 2 stores Groups
 // as records (ADR-0003); version 3 moves the machine-local values to
-// state.json (ADR-0004). Older configs are migrated by Load.
-const Version = 3
+// state.json (ADR-0004); version 4 adds Spaces (ADR-0005). Older configs
+// are migrated by Load.
+const Version = 4
 
 // StateVersion is the state.json format written by Save.
 const StateVersion = 1
@@ -26,6 +27,9 @@ type Connection struct {
 	Alias       string `json:"alias"`
 	Description string `json:"description,omitempty"`
 	Group       string `json:"group,omitempty"`
+	// Space is the Space the Connection belongs to, "" for the default
+	// Space. Its Group is a Group of that Space.
+	Space string `json:"space,omitempty"`
 }
 
 // Group is a stored Group record (ADR-0003). Its position in Config.Groups
@@ -33,6 +37,9 @@ type Connection struct {
 // of the record: that is per machine, in State.CollapsedGroups (ADR-0004).
 type Group struct {
 	Name string `json:"name"`
+	// Space is the Space the Group belongs to, "" for the default Space.
+	// A Group name is unique only within its Space.
+	Space string `json:"space,omitempty"`
 	// Dotfiles is the dotfiles repo URL Provision applies to the Group's
 	// Connections, DotfilesNone to refuse Provision for them, or "" when
 	// unset, so the global Provision.Dotfiles applies.
@@ -41,8 +48,12 @@ type Group struct {
 
 type Config struct {
 	Version int `json:"version"`
-	// Groups lists every Group in the user's order. Every Group a
-	// Connection names has a record here; Load adds any that is missing.
+	// Spaces lists every Space in the user's order; exactly one is the
+	// default Space. Load adds any that is missing.
+	Spaces []Space `json:"spaces,omitempty"`
+	// Groups lists every Group in the user's order, the Groups of each
+	// Space in that Space's order. Every Group a Connection names has a
+	// record here; Load adds any that is missing.
 	Groups      []Group               `json:"groups,omitempty"`
 	Connections map[string]Connection `json:"connections"`
 	Workspace   Workspace             `json:"workspace,omitzero"`
@@ -84,8 +95,11 @@ type State struct {
 	Keys []string `json:"keys,omitempty"`
 	// SelectedIdentity is the Selected identity's key path, or "".
 	SelectedIdentity string `json:"defaultKey,omitempty"`
-	// CollapsedGroups lists the groups whose members the connection list hides.
+	// CollapsedGroups lists the groups whose members the connection list
+	// hides, by CollapsedKey.
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
+	// ActiveSpace is the Space the Workspace shows, "" for the default Space.
+	ActiveSpace string `json:"activeSpace,omitempty"`
 	// ListWidth is the width of the connection list in columns.
 	ListWidth int `json:"listWidth,omitempty"`
 }
@@ -137,24 +151,26 @@ func allDigits(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
-// GroupIndex returns the position of the Group named name in Groups, or -1.
-func (c *Config) GroupIndex(name string) int {
+// GroupIndex returns the position in Groups of the Group named name in
+// space ("" for the default Space), or -1.
+func (c *Config) GroupIndex(space, name string) int {
 	for i, g := range c.Groups {
-		if g.Name == name {
+		if g.Space == space && g.Name == name {
 			return i
 		}
 	}
 	return -1
 }
 
-// SetMetadata sets alias's description and group. Metadata with neither is
-// dropped, so an emptied Connection leaves nothing behind.
-func (c *Config) SetMetadata(alias, description, group string) {
-	if description == "" && group == "" {
+// SetMetadata sets alias's Space ("" for the default Space), description
+// and group, a Group of that Space. Metadata with none of them is dropped,
+// so an emptied Connection leaves nothing behind.
+func (c *Config) SetMetadata(alias, space, description, group string) {
+	if space == "" && description == "" && group == "" {
 		delete(c.Connections, alias)
 		return
 	}
-	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group}
+	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group, Space: space}
 	c.addMissingGroups()
 }
 
@@ -162,105 +178,122 @@ func (c *Config) SetMetadata(alias, description, group string) {
 // record, alphabetically after the existing ones. It reports whether it
 // added any.
 func (c *Config) addMissingGroups() bool {
-	var missing []string
+	var missing []Group
 	for _, conn := range c.Connections {
-		if conn.Group != "" && c.GroupIndex(conn.Group) < 0 && !slices.Contains(missing, conn.Group) {
-			missing = append(missing, conn.Group)
+		g := Group{Name: conn.Group, Space: conn.Space}
+		if g.Name != "" && c.GroupIndex(g.Space, g.Name) < 0 && !slices.Contains(missing, g) {
+			missing = append(missing, g)
 		}
 	}
-	sort.Strings(missing)
-	for _, name := range missing {
-		c.Groups = append(c.Groups, Group{Name: name})
-	}
+	sort.Slice(missing, func(i, j int) bool {
+		if missing[i].Space != missing[j].Space {
+			return missing[i].Space < missing[j].Space
+		}
+		return missing[i].Name < missing[j].Name
+	})
+	c.Groups = append(c.Groups, missing...)
 	return len(missing) > 0
 }
 
 // renameDigitGroups renames every Group made only of digits, in its record,
 // its members and the collapsed list, and records a notice for each.
 func (c *Config) renameDigitGroups() {
-	used := map[string]bool{}
-	var digits []string
-	note := func(name string) {
-		if !used[name] {
-			used[name] = true
-			if allDigits(name) {
-				digits = append(digits, name)
+	used := map[Group]bool{}
+	var digits []Group
+	note := func(g Group) {
+		if !used[g] {
+			used[g] = true
+			if allDigits(g.Name) {
+				digits = append(digits, g)
 			}
 		}
 	}
 	for _, g := range c.Groups {
-		note(g.Name)
+		note(Group{Name: g.Name, Space: g.Space})
 	}
 	for _, conn := range c.Connections {
 		if conn.Group != "" {
-			note(conn.Group)
+			note(Group{Name: conn.Group, Space: conn.Space})
 		}
 	}
-	sort.Strings(digits)
+	sort.Slice(digits, func(i, j int) bool { return digits[i].Name < digits[j].Name })
 	for _, old := range digits {
-		name := "group-" + old
-		for n := 2; used[name]; n++ {
-			name = fmt.Sprintf("group-%s-%d", old, n)
+		name := "group-" + old.Name
+		for n := 2; used[Group{Name: name, Space: old.Space}]; n++ {
+			name = fmt.Sprintf("group-%s-%d", old.Name, n)
 		}
-		used[name] = true
-		c.RenameGroup(old, name)
-		c.Notices = append(c.Notices, fmt.Sprintf("renamed group %q to %q: a group name may not be only digits", old, name))
+		used[Group{Name: name, Space: old.Space}] = true
+		c.RenameGroup(old.Space, old.Name, name)
+		c.Notices = append(c.Notices, fmt.Sprintf("renamed group %q to %q: a group name may not be only digits", old.Name, name))
 	}
 }
 
-// RenameGroup renames the Group old to name in its record, its members and
-// the collapsed list. It does not check name; see CheckGroupName.
-func (c *Config) RenameGroup(old, name string) {
-	if i := c.GroupIndex(old); i >= 0 {
+// RenameGroup renames space's Group old to name in its record, its members
+// and the collapsed list. It does not check name; see CheckGroupName.
+func (c *Config) RenameGroup(space, old, name string) {
+	if i := c.GroupIndex(space, old); i >= 0 {
 		c.Groups[i].Name = name
 	}
 	for alias, conn := range c.Connections {
-		if conn.Group == old {
+		if conn.Space == space && conn.Group == old {
 			conn.Group = name
 			c.Connections[alias] = conn
 		}
 	}
-	c.renameCollapsed(old, name)
+	c.renameCollapsed(CollapsedKey(space, old), CollapsedKey(space, name))
 }
 
-// DeleteGroup removes the Group name's record and leaves its members
-// ungrouped; a member left with no description keeps no metadata.
-func (c *Config) DeleteGroup(name string) {
+// DeleteGroup removes the record of space's Group name and leaves its
+// members ungrouped; a member left with nothing else keeps no metadata.
+func (c *Config) DeleteGroup(space, name string) {
 	// Members go first: SetMetadata would give a Group still named by a
 	// member its record back.
 	for alias, conn := range c.Connections {
-		if conn.Group == name {
-			c.SetMetadata(alias, conn.Description, "")
+		if conn.Space == space && conn.Group == name {
+			c.SetMetadata(alias, space, conn.Description, "")
 		}
 	}
-	if i := c.GroupIndex(name); i >= 0 {
+	if i := c.GroupIndex(space, name); i >= 0 {
 		c.Groups = slices.Delete(c.Groups, i, i+1)
 	}
-	c.renameCollapsed(name, "")
+	c.renameCollapsed(CollapsedKey(space, name), "")
+}
+
+// CollapsedKey is how CollapsedGroups names space's Group group: the Group
+// name in the default Space, "space/group" in any other.
+func CollapsedKey(space, group string) string {
+	if space == "" {
+		return group
+	}
+	return space + "/" + group
 }
 
 // renameCollapsed keeps the per-machine collapsed list in step with a
-// Group renamed from old to name, or deleted when name is "". It is the
-// only code that follows a Group's name into that list.
-func (c *Config) renameCollapsed(old, name string) {
+// Group whose CollapsedKey changed from old to key, or that was deleted
+// when key is "". It is the only code that follows a Group into that list.
+func (c *Config) renameCollapsed(old, key string) {
 	groups := c.CollapsedGroups
-	if name == "" {
+	if key == "" {
 		c.CollapsedGroups = slices.DeleteFunc(groups, func(g string) bool { return g == old })
 		return
 	}
 	for i, g := range groups {
 		if g == old {
-			groups[i] = name
+			groups[i] = key
 		}
 	}
 }
 
-// migrateGroups brings c's Groups up to Version 2: a record for every Group
-// a Connection names, no all-digit names. It reports whether c changed.
+// migrateGroups brings c up to Version: a default Space and a record for
+// every Space and Group something names, and no all-digit Group names. It
+// reports whether c changed.
 func (c *Config) migrateGroups() bool {
 	changed := c.Version < Version
 	c.Version = Version
 	n := len(c.Notices)
+	if c.addMissingSpaces() {
+		changed = true
+	}
 	c.renameDigitGroups()
 	if c.addMissingGroups() {
 		changed = true
@@ -283,7 +316,9 @@ func (c *Config) RecordOpen(alias string) {
 	c.History = h
 }
 
-func New() *Config { return &Config{Version: Version, Connections: map[string]Connection{}} }
+func New() *Config {
+	return &Config{Version: Version, Spaces: []Space{{Name: DefaultSpaceName, Default: true}}, Connections: map[string]Connection{}}
+}
 
 // Paths returns the config path and the legacy files Load migrates from.
 // The config lives in ~/.config/sshctl/ on every OS, or in
@@ -397,7 +432,16 @@ func Load(path string, legacy []string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadConfig(path, legacy, state, haveState)
+	c, err := loadConfig(path, legacy, state, haveState)
+	if err != nil {
+		return nil, err
+	}
+	// A config synced from another machine may have renamed or deleted
+	// the Space this machine had open.
+	if c.ActiveSpace != "" && c.SpaceIndex(c.ActiveSpace) < 0 {
+		c.ActiveSpace = ""
+	}
+	return c, nil
 }
 
 // loadState reads the state.json at path and reports whether it exists.

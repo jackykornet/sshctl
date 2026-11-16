@@ -25,7 +25,7 @@ func groupNames(t *testing.T, tr *tree) []string {
 func TestAddGroupAppendsAnEmptyGroup(t *testing.T) {
 	tr := newTree(t, true, "")
 	for _, name := range []string{"prod", "staging"} {
-		if err := tr.cat.AddGroup(name); err != nil {
+		if err := tr.cat.AddGroup("", name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -36,7 +36,7 @@ func TestAddGroupAppendsAnEmptyGroup(t *testing.T) {
 
 func TestAddGroupRefusesTakenAndInvalidNames(t *testing.T) {
 	tr := newTree(t, true, "")
-	if err := tr.cat.AddGroup("prod"); err != nil {
+	if err := tr.cat.AddGroup("", "prod"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -47,7 +47,7 @@ func TestAddGroupRefusesTakenAndInvalidNames(t *testing.T) {
 		{"12", config.ErrGroupName},
 		{"", config.ErrGroupName},
 	} {
-		if err := tr.cat.AddGroup(tc.name); !errors.Is(err, tc.want) {
+		if err := tr.cat.AddGroup("", tc.name); !errors.Is(err, tc.want) {
 			t.Errorf("AddGroup(%q) = %v, want %v", tc.name, err, tc.want)
 		}
 	}
@@ -64,7 +64,7 @@ func TestRenameGroupMovesMembersAndKeepsPositionAndCollapsed(t *testing.T) {
 	cfg.Connections["db"] = config.Connection{Alias: "db", Group: "data"}
 	cfg.CollapsedGroups = []string{"staging", "data"}
 	tr.seed(t, cfg)
-	if err := tr.cat.RenameGroup("staging", "stage"); err != nil {
+	if err := tr.cat.RenameGroup("", "staging", "stage"); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := groupNames(t, tr), []string{"prod", "stage", "data"}; !slices.Equal(got, want) {
@@ -87,16 +87,16 @@ func TestRenameGroupMovesMembersAndKeepsPositionAndCollapsed(t *testing.T) {
 func TestGroupDotfilesFollowRenameAndGoWithDelete(t *testing.T) {
 	tr := newTree(t, true, "")
 	tr.addGroups(t, "prod", "data")
-	if err := tr.cat.SetGroupDotfiles("prod", "https://example.com/dots.git"); err != nil {
+	if err := tr.cat.SetGroupDotfiles("", "prod", "https://example.com/dots.git"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.SetGroupDotfiles("data", config.DotfilesNone); err != nil {
+	if err := tr.cat.SetGroupDotfiles("", "data", config.DotfilesNone); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.RenameGroup("prod", "live"); err != nil {
+	if err := tr.cat.RenameGroup("", "prod", "live"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.DeleteGroup("data"); err != nil {
+	if err := tr.cat.DeleteGroup("", "data"); err != nil {
 		t.Fatal(err)
 	}
 	tr.addGroups(t, "data")
@@ -112,10 +112,10 @@ func TestGroupDotfilesFollowRenameAndGoWithDelete(t *testing.T) {
 
 func TestDeleteGroupLeavesMembersUngroupedAndKeepsHostBlocks(t *testing.T) {
 	tr := newTree(t, true, "")
-	if err := tr.cat.AddGroup("prod"); err != nil {
+	if err := tr.cat.AddGroup("", "prod"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.AddGroup("data"); err != nil {
+	if err := tr.cat.AddGroup("", "data"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tr.cat.Save("", Spec{Alias: "api", Description: "API", Group: "prod", Managed: true, Host: Host{HostName: "h"}}); err != nil {
@@ -127,7 +127,7 @@ func TestDeleteGroupLeavesMembersUngroupedAndKeepsHostBlocks(t *testing.T) {
 	if err := tr.cat.SetCollapsed([]string{"prod", "data"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.DeleteGroup("prod"); err != nil {
+	if err := tr.cat.DeleteGroup("", "prod"); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := groupNames(t, tr), []string{"data"}; !slices.Equal(got, want) {
@@ -146,7 +146,7 @@ func TestDeleteGroupLeavesMembersUngroupedAndKeepsHostBlocks(t *testing.T) {
 	if hosts := tr.hosts(t); len(hosts) != 2 {
 		t.Errorf("Host blocks = %v, want api and tmp kept", hosts)
 	}
-	if err := tr.cat.DeleteGroup("prod"); !errors.Is(err, ErrUnknownGroup) {
+	if err := tr.cat.DeleteGroup("", "prod"); !errors.Is(err, ErrUnknownGroup) {
 		t.Errorf("deleting prod again = %v, want ErrUnknownGroup", err)
 	}
 }
@@ -167,7 +167,7 @@ func TestMoveGroupSetsItsPosition(t *testing.T) {
 		cfg := config.New()
 		cfg.Groups = []config.Group{{Name: "a"}, {Name: "b"}, {Name: "c"}, {Name: "d"}}
 		tr.seed(t, cfg)
-		if err := tr.cat.MoveGroup(tc.name, tc.position); err != nil {
+		if err := tr.cat.MoveGroup("", tc.name, tc.position); err != nil {
 			t.Fatal(err)
 		}
 		if got := groupNames(t, tr); !slices.Equal(got, tc.want) {
@@ -181,11 +181,11 @@ func TestMoveGroupRefusesUnknownGroupAndPositionOutOfRange(t *testing.T) {
 	cfg := config.New()
 	cfg.Groups = []config.Group{{Name: "a"}, {Name: "b"}}
 	tr.seed(t, cfg)
-	if err := tr.cat.MoveGroup("x", 1); !errors.Is(err, ErrUnknownGroup) {
+	if err := tr.cat.MoveGroup("", "x", 1); !errors.Is(err, ErrUnknownGroup) {
 		t.Errorf("MoveGroup(x) = %v, want ErrUnknownGroup", err)
 	}
 	for _, pos := range []int{0, 3, -1} {
-		if err := tr.cat.MoveGroup("a", pos); !errors.Is(err, ErrGroupPosition) {
+		if err := tr.cat.MoveGroup("", "a", pos); !errors.Is(err, ErrGroupPosition) {
 			t.Errorf("MoveGroup(a, %d) = %v, want ErrGroupPosition", pos, err)
 		}
 	}
@@ -225,7 +225,7 @@ func TestRenameGroupRefusesUnknownTakenAndInvalidNames(t *testing.T) {
 		{"prod", "42", config.ErrGroupName},
 		{"prod", "", config.ErrGroupName},
 	} {
-		if err := tr.cat.RenameGroup(tc.old, tc.name); !errors.Is(err, tc.want) {
+		if err := tr.cat.RenameGroup("", tc.old, tc.name); !errors.Is(err, tc.want) {
 			t.Errorf("RenameGroup(%q, %q) = %v, want %v", tc.old, tc.name, err, tc.want)
 		}
 	}

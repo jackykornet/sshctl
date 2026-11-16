@@ -23,11 +23,11 @@ func (a *app) groupCommand(args []string) error {
 		}
 	case "add":
 		if len(args) == 2 {
-			return a.catalog().AddGroup(args[1])
+			return a.catalog().AddGroup("", args[1])
 		}
 	case "rename":
 		if len(args) == 3 {
-			return a.catalog().RenameGroup(args[1], args[2])
+			return a.catalog().RenameGroup("", args[1], args[2])
 		}
 	case "delete":
 		var names []string
@@ -48,7 +48,7 @@ func (a *app) groupCommand(args []string) error {
 			if err != nil {
 				return fmt.Errorf("position %q is not a number", args[2])
 			}
-			return a.catalog().MoveGroup(args[1], position)
+			return a.catalog().MoveGroup("", args[1], position)
 		}
 	case "connect":
 		return a.groupConnect(args[1:])
@@ -78,7 +78,7 @@ func (a *app) groupDelete(name string, yes bool) error {
 	if err != nil {
 		return err
 	}
-	if !snap.HasGroup(name) {
+	if !snap.HasGroup("", name) {
 		return fmt.Errorf("no group %q", name)
 	}
 	if !yes {
@@ -92,7 +92,7 @@ func (a *app) groupDelete(name string, yes bool) error {
 			return nil
 		}
 	}
-	return cat.DeleteGroup(name)
+	return cat.DeleteGroup("", name)
 }
 
 // memberCounts counts each Group's Connections, Orphaned ones included.
