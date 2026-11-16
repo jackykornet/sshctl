@@ -1,0 +1,16 @@
+ ▾ prod 1                   │                                                   
+›    web                    │  Edit web                                         
+ ▾ ungrouped 1              │                                                   
+     mine hand written      │    Alias          web                             
+                            │  › HostName       10.0.0█.1                       
+                            │    User           deploy                          
+                            │    Port           22                              
+                            │    Identity file  OpenSSH default                 
+                            │    Description                                    
+                            │    Group          prod                            
+                            │                                                   
+                            │  Tab/↑↓ move · Ctrl+S save · Esc cancel           
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ no active connection · key: OpenSSH default                          ^B ? help 

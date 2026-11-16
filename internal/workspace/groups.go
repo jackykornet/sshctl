@@ -27,7 +27,7 @@ type groupInput struct {
 	prefixGate
 	// old is the Group being renamed, or "" for a new Group.
 	old  string
-	name []rune
+	name line
 	err  string
 }
 
@@ -41,12 +41,12 @@ func (in *groupInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.saveGroup(in)
 	default:
-		in.name, _ = editLine(in.name, msg)
+		in.name.key(msg)
 	}
 	return nil
 }
 
-func (in *groupInput) paste(text string) { in.name = pasteLine(in.name, text) }
+func (in *groupInput) paste(text string) { in.name.paste(text) }
 
 func (in *groupInput) status() (string, bool) {
 	prompt, help := "new group: ", "Enter add · Esc cancel"
@@ -59,18 +59,18 @@ func (in *groupInput) status() (string, bool) {
 	case in.err != "":
 		help = in.err
 	}
-	return prompt + string(in.name) + "█  " + help, true
+	return prompt + in.name.withCursor() + "  " + help, true
 }
 
 // startRenameGroup opens the prompt for group's new name.
 func (m *Model) startRenameGroup(group string) tea.Cmd {
-	m.openModal(&groupInput{old: group, name: []rune(group)})
+	m.openModal(&groupInput{old: group, name: newLine(group)})
 	return nil
 }
 
 // saveGroup adds or renames the Group in, and puts the cursor on its header.
 func (m *Model) saveGroup(in *groupInput) tea.Cmd {
-	name := strings.TrimSpace(string(in.name))
+	name := strings.TrimSpace(in.name.String())
 	if in.old != "" && name == in.old {
 		m.modal = nil
 		return nil

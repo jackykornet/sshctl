@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -146,7 +145,7 @@ func (g *prefixGate) prefixArmed() bool { return g.armed }
 type moveInput struct {
 	prefixGate
 	alias string
-	group []rune
+	group line
 }
 
 func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
@@ -158,49 +157,19 @@ func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 		m.modal = nil
 	case "enter":
 		m.modal = nil
-		return m.moveTo(in.alias, string(in.group))
+		return m.moveTo(in.alias, in.group.String())
 	default:
-		in.group, _ = editLine(in.group, msg)
+		in.group.key(msg)
 	}
 	return nil
 }
 
-func (in *moveInput) paste(text string) { in.group = pasteLine(in.group, text) }
+func (in *moveInput) paste(text string) { in.group.paste(text) }
 
 func (in *moveInput) status() (string, bool) {
 	help := "Enter move · 0 or empty for none · Esc cancel"
 	if in.swallowed {
 		help = "move prompt open: Esc to cancel"
 	}
-	return fmt.Sprintf("move %s to group: %s█  %s", in.alias, string(in.group), help), true
-}
-
-// editLine applies a line-editing key to value: backspace deletes the last
-// character, ctrl+u clears the line, and printable text is appended. It
-// reports false, leaving value as it was, for any other key.
-func editLine(value []rune, msg tea.KeyPressMsg) ([]rune, bool) {
-	switch msg.String() {
-	case "backspace":
-		if len(value) > 0 {
-			value = value[:len(value)-1]
-		}
-		return value, true
-	case "ctrl+u":
-		return nil, true
-	}
-	if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
-		return append(value, []rune(msg.Text)...), true
-	}
-	return value, false
-}
-
-// pasteLine appends pasted text to value, dropping line breaks and other
-// control characters, since the line holds a single line.
-func pasteLine(value []rune, text string) []rune {
-	for _, r := range text {
-		if !unicode.IsControl(r) {
-			value = append(value, r)
-		}
-	}
-	return value
+	return fmt.Sprintf("move %s to group: %s  %s", in.alias, in.group.withCursor(), help), true
 }

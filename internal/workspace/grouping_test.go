@@ -122,7 +122,7 @@ func TestPrefixMMovesConnectionToTypedGroup(t *testing.T) {
 			g := newGroupingModel(t)
 			g.st.SetCursor("alpha")
 			press(g.Model, keyPrefix, text("m")[0])
-			if movePrompt(g.Model) == nil || string(movePrompt(g.Model).group) != "web" {
+			if movePrompt(g.Model) == nil || movePrompt(g.Model).group.String() != "web" {
 				t.Fatalf("prompt = %+v, want prefilled with web", movePrompt(g.Model))
 			}
 			press(g.Model, tt.keys...)

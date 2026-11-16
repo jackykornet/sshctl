@@ -65,7 +65,7 @@ var bindings = []binding{
 		help: "on a group: move it up / down (or drag its header)",
 	},
 	{
-		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.filtering = true; return nil }, "/"),
+		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.startFilter(); return nil }, "/"),
 		help: "filter the connection list",
 	},
 	{

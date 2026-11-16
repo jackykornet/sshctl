@@ -96,7 +96,7 @@ func (m *Model) renderList(w, h int) []string {
 	if top > 0 {
 		f := "/" + m.st.Filter()
 		if m.filtering {
-			f += "█"
+			f = "/" + m.filter.withCursor()
 		}
 		lines = append(lines, fit(f, w))
 	}
