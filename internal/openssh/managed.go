@@ -3,12 +3,13 @@ package openssh
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/atomicfile"
 )
 
 // ManagedFile is the file, relative to the ssh directory, that holds the Host
@@ -227,7 +228,7 @@ func (c *Client) writeManaged(hosts []Host) error {
 			b.WriteString("    " + x + "\n")
 		}
 	}
-	return writeAtomic(c.ManagedPath(), []byte(b.String()), 0o600)
+	return atomicfile.Write(c.ManagedPath(), []byte(b.String()), 0o600)
 }
 
 // Validate checks that h can be written as a Host block that OpenSSH reads
@@ -300,7 +301,7 @@ func (c *Client) AddInclude() error {
 		if fi, err := os.Stat(c.SSHConfig); err == nil {
 			mode = fi.Mode().Perm()
 		}
-		if err := writeAtomic(c.SSHConfig+".sshctl-backup", old, mode); err != nil {
+		if err := atomicfile.Write(c.SSHConfig+".sshctl-backup", old, mode); err != nil {
 			return err
 		}
 	case !os.IsNotExist(err):
@@ -310,53 +311,7 @@ func (c *Client) AddInclude() error {
 	if len(old) > 0 {
 		head += "\n"
 	}
-	return writeAtomic(c.SSHConfig, append([]byte(head), old...), mode)
-}
-
-// writeAtomic replaces path through a temporary file in the same directory,
-// so an interrupted write never leaves it truncated. When path is a symlink
-// (chezmoi can link it into its source directory, see ADR-0004) the write
-// goes to the symlink's target and the symlink stays.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	path, err := resolveSymlink(path)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err = tmp.Chmod(mode); err == nil {
-		_, err = tmp.Write(data)
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(name, path)
-}
-
-// resolveSymlink returns the file a save to path should replace: path itself,
-// or the final target when path is a symlink. A symlink to nothing is an error,
-// so the save does not silently replace the link with a plain file.
-func resolveSymlink(path string) (string, error) {
-	fi, err := os.Lstat(path)
-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		return path, nil
-	}
-	target, err := filepath.EvalSymlinks(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		dest, _ := os.Readlink(path)
-		return "", fmt.Errorf("%s is a symlink to %s, which does not exist", path, dest)
-	}
-	return target, err
+	return atomicfile.Write(c.SSHConfig, append([]byte(head), old...), mode)
 }
 
 // splitQuoted is splitDirective with double-quoted arguments, which OpenSSH

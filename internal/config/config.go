@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/atomicfile"
 )
 
 // Version is the config format written by Save. Version 2 stores Groups
@@ -380,7 +381,7 @@ func moveFile(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(to, b, 0600); err != nil {
+	if err := atomicfile.Write(to, b, 0600); err != nil {
 		return err
 	}
 	return os.Remove(from)
@@ -482,64 +483,18 @@ func Save(path string, c *Config) error {
 	if c.Connections == nil {
 		c.Connections = map[string]Connection{}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(path, append(b, '\n'), 0600); err != nil {
+	if err := atomicfile.Write(path, append(b, '\n'), 0600); err != nil {
 		return err
 	}
 	b, err = json.MarshalIndent(stateFile{Version: StateVersion, State: c.State}, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeAtomic(StatePath(path), append(b, '\n'), 0600)
-}
-
-// writeAtomic replaces path through a temporary file in the same directory,
-// so an interrupted write never leaves it truncated. When path is a symlink
-// (chezmoi can link it into its source directory, see ADR-0004) the write
-// goes to the symlink's target and the symlink stays.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	path, err := resolveSymlink(path)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".sshctl-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err = tmp.Chmod(mode); err == nil {
-		_, err = tmp.Write(data)
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(name, path)
-}
-
-// resolveSymlink returns the file a save to path should replace: path itself,
-// or the final target when path is a symlink. A symlink to nothing is an error,
-// so the save does not silently replace the link with a plain file.
-func resolveSymlink(path string) (string, error) {
-	fi, err := os.Lstat(path)
-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		return path, nil
-	}
-	target, err := filepath.EvalSymlinks(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		dest, _ := os.Readlink(path)
-		return "", fmt.Errorf("%s is a symlink to %s, which does not exist", path, dest)
-	}
-	return target, err
+	return atomicfile.Write(StatePath(path), append(b, '\n'), 0600)
 }
 
 func migrate(b []byte) (*Config, error) {
