@@ -44,6 +44,10 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
+	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
+	// catalog.ErrNoDotfiles when none is set, or an error wrapping
+	// catalog.ErrProvisionRefused when the setting that applies is none.
+	ProvisionRepo(alias string) (string, error)
 }
 
 // Options configures a Workspace.

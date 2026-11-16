@@ -41,15 +41,17 @@ func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 
 func TestSessionCommandRunsActionAsSshctlItself(t *testing.T) {
 	a := &app{cfgPath: filepath.Join(t.TempDir(), "config.json"), cfg: config.New()}
-	got, err := a.sessionCommand("web", workspace.Launch{Action: workspace.ActionBootstrap})
-	if err != nil {
-		t.Fatal(err)
-	}
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{self, "bootstrap", "web"}; !slices.Equal(got, want) {
-		t.Errorf("sessionCommand(web, bootstrap) = %v, want %v", got, want)
+	for _, action := range []workspace.Action{workspace.ActionBootstrap, workspace.ActionProvision} {
+		got, err := a.sessionCommand("web", workspace.Launch{Action: action})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{self, string(action), "web"}; !slices.Equal(got, want) {
+			t.Errorf("sessionCommand(web, %s) = %v, want %v", action, got, want)
+		}
 	}
 }

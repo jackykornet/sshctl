@@ -87,6 +87,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Alt+↑`/`Alt+↓` | Previous / next open connection |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
+| prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`) |
 | prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete a connection |
 | prefix `m` | Move the connection to a group: type an existing or new group name, or clear it to remove the connection from its group |
