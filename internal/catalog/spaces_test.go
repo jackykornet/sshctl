@@ -286,3 +286,24 @@ func TestProvisionRepoUsesTheGroupOfTheConnectionsSpace(t *testing.T) {
 		t.Errorf("ProvisionRepo = %q, %v; want acme's prod repo", repo, err)
 	}
 }
+
+func TestSnapshotResolvesSpaceNamesAndListsASpacesGroups(t *testing.T) {
+	snap := Snapshot{
+		Spaces: []Space{{Name: "home", Default: true}, {Name: "acme"}},
+		Groups: []Group{{Name: "prod"}, {Name: "prod", Space: "acme"}, {Name: "web"}, {Name: "data", Space: "acme"}},
+	}
+	for name, want := range map[string]string{"home": "", "": "", "acme": "acme"} {
+		if ref, ok := snap.SpaceRef(name); !ok || ref != want {
+			t.Errorf("SpaceRef(%q) = %q, %v; want %q, true", name, ref, ok, want)
+		}
+	}
+	if _, ok := snap.SpaceRef("nowhere"); ok {
+		t.Error("SpaceRef(nowhere) found a Space")
+	}
+	if got, want := snap.GroupNames(""), []string{"prod", "web"}; !slices.Equal(got, want) {
+		t.Errorf("GroupNames(home) = %v, want %v", got, want)
+	}
+	if got, want := snap.GroupNames("acme"), []string{"prod", "data"}; !slices.Equal(got, want) {
+		t.Errorf("GroupNames(acme) = %v, want %v", got, want)
+	}
+}
