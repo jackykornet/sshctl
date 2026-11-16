@@ -42,6 +42,9 @@ type fakeCatalog struct {
 	deletes   []string
 	includes  int
 	saveErrs  []error
+
+	groupMoves   [][2]any // MoveGroup name, position
+	moveGroupErr error
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
@@ -96,6 +99,21 @@ func (f *fakeCatalog) Delete(alias string) error {
 }
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
+
+// MoveGroup records the call and, unless moveGroupErr is set, puts name at
+// position (from 1) in groups.
+func (f *fakeCatalog) MoveGroup(name string, position int) error {
+	f.groupMoves = append(f.groupMoves, [2]any{name, position})
+	if f.moveGroupErr != nil {
+		return f.moveGroupErr
+	}
+	i := slices.Index(f.groups, name)
+	if i < 0 || position < 1 || position > len(f.groups) {
+		return errors.New("bad group move")
+	}
+	f.groups = slices.Insert(slices.Delete(f.groups, i, i+1), position-1, name)
+	return nil
+}
 
 func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
 	if err := f.provision[alias]; err != nil {

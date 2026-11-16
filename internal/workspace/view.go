@@ -111,7 +111,8 @@ func (m *Model) renderList(w, h int) []string {
 		}
 		line = fit(line, w)
 		switch {
-		case m.drag != nil && m.drag.moving && !r.Header() && r.Conn.Alias == m.drag.alias:
+		case m.drag != nil && m.drag.moving && m.drag.group == "" && !r.Header() && r.Conn.Alias == m.drag.alias,
+			m.drag != nil && m.drag.moving && m.drag.group != "" && r.Header() && r.Group == m.drag.group:
 			line = dimStyle.Render(ansi.Strip(line))
 		case m.drag != nil && m.drag.moving && m.drag.ok && r.Group == m.drag.target:
 			line = dropStyle.Render(ansi.Strip(line))
@@ -338,6 +339,11 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case ok:
 		left = modalStatus
+	case m.drag != nil && m.drag.moving && m.drag.group != "":
+		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
+		if m.drag.ok {
+			left = fmt.Sprintf("move group %s to position %d · release to drop", m.drag.group, m.st.GroupPosition(m.drag.target))
+		}
 	case m.drag != nil && m.drag.moving:
 		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
 		if m.drag.ok {

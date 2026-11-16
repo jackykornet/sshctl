@@ -61,6 +61,10 @@ var bindings = []binding{
 		help: "on a group: collapse / expand it",
 	},
 	{
+		keys: each(inList, on("shift+up", shiftGroup(-1)), on("shift+down", shiftGroup(1)), on("K", shiftGroup(-1)), on("J", shiftGroup(1))),
+		help: "on a group: move it up / down (or drag its header)",
+	},
+	{
 		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.filtering = true; return nil }, "/"),
 		help: "filter the connection list",
 	},
@@ -109,12 +113,10 @@ var bindings = []binding{
 		help: "add / edit / delete a connection",
 	},
 	{
-		keys: merge(keysIn(inPrefix, closeTab, "w"), keysIn(inEnded, closeTab, "x")),
-		help: "close tab (x on an ended tab)",
-	},
-	{
-		keys: keysIn(inEnded, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }, "r"),
-		help: "on an ended tab: reconnect",
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(keysIn(inPrefix, closeTab, "w"), each(inEnded, on("x", closeTab),
+			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }))),
+		help: "close tab (on an ended tab: x close, r reconnect)",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -176,6 +178,10 @@ func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
 
 func moveCursor(delta int) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.MoveCursor(delta); return nil }
+}
+
+func shiftGroup(delta int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.shiftGroup(delta) }
 }
 
 func selectTab(delta int) action {
@@ -332,13 +338,17 @@ func keyNames(keys []string, prefixKey string) string {
 			k = prefixKey
 		}
 		names[i] = keyName(k)
+		// A Shift modifier shared with the key before is written once.
+		if i > 0 && strings.HasPrefix(k, "shift+") && strings.HasPrefix(keys[i-1], "shift+") {
+			names[i] = strings.TrimPrefix(names[i], "Shift+")
+		}
 	}
 	return strings.Join(names, "/")
 }
 
 var keyNameReplacer = strings.NewReplacer(
 	"left", "←", "right", "→", "up", "↑", "down", "↓",
-	"alt+", "Alt+", "enter", "Enter", "space", "Space", "esc", "Esc", "tab", "Tab",
+	"alt+", "Alt+", "shift+", "Shift+", "enter", "Enter", "space", "Space", "esc", "Esc", "tab", "Tab",
 )
 
 func keyName(k string) string {

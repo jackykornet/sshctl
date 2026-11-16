@@ -44,6 +44,8 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
+	// MoveGroup puts the stored Group name at position, counting from 1.
+	MoveGroup(name string, position int) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -78,13 +80,16 @@ const (
 
 type clearStatusMsg struct{ id int }
 
-// drag is a Connection held down with the left mouse button in the list.
+// drag is a Connection, or a Group header when group is set, held down with
+// the left mouse button in the list.
 type drag struct {
 	alias string
+	group string
 	fromY int
 	// moving is set once the pointer leaves the row it was pressed on.
 	moving bool
-	// target is the group under the pointer; ok is false off the list.
+	// target is the group under the pointer; ok is false off the list, and
+	// for a header drag anywhere but another stored Group's header.
 	target string
 	ok     bool
 }
@@ -564,6 +569,34 @@ func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
 	return nil
 }
 
+// shiftGroup moves the Group whose header is under the cursor delta places
+// up or down. It does nothing on a Connection row, on the ungrouped header,
+// or when the Group is already first or last.
+func (m *Model) shiftGroup(delta int) tea.Cmd {
+	r, ok := m.st.CursorRow()
+	if !ok || !r.Header() {
+		return nil
+	}
+	pos := m.st.GroupPosition(r.Group)
+	if pos == 0 {
+		return nil
+	}
+	to := pos + delta
+	if to < 1 || to > len(m.st.groups) {
+		return nil
+	}
+	return m.moveGroup(r.Group, to)
+}
+
+// moveGroup saves group at position (counting from 1) and reloads the list
+// in the new order.
+func (m *Model) moveGroup(group string, position int) tea.Cmd {
+	if err := m.opts.Catalog.MoveGroup(group, position); err != nil {
+		return m.setStatus("move group "+group+": "+err.Error(), true)
+	}
+	return m.reload("", fmt.Sprintf("moved group %s to position %d", group, position))
+}
+
 // moveTarget is the Connection a move or an Action applies to: the Active connection
 // while the terminal has focus, otherwise the one under the cursor.
 func (m *Model) moveTarget() *Connection {
@@ -695,9 +728,11 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			return nil
 		}
 		if row.Header() {
+			// Released where it was pressed, it toggles; see drop.
 			m.st.SetCursorGroup(row.Group)
 			m.focus = focusList
-			return m.setCollapsed(row.Group, !m.st.Collapsed(row.Group))
+			m.drag = &drag{group: row.Group, fromY: mm.Y}
+			return nil
 		}
 		c := row.Conn
 		m.drag = &drag{alias: c.Alias, fromY: mm.Y}
@@ -734,17 +769,33 @@ func (m *Model) dragOver(mm tea.Mouse) {
 			return
 		}
 		d.moving = true
-		m.st.ShowUngrouped(true)
+		if d.group == "" {
+			m.st.ShowUngrouped(true)
+		}
 	}
 	row, ok := m.rowAt(mm.X, mm.Y)
+	if d.group != "" {
+		ok = ok && row.Header() && row.Group != d.group && m.st.GroupPosition(row.Group) > 0
+	}
 	d.target, d.ok = row.Group, ok
 }
 
-// drop moves the held Connection to the group of the row it is released on.
-// Released off the list, or without having moved, nothing changes.
+// drop moves the held Connection to the group of the row it is released on,
+// or the held Group to the position of the Group header it is released on.
+// Released off the list, or without having moved, nothing changes, except
+// that a Group header pressed and released in place toggles.
 func (m *Model) drop(mm tea.Mouse) tea.Cmd {
 	d := m.drag
 	m.drag = nil
+	if d.group != "" {
+		switch {
+		case !d.moving:
+			return m.setCollapsed(d.group, !m.st.Collapsed(d.group))
+		case d.ok:
+			return m.moveGroup(d.group, m.st.GroupPosition(d.target))
+		}
+		return m.setStatus("move cancelled", false)
+	}
 	if !d.moving {
 		return nil
 	}
