@@ -105,6 +105,11 @@ func TestLayoutGolden(t *testing.T) {
 		press(m, keyPrefix, text("?")[0])
 		golden(t, "help", m)
 	})
+	t.Run("add form", func(t *testing.T) {
+		m := newTestModel(t, 80, 16)
+		press(m, text("a")...)
+		golden(t, "add-form", m)
+	})
 }
 
 func TestActivityMarkersGolden(t *testing.T) {
