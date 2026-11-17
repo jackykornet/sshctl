@@ -28,9 +28,7 @@
   "postCreateCommand": "sh .devcontainer/post-create.sh",
   "mounts": [
     "source=sshctl-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
-    "source=sshctl-gh-${devcontainerId},target=/home/vscode/.config/gh,type=volume",
-    "source=sshctl-atlas-config-${devcontainerId},target=/home/vscode/.config/atlas,type=volume",
-    "source=sshctl-atlas-data-${devcontainerId},target=/home/vscode/.local/share/atlas,type=volume"
+    "source=sshctl-gh-${devcontainerId},target=/home/vscode/.config/gh,type=volume"
   ],
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"

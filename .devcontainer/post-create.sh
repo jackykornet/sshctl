@@ -7,10 +7,7 @@ set -eu
 claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # A fresh named volume is mounted root-owned.
-sudo chown -R "$(id -u):$(id -g)" "$claude_dir" "$HOME/.config/gh" \
-	"$HOME/.config/atlas" "$HOME/.local/share/atlas"
-# Docker creates missing parents of a mount point as root.
-sudo chown "$(id -u):$(id -g)" "$HOME/.config" "$HOME/.local" "$HOME/.local/share"
+sudo chown -R "$(id -u):$(id -g)" "$claude_dir" "$HOME/.config/gh"
 
 # One-time restore of a pre-volume snapshot (see save-claude.sh).
 snapshot="$(dirname "$0")/.claude-snapshot.tgz"
