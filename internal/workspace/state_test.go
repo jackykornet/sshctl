@@ -397,6 +397,10 @@ func TestResolveGroupTakesANumberOrAName(t *testing.T) {
 		}
 	}
 }
+
+// spaced is a State with the default Space home (web-1 in Group web, and
+// loose) and Space acme (db in Group prod, its own Group web holding api,
+// and the empty Group spare), showing home.
 func spaced() *State {
 	s := NewState([]Entry{
 		{Alias: "web-1", Group: "web"},
@@ -494,5 +498,42 @@ func TestSwitchingToASpaceWithNothingOpenPutsTheCursorOnItsFirstRow(t *testing.T
 	s.SetSpace("acme")
 	if r, ok := s.CursorRow(); !ok || !r.Header() || r.Group != "prod" {
 		t.Errorf("cursor = %+v, want acme's first row, the prod header", r)
+	}
+}
+
+func TestRenameSpaceKeepsItsActiveConnectionAndCollapsedGroups(t *testing.T) {
+	s := spaced()
+	s.SetSpace("acme")
+	if _, err := s.OpenSession("db"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetCollapsed("web", true)
+	s.SetSpace("")
+	s.SetCollapsed("web", true) // home's own web stays collapsed
+	s.SetSpace("acme")
+
+	s.RenameSpace("acme", "acme-corp")
+	if got := s.Space(); got != "acme-corp" {
+		t.Fatalf("active Space = %q, want acme-corp", got)
+	}
+	if c := s.Active(); c == nil || c.Alias != "db" {
+		t.Errorf("Active connection = %v, want db", c)
+	}
+	if !s.Collapsed("web") {
+		t.Error("acme-corp's Group web is no longer collapsed")
+	}
+	if got, want := s.CollapsedGroups(), []string{"acme-corp/web", "web"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("CollapsedGroups = %q, want %q", got, want)
+	}
+	if got, want := rowNames(s.Rows()), []string{"[prod]", "db", "[web]", "[spare]"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+	if tabs := s.SpaceTabs(); tabs[1].Name != "acme-corp" || !tabs[1].Active {
+		t.Errorf("Space tabs = %+v, want acme-corp second and active", tabs)
+	}
+
+	s.RenameSpace("home", "house") // the default Space: Connections refer to it as ""
+	if got := s.Space(); got != "acme-corp" || s.SpaceTabs()[0].Name != "house" {
+		t.Errorf("after renaming the default Space: active %q, tabs %+v", got, s.SpaceTabs())
 	}
 }

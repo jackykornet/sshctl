@@ -58,6 +58,15 @@ type Catalog interface {
 	// SetActiveSpace saves the Space the Workspace shows, by name ("" for
 	// the default Space).
 	SetActiveSpace(space string) error
+	// AddSpace creates an empty Space after the others.
+	AddSpace(name string) error
+	// RenameSpace renames a Space; its Groups and Connections, collapsed
+	// Groups and whether it is active move with it.
+	RenameSpace(old, name string) error
+	// DeleteSpace deletes an empty Space other than the default Space.
+	DeleteSpace(name string) error
+	// MoveSpace puts a Space at position, counting from 1.
+	MoveSpace(name string, position int) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -571,14 +580,20 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 	return m.setStatus(status, false)
 }
 
-// switchSpace makes Space number n (counting from 1) the active Space and
-// saves it. The list gets focus unless that Space has an Active
-// connection. Sessions in every Space keep running.
+// switchSpace makes Space number n (counting from 1) the active Space; see
+// showSpace.
 func (m *Model) switchSpace(n int) tea.Cmd {
 	ref, ok := m.st.SpaceRef(n)
 	if !ok {
 		return m.setStatus(fmt.Sprintf("no space %d", n), true)
 	}
+	return m.showSpace(ref)
+}
+
+// showSpace makes the Space ref ("" for the default Space) the active Space
+// and saves it. The list gets focus unless that Space has an Active
+// connection. Sessions in every Space keep running.
+func (m *Model) showSpace(ref string) tea.Cmd {
 	m.st.SetSpace(ref)
 	m.scrolling = false
 	if m.st.Active() == nil {

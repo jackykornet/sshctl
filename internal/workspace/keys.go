@@ -81,8 +81,13 @@ var bindings = []binding{
 		help: "previous / next tab",
 	},
 	{
-		keys: merge(keysIn(inList, switchSpace, digits...), keysIn(inPrefix, switchSpace, digits...)),
-		help: "switch to Space 1-9",
+		// The picker shares the digits' line so the help screen fits 80x24.
+		keys: merge(
+			keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }, "P"),
+			keysIn(inList, switchSpace, digits...),
+			keysIn(inPrefix, switchSpace, digits...),
+		),
+		help: "Space picker / switch to Space 1-9",
 	},
 	{
 		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
@@ -348,11 +353,14 @@ func (m *Model) bindingLabel(b binding) string {
 	return strings.Join(parts, "  ")
 }
 
-// keyNames shows keys joined by "/", with a run of the digits 1 to 9 as
-// "1-9" and an Alt modifier they all share written once.
+// keyNames shows keys joined by "/", with the digits 1 to 9 ending them
+// as "1-9" and an Alt modifier they all share written once.
 func keyNames(keys []string, prefixKey string) string {
-	if slices.Equal(keys, digits) {
-		return "1-9"
+	if rest, ok := cutDigits(keys); ok {
+		if len(rest) == 0 {
+			return "1-9"
+		}
+		return keyNames(rest, prefixKey) + "/1-9"
 	}
 	if !slices.ContainsFunc(keys, func(k string) bool { return !strings.HasPrefix(k, "alt+") }) {
 		bare := make([]string, len(keys))
@@ -373,6 +381,16 @@ func keyNames(keys []string, prefixKey string) string {
 		}
 	}
 	return strings.Join(names, "/")
+}
+
+// cutDigits returns keys without the digits 1 to 9 at their end, and
+// whether they ended so.
+func cutDigits(keys []string) ([]string, bool) {
+	n := len(keys) - len(digits)
+	if n < 0 || !slices.Equal(keys[n:], digits) {
+		return keys, false
+	}
+	return keys[:n], true
 }
 
 var keyNameReplacer = strings.NewReplacer(

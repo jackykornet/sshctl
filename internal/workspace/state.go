@@ -232,6 +232,60 @@ func (s *State) SpaceTabs() []SpaceTab {
 	return tabs
 }
 
+// RenameSpace renames the Space old to name, as the catalog has. Its
+// Groups, Connections, Active connection, collapsed Groups and whether it is
+// active move with it. The default Space only changes its name, since
+// Connections refer to it as "".
+func (s *State) RenameSpace(old, name string) {
+	i := slices.IndexFunc(s.spaces, func(sp Space) bool { return sp.Name == old })
+	if i < 0 {
+		return
+	}
+	s.spaces[i].Name = name
+	if s.spaces[i].Default {
+		return
+	}
+	for j := range s.allGroups {
+		if s.allGroups[j].Space == old {
+			s.allGroups[j].Space = name
+		}
+	}
+	for _, c := range s.conns {
+		if c.Space == old {
+			c.Space = name
+		}
+	}
+	if alias, ok := s.active[old]; ok {
+		delete(s.active, old)
+		s.active[name] = alias
+	}
+	for key := range s.collapsed {
+		if group, ok := strings.CutPrefix(key, old+"/"); ok {
+			delete(s.collapsed, key)
+			s.collapsed[catalog.CollapsedKey(name, group)] = true
+		}
+	}
+	if s.space == old {
+		s.space = name
+	}
+}
+
+// SpaceEmpty reports whether the Space ref ("" for the default Space) has
+// no stored Groups and no Connections.
+func (s *State) SpaceEmpty(ref string) bool {
+	for _, g := range s.allGroups {
+		if g.Space == ref {
+			return false
+		}
+	}
+	for _, c := range s.conns {
+		if c.Space == ref {
+			return false
+		}
+	}
+	return true
+}
+
 // Space returns the active Space as Connections refer to it, "" for the
 // default Space.
 func (s *State) Space() string { return s.space }

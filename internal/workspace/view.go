@@ -330,6 +330,9 @@ func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
 		return f.render(w, h, m.st.groups)
 	}
+	if p := m.picker(); p != nil {
+		return p.render(m, w, h)
+	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
 	var body []string

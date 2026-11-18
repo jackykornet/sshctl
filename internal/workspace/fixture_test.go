@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -28,7 +29,9 @@ type commandCall struct {
 type fakeCatalog struct {
 	entries        []Entry
 	groups         []string // the default Space's stored Group names, in order
-	spaces         []Space  // Spaces after the default Space
+	spaces         []Space  // the Spaces other than the default Space, in order
+	defaultName    string   // the default Space's name; "" reads as "default"
+	defaultAt      int      // the default Space's index among all Spaces
 	spaceGroups    []Group  // the other Spaces' Groups
 	activeSpace    string
 	identity       string
@@ -54,12 +57,114 @@ type fakeCatalog struct {
 	groupErr     error    // returned by the next Group call, which then changes nothing
 	groupSpaces  []string // the Space of each Group call
 	activeSaves  []string // SetActiveSpace spaces
+	spaceOps     []string // "add x", "rename x→y", "delete x", "move x 2", one per Space call
+	spaceErr     error    // returned by the next Space call, which then changes nothing
+}
+
+// spaceOp records op and returns spaceErr, once.
+func (f *fakeCatalog) spaceOp(op string) error {
+	f.spaceOps = append(f.spaceOps, op)
+	err := f.spaceErr
+	f.spaceErr = nil
+	return err
+}
+
+// allSpaces returns every Space in order, the default Space among them.
+func (f *fakeCatalog) allSpaces() []Space {
+	name := f.defaultName
+	if name == "" {
+		name = "default"
+	}
+	return slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Name: name, Default: true})
+}
+
+// setSpaces stores all, every Space in order, as spaces and defaultAt.
+func (f *fakeCatalog) setSpaces(all []Space) {
+	f.spaces = nil
+	for i, s := range all {
+		if s.Default {
+			f.defaultName, f.defaultAt = s.Name, i
+		} else {
+			f.spaces = append(f.spaces, s)
+		}
+	}
+}
+
+// spaceIndex returns the index in spaces of the Space name, or -1 (also for
+// the default Space, which spaces does not hold).
+func (f *fakeCatalog) spaceIndex(name string) int {
+	return slices.IndexFunc(f.spaces, func(s Space) bool { return s.Name == name })
+}
+
+func (f *fakeCatalog) AddSpace(name string) error {
+	if err := f.spaceOp("add " + name); err != nil {
+		return err
+	}
+	f.spaces = append(f.spaces, Space{Name: name})
+	return nil
+}
+
+// RenameSpace renames a Space after the default Space, moving its Groups,
+// Connections and active state with it, as the catalog does.
+func (f *fakeCatalog) RenameSpace(old, name string) error {
+	if err := f.spaceOp("rename " + old + "→" + name); err != nil {
+		return err
+	}
+	i := f.spaceIndex(old)
+	if i < 0 {
+		f.defaultName = name // Connections refer to the default Space as ""
+		return nil
+	}
+	f.spaces[i].Name = name
+	for j := range f.spaceGroups {
+		if f.spaceGroups[j].Space == old {
+			f.spaceGroups[j].Space = name
+		}
+	}
+	for j := range f.entries {
+		if f.entries[j].Space == old {
+			f.entries[j].Space = name
+		}
+	}
+	if f.activeSpace == old {
+		f.activeSpace = name
+	}
+	return nil
+}
+
+func (f *fakeCatalog) DeleteSpace(name string) error {
+	if err := f.spaceOp("delete " + name); err != nil {
+		return err
+	}
+	if i := f.spaceIndex(name); i >= 0 {
+		f.spaces = slices.Delete(f.spaces, i, i+1)
+	}
+	if f.activeSpace == name {
+		f.activeSpace = ""
+	}
+	return nil
+}
+
+// MoveSpace puts the Space name, the default Space too, at position,
+// counting from 1.
+func (f *fakeCatalog) MoveSpace(name string, position int) error {
+	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, position)); err != nil {
+		return err
+	}
+	all := f.allSpaces()
+	i := slices.IndexFunc(all, func(s Space) bool { return s.Name == name })
+	if i < 0 || position < 1 || position > len(all) {
+		return errors.New("bad space move")
+	}
+	s := all[i]
+	f.setSpaces(slices.Insert(slices.Delete(all, i, i+1), position-1, s))
+	return nil
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
-	snap.Spaces = append([]Space{{Name: "default", Default: true}}, f.spaces...)
+	snap.Spaces = f.allSpaces()
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}
