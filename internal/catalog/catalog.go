@@ -96,10 +96,25 @@ type Snapshot struct {
 // SpaceIdentity returns the Selected identity for the Connections of the
 // Space ref ("" for the default Space): its own, or else the global one.
 func (s Snapshot) SpaceIdentity(ref string) string {
-	if key, ok := s.SpaceIdentities[ref]; ok {
-		return key
+	return (&config.Config{State: config.State{SelectedIdentity: s.Identity, SpaceIdentities: s.SpaceIdentities}}).IdentityFor(ref)
+}
+
+// Space returns the Space named name ("" also names the default Space),
+// and whether there is one.
+func (s Snapshot) Space(name string) (Space, bool) {
+	ref, ok := s.SpaceRef(name)
+	if !ok {
+		return Space{}, false
 	}
-	return s.Identity
+	return s.Spaces[(&config.Config{Spaces: s.Spaces}).SpaceIndex(ref)], true
+}
+
+// SpaceName returns the name of the Space ref ("" for the default Space).
+func (s Snapshot) SpaceName(ref string) string {
+	if i := (&config.Config{Spaces: s.Spaces}).SpaceIndex(ref); i >= 0 {
+		return s.Spaces[i].Name
+	}
+	return ""
 }
 
 // Entry returns the Connection alias, Orphaned or not, and whether there

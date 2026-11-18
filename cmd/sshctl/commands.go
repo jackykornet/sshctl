@@ -91,7 +91,8 @@ Commands:
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
   key list|use|add             List, select, or register keys;
-                               key use --space <name> selects a Space's key
+                               key use --space <name> <key|none> selects a
+                               Space's key; none falls back to the global one
   agent ensure                 Inspect SSH agent and optionally add the Selected identity
   known-hosts list|remove      Show or remove known hosts
   bootstrap <alias>            Install your key on the host and use it
@@ -381,12 +382,14 @@ func (a *app) keys(args []string) error {
 			if isKey(k, snap.Identity) {
 				tags = append(tags, "Selected identity")
 			}
-			for _, s := range snap.Spaces {
-				ref, _ := snap.SpaceRef(s.Name)
-				if key, ok := snap.SpaceIdentities[ref]; ok && isKey(k, key) {
-					tags = append(tags, "Selected identity of space "+s.Name)
+			var spaces []string
+			for ref, key := range snap.SpaceIdentities {
+				if isKey(k, key) {
+					spaces = append(spaces, "Selected identity of space "+snap.SpaceName(ref))
 				}
 			}
+			sort.Strings(spaces)
+			tags = append(tags, spaces...)
 			if len(tags) > 0 {
 				k += " (" + strings.Join(tags, ", ") + ")"
 			}

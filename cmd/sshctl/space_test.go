@@ -262,3 +262,42 @@ func TestSpaceListShowsASpacesDotfilesAndKey(t *testing.T) {
 		t.Errorf("space list:\n%s\nwant:\n%s", out.String(), want)
 	}
 }
+
+func TestProvisionCanSaveTheAskedRepoForTheSpace(t *testing.T) {
+	const repo = "https://example.com/acme.git"
+	cfg := config.New()
+	cfg.Spaces = append(cfg.Spaces, config.Space{Name: "acme"})
+	cfg.Connections["db"] = config.Connection{Alias: "db", Space: "acme"}
+	a, out := cliTree(t, "Host db\n", cfg, repo+"\ns\n")
+	a.runSSH = (&sshRecorder{}).run
+	if err := a.execute([]string{"provision", "db"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Save for: (g)lobal, (s) space acme, (o)nce: "; !strings.Contains(out.String(), want) {
+		t.Errorf("output %q does not offer %q", out.String(), want)
+	}
+	if got := loadCLI(t, a).Spaces[1].Dotfiles; got != repo {
+		t.Errorf("acme's dotfiles = %q, want %s", got, repo)
+	}
+}
+
+func TestProvisionDefaultListsSpaceAndGroupSettingsBySpace(t *testing.T) {
+	a, out := spaceTree(t, "")
+	if err := a.execute([]string{"space", "dotfiles", "acme", "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"provision", "default"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"global: unset\n" +
+		"space home: unset\n" +
+		"space acme: none (Provision refused)\n" +
+		"space empty: unset\n" +
+		"group prod: unset\n" +
+		"group acme/prod: unset\n" +
+		"group acme/data: unset\n"
+	if out.String() != want {
+		t.Errorf("provision default:\n%s\nwant:\n%s", out.String(), want)
+	}
+}

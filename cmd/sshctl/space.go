@@ -61,15 +61,11 @@ func (a *app) spaceDotfiles(args []string) error {
 		if err != nil {
 			return err
 		}
-		ref, ok := snap.SpaceRef(args[0])
+		s, ok := snap.Space(args[0])
 		if !ok {
 			return fmt.Errorf("%q: %w", args[0], catalog.ErrUnknownSpace)
 		}
-		for _, s := range snap.Spaces {
-			if r, _ := snap.SpaceRef(s.Name); r == ref {
-				fmt.Fprintln(a.out, describeDotfiles(s.Dotfiles))
-			}
-		}
+		fmt.Fprintln(a.out, describeDotfiles(s.Dotfiles))
 		return nil
 	case len(args) == 2 && args[1] == "--unset":
 		return a.catalog().SetSpaceDotfiles(args[0], "")
