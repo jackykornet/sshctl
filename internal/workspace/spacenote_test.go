@@ -40,13 +40,13 @@ func TestSShowsTheSpaceNamesUntilTheNextKey(t *testing.T) {
 func TestTheSpaceNoteDisappearsAfterItsTimeout(t *testing.T) {
 	m := newSpaceModel(t, 100, 10)
 	press(m, text("S")...)
-	stale := spaceNoteMsg{id: m.noteID}
+	stale := hideSpaceNoteMsg{id: m.spaceNoteID}
 	press(m, keyDown, text("S")[0]) // a second note replaces the first
 	m.Update(stale)
 	if !m.spaceNote {
 		t.Fatal("the first note's timeout hid the second note")
 	}
-	m.Update(spaceNoteMsg{id: m.noteID})
+	m.Update(hideSpaceNoteMsg{id: m.spaceNoteID})
 	if m.spaceNote {
 		t.Error("the note is still shown after its timeout")
 	}
@@ -67,7 +67,11 @@ func TestTheSpaceNoteGoesOnTheStatusLineWhileTheListIsHidden(t *testing.T) {
 	m := newSpaceModel(t, 100, 10)
 	press(m, keyPrefix, text("b")[0]) // hide the list
 	press(m, keyPrefix, text("S")[0])
-	if want := "1 default · 2 acme · 3 idle"; m.status != want || m.spaceNote {
-		t.Errorf("status %q, note shown %v; want the status %q", m.status, m.spaceNote, want)
+	if want := "1 default · 2 acme · 3 idle"; !strings.Contains(m.renderStatus(m.w), want) {
+		t.Fatalf("status line %q, want it to show %q", ansi.Strip(m.renderStatus(m.w)), want)
+	}
+	press(m, keyDown)
+	if strings.Contains(m.renderStatus(m.w), "2 acme") {
+		t.Errorf("the next key left the note on the status line: %q", ansi.Strip(m.renderStatus(m.w)))
 	}
 }

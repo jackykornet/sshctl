@@ -194,11 +194,16 @@ func (m *Model) spaceNoteLines(w int) []string {
 	}
 	var lines []string
 	line := ""
-	for _, name := range m.spaceNames() {
+	names := m.spaceNames()
+	for i, name := range names {
+		next := line + " · " + name
+		if i < len(names)-1 {
+			next += " ·" // room for the separator should the line wrap after it
+		}
 		switch {
 		case line == "":
 			line = " " + name
-		case ansi.StringWidth(line+" · "+name) <= w:
+		case ansi.StringWidth(next) <= w:
 			line += " · " + name
 		default:
 			lines = append(lines, line+" ·")
@@ -429,6 +434,8 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case ok:
 		left = modalStatus
+	case m.spaceNote && m.listWidth() == 0:
+		left = strings.Join(m.spaceNames(), " · ")
 	case m.drag != nil && m.drag.moving && m.drag.group != "":
 		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
 		if m.drag.ok {

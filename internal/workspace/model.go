@@ -103,8 +103,8 @@ const (
 
 type clearStatusMsg struct{ id int }
 
-// spaceNoteMsg hides the Space note shown with the same id.
-type spaceNoteMsg struct{ id int }
+// hideSpaceNoteMsg hides the Space note shown with the same id.
+type hideSpaceNoteMsg struct{ id int }
 
 // drag is a Connection, or a Group header when group is set, held down with
 // the left mouse button in the list.
@@ -141,9 +141,9 @@ type Model struct {
 	statusErr bool
 	statusID  int
 	// spaceNote shows every Space's number and name under the Space bar
-	// until the next key, or the spaceNoteMsg carrying noteID.
-	spaceNote bool
-	noteID    int
+	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
+	spaceNote   bool
+	spaceNoteID int
 }
 
 // New loads the first Snapshot and builds the Workspace model.
@@ -217,8 +217,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.id == m.statusID {
 			m.status = ""
 		}
-	case spaceNoteMsg:
-		if msg.id == m.noteID {
+	case hideSpaceNoteMsg:
+		if msg.id == m.spaceNoteID {
 			m.spaceNote = false
 		}
 	case redrawMsg:
@@ -619,16 +619,14 @@ func (m *Model) showSpace(ref string) tea.Cmd {
 	return nil
 }
 
-// showSpaceNote shows every Space's number and name under the Space bar
-// for spaceNoteTimeout, or on the status line while the list is hidden.
+// showSpaceNote shows every Space's number and name under the Space bar,
+// or on the status line while the list is hidden, until the next key or
+// spaceNoteTimeout.
 func (m *Model) showSpaceNote() tea.Cmd {
-	if m.listWidth() == 0 {
-		return m.setStatus(strings.Join(m.spaceNames(), " · "), false)
-	}
 	m.spaceNote = true
-	m.noteID++
-	id := m.noteID
-	return tea.Tick(spaceNoteTimeout, func(time.Time) tea.Msg { return spaceNoteMsg{id} })
+	m.spaceNoteID++
+	id := m.spaceNoteID
+	return tea.Tick(spaceNoteTimeout, func(time.Time) tea.Msg { return hideSpaceNoteMsg{id} })
 }
 
 // setCollapsed collapses or expands group and saves the collapsed groups.
