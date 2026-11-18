@@ -1,0 +1,10 @@
+ [1] [2] [3]                │                                                   
+/a█                         │                                                   
+›  staging [default/web]    │  Select a connection and press Enter.             
+   db [acme/data]           │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ default · no active connection · key: id_ed25519                     ^B ? help 
