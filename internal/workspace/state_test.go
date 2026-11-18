@@ -571,3 +571,58 @@ func TestTheFilterStaysInTheSpaceWithOnlyOneSpace(t *testing.T) {
 		t.Error("with one Space the filter is cross-Space")
 	}
 }
+
+func TestResolveSpaceTakesANumberOrAName(t *testing.T) {
+	s := spaced() // home (the default Space), acme
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"1", "", true},
+		{"home", "", true},
+		{"2", "acme", true},
+		{"acme", "acme", true},
+		{"3", "", false},
+		{"globex", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		got, ok := s.ResolveSpace(tt.in)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("ResolveSpace(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestGroupNumbersResolveWithinTheSpaceGiven(t *testing.T) {
+	s := spaced() // showing home, whose only Group is web
+	if got := s.SpaceGroups("acme"); !reflect.DeepEqual(got, []string{"prod", "web", "spare"}) {
+		t.Errorf("SpaceGroups(acme) = %v, want [prod web spare]", got)
+	}
+	if got, ok := s.ResolveGroupIn("acme", "3"); !ok || got != "spare" {
+		t.Errorf("ResolveGroupIn(acme, 3) = %q, %v; want spare", got, ok)
+	}
+	if _, ok := s.ResolveGroupIn("", "3"); ok {
+		t.Error("ResolveGroupIn(home, 3) resolved; home has one Group")
+	}
+}
+
+func TestAnActiveConnectionMovedToAnotherSpaceStaysActiveThere(t *testing.T) {
+	s := spaced() // home: web-1, loose; acme: db, api
+	if _, err := s.OpenSession("loose"); err != nil {
+		t.Fatal(err)
+	}
+	s.Reload([]Entry{
+		{Alias: "web-1", Group: "web"},
+		{Alias: "loose", Space: "acme"}, // moved, with its Session
+		{Alias: "db", Space: "acme", Group: "prod"},
+		{Alias: "api", Space: "acme", Group: "web"},
+	})
+	if c := s.Active(); c != nil {
+		t.Errorf("home's Active connection = %s, want none once loose left", c.Alias)
+	}
+	s.SetSpace("acme")
+	if c := s.Active(); c == nil || c.Alias != "loose" {
+		t.Errorf("acme's Active connection = %v, want loose", c)
+	}
+}

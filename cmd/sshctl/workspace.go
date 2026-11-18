@@ -37,9 +37,10 @@ func (a *app) runWorkspace() error {
 
 // sessionCommand builds the command line for a new tab. An Action runs this
 // sshctl binary's own command for alias ("sshctl bootstrap -- <alias>"), which
-// reads the config itself. Otherwise it builds ssh using the Selected
-// identity as it is now, so a change made with "sshctl key use" applies to
-// the next tab; Claude runs claude on the remote host.
+// reads the config itself. Otherwise it builds ssh using alias's Selected
+// identity (its Space's own, or else the global one) as it is now, so a
+// change made with "sshctl key use" applies to the next tab; Claude runs
+// claude on the remote host.
 func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error) {
 	if l.Action != "" {
 		self, err := os.Executable()
@@ -53,5 +54,5 @@ func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error)
 		return nil, err
 	}
 	a.cfg = cfg
-	return openssh.ConnectArgs(alias, cfg.SelectedIdentity, l.Claude), nil
+	return openssh.ConnectArgs(alias, cfg.IdentityFor(cfg.Connections[alias].Space), l.Claude), nil
 }

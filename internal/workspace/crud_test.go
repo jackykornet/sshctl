@@ -294,7 +294,7 @@ func TestEditKeepsTheConnectionInItsSpace(t *testing.T) {
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)
-	fill(m, "laptop", "")
+	fill(m, "laptop")
 	press(m, keyCtrlS)
 	if len(f.specs) != 1 || f.specs[0].Space != "acme" {
 		t.Fatalf("saved %+v, want mine kept in acme", f.specs)

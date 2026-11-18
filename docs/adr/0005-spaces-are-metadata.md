@@ -14,7 +14,7 @@ The user wants to keep Connections for different customers and projects apart, s
 ## Consequences
 
 - The config is migrated once: a default Space is created, and every existing Group and Connection goes into it.
-- Group names are unique only within a Space, and Group numbers count within the active Space. Collapsed Groups in `state.json` are keyed `space/group`.
+- Group names are unique only within a Space, and Group numbers count within the active Space (in the connection form, within the Space the form saves into). Collapsed Groups in `state.json` are keyed `space/group`.
 - `sshctl connect <alias>` is unchanged. `--space` selects the Space for `list` and `group` commands. A Group name that exists in several Spaces, or a Group number when there are several Spaces, needs `--space`.
 - A dotfiles repo is resolved Group → Space → global, and the Selected identity Space → global.
 - History stays global.

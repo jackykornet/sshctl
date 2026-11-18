@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sshctl/sshctl/internal/config"
@@ -305,5 +306,125 @@ func TestSnapshotResolvesSpaceNamesAndListsASpacesGroups(t *testing.T) {
 	}
 	if got, want := snap.GroupNames("acme"), []string{"prod", "data"}; !slices.Equal(got, want) {
 		t.Errorf("GroupNames(acme) = %v, want %v", got, want)
+	}
+}
+
+func TestProvisionRepoTakesTheGroupThenTheSpaceThenTheGlobalRepo(t *testing.T) {
+	const global, space, group = "https://example.com/global.git", "https://example.com/acme.git", "https://example.com/prod.git"
+	for _, tc := range []struct {
+		name                 string
+		global, space, group string
+		grouped              bool
+		want                 string
+		err                  error
+	}{
+		{"group wins", global, space, group, true, group, nil},
+		{"unset group falls back to the space", global, space, "", true, space, nil},
+		{"ungrouped uses the space", global, space, group, false, space, nil},
+		{"unset space falls back to global", global, "", "", true, global, nil},
+		{"space none refuses despite global", global, config.DotfilesNone, "", true, "", ErrProvisionRefused},
+		{"group repo wins over space none", global, config.DotfilesNone, group, true, group, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTree(t, true, "Host web\n")
+			cfg := config.New()
+			cfg.Provision.Dotfiles = tc.global
+			cfg.Spaces = append(cfg.Spaces, config.Space{Name: "acme", Dotfiles: tc.space})
+			cfg.Groups = []config.Group{{Name: "prod", Space: "acme", Dotfiles: tc.group}}
+			c := config.Connection{Alias: "web", Space: "acme"}
+			if tc.grouped {
+				c.Group = "prod"
+			}
+			cfg.Connections["web"] = c
+			tr.seed(t, cfg)
+			got, err := tr.cat.ProvisionRepo("web")
+			if !errors.Is(err, tc.err) || got != tc.want {
+				t.Errorf("ProvisionRepo = %q, %v; want %q, %v", got, err, tc.want, tc.err)
+			}
+			if tc.err != nil && !strings.Contains(err.Error(), "space acme") {
+				t.Errorf("refusal %q does not name the space", err)
+			}
+		})
+	}
+}
+
+func TestSetSpaceDotfilesSavesOnTheSpaceRecord(t *testing.T) {
+	tr := newTree(t, true, "")
+	if err := tr.cat.AddSpace("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetSpaceDotfiles("acme", "https://example.com/acme.git"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetSpaceDotfiles("default", config.DotfilesNone); err != nil {
+		t.Fatal(err)
+	}
+	cfg := tr.config(t)
+	if got := cfg.Spaces[1].Dotfiles; got != "https://example.com/acme.git" {
+		t.Errorf("acme's dotfiles = %q", got)
+	}
+	if got := cfg.Spaces[0].Dotfiles; got != config.DotfilesNone {
+		t.Errorf("the default Space's dotfiles = %q, want none", got)
+	}
+	if err := tr.cat.SetSpaceDotfiles("nope", "x"); !errors.Is(err, ErrUnknownSpace) {
+		t.Errorf("SetSpaceDotfiles(nope) = %v, want ErrUnknownSpace", err)
+	}
+}
+
+func TestASpacesSelectedIdentityAppliesToItsConnections(t *testing.T) {
+	tr := newTree(t, true, "Host web\nHost db\nHost loose\n")
+	cfg := config.New()
+	cfg.Spaces = append(cfg.Spaces, config.Space{Name: "acme"}, config.Space{Name: "globex"})
+	cfg.Connections["db"] = config.Connection{Alias: "db", Space: "acme"}
+	cfg.Connections["web"] = config.Connection{Alias: "web", Space: "globex"}
+	cfg.SelectedIdentity = "/k/global"
+	tr.seed(t, cfg)
+	if err := tr.cat.SetSpaceIdentity("acme", "/k/acme"); err != nil {
+		t.Fatal(err)
+	}
+	for alias, want := range map[string]string{"db": "/k/acme", "web": "/k/global", "loose": "/k/global"} {
+		if got, err := tr.cat.IdentityFor(alias); err != nil || got != want {
+			t.Errorf("IdentityFor(%s) = %q, %v; want %q", alias, got, err, want)
+		}
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snap.SpaceIdentity("acme"); got != "/k/acme" {
+		t.Errorf("Snapshot.SpaceIdentity(acme) = %q", got)
+	}
+	if got := snap.SpaceIdentity("globex"); got != "/k/global" {
+		t.Errorf("Snapshot.SpaceIdentity(globex) = %q, want the global one", got)
+	}
+
+	// The key follows a renamed Space, and goes with a deleted one.
+	if err := tr.cat.RenameSpace("acme", "acme-corp"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := tr.cat.IdentityFor("db"); got != "/k/acme" {
+		t.Errorf("after the rename, IdentityFor(db) = %q, want /k/acme", got)
+	}
+	if err := tr.cat.SetSpaceIdentity("globex", "/k/globex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.SetSpace("web", "default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.DeleteSpace("globex"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.config(t).SpaceIdentities; len(got) != 1 || got["acme-corp"] != "/k/acme" {
+		t.Errorf("SpaceIdentities = %v, want only acme-corp's", got)
+	}
+
+	if err := tr.cat.SetSpaceIdentity("acme-corp", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := tr.cat.IdentityFor("db"); got != "/k/global" {
+		t.Errorf("after unsetting, IdentityFor(db) = %q, want the global one", got)
+	}
+	if err := tr.cat.SetSpaceIdentity("nope", "/k"); !errors.Is(err, ErrUnknownSpace) {
+		t.Errorf("SetSpaceIdentity(nope) = %v, want ErrUnknownSpace", err)
 	}
 }

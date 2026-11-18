@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/openssh"
 )
 
-const spaceUsage = "space list | add <name> | rename <old> <new> | delete <name> | move <name> <position>"
+const spaceUsage = "space list | add <name> | rename <old> <new> | delete <name> | move <name> <position> | dotfiles <name> [<url|none> | --unset]"
 
 // spaceCommand runs `sshctl space ...`. Spaces are given by name, which
 // keeps scripts working when Spaces are reordered.
@@ -44,12 +45,39 @@ func (a *app) spaceCommand(args []string) error {
 			}
 			return a.catalog().MoveSpace(args[1], position)
 		}
+	case "dotfiles":
+		return a.spaceDotfiles(args[1:])
 	}
 	return errors.New("usage: sshctl " + spaceUsage)
 }
 
+// spaceDotfiles shows the dotfiles setting of the Space args[0], or sets it
+// to args[1] (a repo URL or none) or, with --unset, unsets it so the global
+// one applies.
+func (a *app) spaceDotfiles(args []string) error {
+	switch {
+	case len(args) == 1:
+		snap, err := a.catalog().Snapshot()
+		if err != nil {
+			return err
+		}
+		s, ok := snap.Space(args[0])
+		if !ok {
+			return fmt.Errorf("%q: %w", args[0], catalog.ErrUnknownSpace)
+		}
+		fmt.Fprintln(a.out, describeDotfiles(s.Dotfiles))
+		return nil
+	case len(args) == 2 && args[1] == "--unset":
+		return a.catalog().SetSpaceDotfiles(args[0], "")
+	case len(args) == 2 && args[1] != "" && !strings.HasPrefix(args[1], "-"):
+		return a.catalog().SetSpaceDotfiles(args[0], args[1])
+	}
+	return errors.New("usage: sshctl space dotfiles <name> [<url|none> | --unset]")
+}
+
 // spaceList prints each Space's number, name, Group count and Connection
-// count, Orphaned ones included, marking the default Space.
+// count, Orphaned ones included, marking the default Space, then the
+// dotfiles repo and Selected identity it sets, if any.
 func (a *app) spaceList() error {
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -67,6 +95,12 @@ func (a *app) spaceList() error {
 		tag := ""
 		if s.Default {
 			tag = "  (default)"
+		}
+		if s.Dotfiles != "" {
+			tag += "  dotfiles " + describeDotfiles(s.Dotfiles)
+		}
+		if key, ok := snap.SpaceIdentities[ref]; ok {
+			tag += "  key " + openssh.HomeRelative(key, a.home())
 		}
 		fmt.Fprintf(a.out, "%-2d %-20s %-2d %d%s\n", i+1, s.Name, groups[ref], conns[ref], tag)
 	}

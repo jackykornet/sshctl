@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -29,6 +30,7 @@ const (
 	fieldPort
 	fieldIdentity
 	fieldDescription
+	fieldSpace
 	fieldGroup
 )
 
@@ -45,7 +47,8 @@ type connForm struct {
 	// old is the alias being edited, or "" when adding.
 	old string
 	// space is the Space the Connection is saved in, "" for the default
-	// Space.
+	// Space. With several Spaces the form has a Space field, which sets it
+	// on save.
 	space   string
 	managed bool
 	fields  []formField
@@ -71,6 +74,51 @@ func newEditForm(c *Connection) *connForm {
 		}
 	}
 	return f
+}
+
+// addSpaceField adds the Space field, holding name, before the Group field.
+func (f *connForm) addSpaceField(name string) {
+	i := slices.IndexFunc(f.fields, func(fl formField) bool { return fl.id == fieldGroup })
+	f.fields = slices.Insert(f.fields, i, formField{id: fieldSpace, label: "Space", placeholder: "name or number", value: newLine(name)})
+}
+
+// field returns the form's field id, or nil when it has none.
+func (f *connForm) field(id fieldID) *formField {
+	for i := range f.fields {
+		if f.fields[i].id == id {
+			return &f.fields[i]
+		}
+	}
+	return nil
+}
+
+// targetSpace returns the Space the form saves into, as Connections refer
+// to it: what the Space field names, or else the form's own Space. ok is
+// false when the Space field names no Space.
+func (f *connForm) targetSpace(st *State) (ref string, ok bool) {
+	fl := f.field(fieldSpace)
+	if fl == nil {
+		return f.space, true
+	}
+	return st.ResolveSpace(strings.TrimSpace(fl.value.String()))
+}
+
+// clearGroupIfSpaceChanged clears the Group after the Space field's value
+// changed from before, so the Group is chosen from the new Space.
+func (f *connForm) clearGroupIfSpaceChanged(fl *formField, before string) {
+	if fl.id == fieldSpace && fl.value.String() != before {
+		f.field(fieldGroup).value = newLine("")
+	}
+}
+
+// groups returns the stored Groups of the Space the form saves into, for
+// the Group numbers under its Group field; none while the Space field names
+// no Space.
+func (f *connForm) groups(st *State) []string {
+	if ref, ok := f.targetSpace(st); ok {
+		return st.SpaceGroups(ref)
+	}
+	return nil
 }
 
 func managedFields(s Spec) []formField {
@@ -126,8 +174,18 @@ func (m *Model) startAdd() tea.Cmd {
 	if r, ok := m.st.CursorRow(); ok {
 		group = r.Group
 	}
-	m.openModal(newAddForm(m.st.Space(), group))
+	f := newAddForm(m.st.Space(), group)
+	m.withSpaceField(f)
+	m.openModal(f)
 	return nil
+}
+
+// withSpaceField gives f a Space field, holding its Space's name, when
+// there is more than the default Space.
+func (m *Model) withSpaceField(f *connForm) {
+	if len(m.st.SpaceTabs()) > 1 {
+		f.addSpaceField(m.st.SpaceName(f.space))
+	}
 }
 
 func (m *Model) startEdit() tea.Cmd {
@@ -135,7 +193,9 @@ func (m *Model) startEdit() tea.Cmd {
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
 	}
-	m.openModal(newEditForm(c))
+	f := newEditForm(c)
+	m.withSpaceField(f)
+	m.openModal(f)
 	return nil
 }
 
@@ -164,7 +224,9 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			return m.saveForm(f, true)
 		}
 	default:
+		before := fl.value.String()
 		fl.value.key(msg)
+		f.clearGroupIfSpaceChanged(fl, before)
 	}
 	return nil
 }
@@ -176,7 +238,12 @@ func (f *connForm) focusField(i int) {
 	f.fields[f.focus].value.end()
 }
 
-func (f *connForm) paste(text string) { f.fields[f.focus].value.paste(text) }
+func (f *connForm) paste(text string) {
+	fl := &f.fields[f.focus]
+	before := fl.value.String()
+	fl.value.paste(text)
+	f.clearGroupIfSpaceChanged(fl, before)
+}
 
 func (f *connForm) status() (string, bool) {
 	if f.swallowed {
@@ -191,8 +258,14 @@ func (f *connForm) status() (string, bool) {
 // With bootstrap, a successful save then opens a Bootstrap tab for the
 // saved alias.
 func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
+	space, ok := f.targetSpace(m.st)
+	if !ok {
+		f.err = "no space " + strings.TrimSpace(f.field(fieldSpace).value.String())
+		return nil
+	}
+	f.space = space
 	s := f.spec()
-	group, ok := m.st.ResolveGroup(s.Group)
+	group, ok := m.st.ResolveGroupIn(space, s.Group)
 	if !ok {
 		f.err = "no group number " + s.Group
 		return nil
@@ -218,7 +291,7 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	}
 	if errors.Is(err, catalog.ErrUnknownGroup) {
 		f.err = "no group " + s.Group
-		m.askCreateGroup(s.Group, func(m *Model) tea.Cmd { return m.saveForm(f, bootstrap) })
+		m.askCreateGroup(space, s.Group, func(m *Model) tea.Cmd { return m.saveForm(f, bootstrap) })
 		return nil
 	}
 	if err != nil {
@@ -230,7 +303,17 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	if f.old == "" {
 		verb = "added"
 	}
-	cmd := m.reload(s.Alias, fmt.Sprintf("%s %s", verb, s.Alias))
+	status := fmt.Sprintf("%s %s", verb, s.Alias)
+	moved := space != m.st.Space()
+	if moved {
+		status += " in space " + m.st.SpaceName(space)
+	}
+	cmd := m.reload(s.Alias, status)
+	if moved {
+		// Show the Connection where it now is, with any tabs it has.
+		cmd = tea.Batch(cmd, m.showSpace(space))
+		m.st.SetCursor(s.Alias)
+	}
 	if bootstrap {
 		return tea.Batch(cmd, m.open(s.Alias, Launch{Action: ActionBootstrap}))
 	}
@@ -282,10 +365,11 @@ func (m *Model) deleteConnection() tea.Cmd {
 	return nil
 }
 
-// render draws the connection form in a w×h pane. Under the group field
-// it lists the stored groups by Group number, since the form covers their
+// render draws the connection form in a w×h pane. Under the Space field it
+// lists spaces, the Spaces by number; under the group field the stored
+// groups of the form's Space by Group number, since the form covers their
 // headers.
-func (f *connForm) render(w, h int, groups []string) []string {
+func (f *connForm) render(w, h int, spaces, groups []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -297,6 +381,9 @@ func (f *connForm) render(w, h int, groups []string) []string {
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))
+		if fl.id == fieldSpace {
+			lines = append(lines, strings.Repeat(" ", 19)+dimStyle.Render(strings.Join(spaces, " · ")))
+		}
 		if fl.id == fieldGroup && len(groups) > 0 {
 			numbers := []string{"0 none"}
 			for n, g := range groups {

@@ -35,6 +35,7 @@ type fakeCatalog struct {
 	spaceGroups    []Group  // the other Spaces' Groups
 	activeSpace    string
 	identity       string
+	spaceKeys      map[string]string // SpaceIdentities
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
@@ -163,7 +164,7 @@ func (f *fakeCatalog) MoveSpace(name string, position int) error {
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
-	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
+	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, SpaceIdentities: f.spaceKeys, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
 	snap.Spaces = f.allSpaces()
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})

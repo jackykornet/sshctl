@@ -98,12 +98,13 @@ func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 	return cmd
 }
 
-// askCreateGroup asks before creating the Group name, then runs then. When
-// the catalog refuses the name, the reason is the status, or the error of
-// the form the question was asked from.
-func (m *Model) askCreateGroup(name string, then func(*Model) tea.Cmd) {
+// askCreateGroup asks before creating the Group name in the Space space
+// ("" for the default Space), then runs then. When the catalog refuses the
+// name, the reason is the status, or the error of the form the question was
+// asked from.
+func (m *Model) askCreateGroup(space, name string, then func(*Model) tea.Cmd) {
 	m.ask(fmt.Sprintf("Create group %s? (y/n)", name), func(m *Model) tea.Cmd {
-		if err := m.opts.Catalog.AddGroup(m.st.Space(), name); err != nil {
+		if err := m.opts.Catalog.AddGroup(space, name); err != nil {
 			if f := m.form(); f != nil {
 				f.err = err.Error()
 				return nil

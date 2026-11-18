@@ -122,6 +122,20 @@ func (c *Catalog) SetSpace(alias, space string) error {
 	})
 }
 
+// SetSpaceDotfiles saves the dotfiles setting of the Space space: a repo
+// URL, config.DotfilesNone, or "" to unset it, so the global setting
+// applies to its Connections whose Group sets none.
+func (c *Catalog) SetSpaceDotfiles(space, repo string) error {
+	return c.update(func(cfg *config.Config) error {
+		ref, err := spaceRef(cfg, space)
+		if err != nil {
+			return err
+		}
+		cfg.Spaces[cfg.SpaceIndex(ref)].Dotfiles = repo
+		return nil
+	})
+}
+
 // SetActiveSpace saves the Space the Workspace shows on this machine.
 func (c *Catalog) SetActiveSpace(space string) error {
 	return c.update(func(cfg *config.Config) error {

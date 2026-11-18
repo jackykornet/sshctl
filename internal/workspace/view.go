@@ -384,7 +384,7 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h, m.st.groups)
+		return f.render(w, h, m.spaceNames(), f.groups(m.st))
 	}
 	if p := m.picker(); p != nil {
 		return p.render(m, w, h)
@@ -497,8 +497,8 @@ func (m *Model) renderStatus(w int) string {
 
 func (m *Model) sessionStatus() string {
 	key := "OpenSSH default"
-	if m.identity != "" {
-		key = filepath.Base(m.identity)
+	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
+		key = filepath.Base(k)
 	}
 	space := ""
 	if m.spaceBar() != "" {
