@@ -5,7 +5,7 @@
   /                     filter the connection list                              
   Esc                   clear the filter                                        
   Alt+←/→  [/]  ^B [/]  previous / next tab                                     
-  P/1-9  ^B 1-9         Space picker / switch to Space 1-9                      
+  P/S/1-9  ^B S/1-9     Space picker / Space names / switch to Space 1-9        
   Alt+↑/↓               previous / next open connection in the Space            
   ^B n/c                new tab for the active connection (c runs claude)       
   ↓ 12 more below (↓ / PgDn)                                                    

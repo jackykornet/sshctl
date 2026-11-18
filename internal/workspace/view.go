@@ -99,6 +99,9 @@ func (m *Model) renderList(w, h int) []string {
 	if bar := m.spaceBar(); bar != "" {
 		lines = append(lines, fit(bar, w))
 	}
+	for _, l := range m.spaceNoteLines(w) {
+		lines = append(lines, fit(dimStyle.Render(l), w))
+	}
 	if len(lines) < top {
 		f := "/" + m.st.Filter()
 		if m.filtering {
@@ -171,6 +174,43 @@ func (m *Model) spaceBar() string {
 		parts[i] = label
 	}
 	return " " + strings.Join(parts, " ")
+}
+
+// spaceNames is every Space as "number name", in order.
+func (m *Model) spaceNames() []string {
+	tabs := m.st.SpaceTabs()
+	names := make([]string, len(tabs))
+	for i, t := range tabs {
+		names[i] = fmt.Sprintf("%d %s", i+1, t.Name)
+	}
+	return names
+}
+
+// spaceNoteLines is the Space note, 1 homelab · 2 customer1 · 3 prive,
+// wrapped between Spaces to w columns; nil while it is hidden.
+func (m *Model) spaceNoteLines(w int) []string {
+	if !m.spaceNote || w <= 0 {
+		return nil
+	}
+	var lines []string
+	line := ""
+	names := m.spaceNames()
+	for i, name := range names {
+		next := line + " · " + name
+		if i < len(names)-1 {
+			next += " ·" // room for the separator should the line wrap after it
+		}
+		switch {
+		case line == "":
+			line = " " + name
+		case ansi.StringWidth(next) <= w:
+			line += " · " + name
+		default:
+			lines = append(lines, line+" ·")
+			line = " " + name
+		}
+	}
+	return append(lines, line)
 }
 
 // headerLabel is a group header: its fold marker, Group number (for a stored
@@ -394,6 +434,8 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case ok:
 		left = modalStatus
+	case m.spaceNote && m.listWidth() == 0:
+		left = strings.Join(m.spaceNames(), " · ")
 	case m.drag != nil && m.drag.moving && m.drag.group != "":
 		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
 		if m.drag.ok {
