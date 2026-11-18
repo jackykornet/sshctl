@@ -368,7 +368,11 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h, m.st.groups)
+		var groups []string
+		if ref, ok := f.targetSpace(m.st); ok {
+			groups = m.st.SpaceGroups(ref)
+		}
+		return f.render(w, h, m.spaceNames(), groups)
 	}
 	if p := m.picker(); p != nil {
 		return p.render(m, w, h)
