@@ -452,8 +452,12 @@ func (s *State) HasGroup(group string) bool {
 // followed by its members alphabetically, unless the group is collapsed.
 // Opening a Connection never moves it. The filter hides Connections that
 // are not open, and groups left with no rows; while filtering, every group
-// is shown expanded.
+// is shown expanded. With several Spaces the filter searches them all
+// instead; see CrossSpace.
 func (s *State) Rows() []Row {
+	if s.CrossSpace() {
+		return s.crossSpaceRows()
+	}
 	conns := s.ordered()
 	if !s.grouped() {
 		var rows []Row
@@ -487,6 +491,57 @@ func (s *State) Rows() []Row {
 	hasUngrouped := slices.ContainsFunc(conns, func(c *Connection) bool { return c.Group == "" })
 	if hasUngrouped || (s.showUngrouped && !filtering) {
 		section("")
+	}
+	return rows
+}
+
+// CrossSpace reports whether the list shows matches from every Space: while
+// a filter is set and there are several Spaces. The rows are then the
+// matching Connections of every Space and the active Space's open ones,
+// with no group headers, Space by Space in the user's order, then by
+// Group, then by alias.
+func (s *State) CrossSpace() bool { return s.filter != "" && len(s.spaces) > 1 }
+
+func (s *State) crossSpaceRows() []Row {
+	spaceRank := map[string]int{}
+	for i, sp := range s.spaces {
+		spaceRank[spaceRef(sp)] = i
+	}
+	groupRank := map[[2]string]int{}
+	for i, g := range s.allGroups {
+		groupRank[[2]string{g.Space, g.Name}] = i
+	}
+	rank := func(c *Connection) int {
+		if c.Group == "" {
+			return len(s.allGroups) + 1 // ungrouped last
+		}
+		if r, ok := groupRank[[2]string{c.Space, c.Group}]; ok {
+			return r
+		}
+		return len(s.allGroups) // a Group only a Connection names
+	}
+	var conns []*Connection
+	for _, c := range s.conns {
+		if s.matches(c) || c.Space == s.space && c.Open() {
+			conns = append(conns, c)
+		}
+	}
+	sort.Slice(conns, func(i, j int) bool {
+		a, b := conns[i], conns[j]
+		if a.Space != b.Space {
+			return spaceRank[a.Space] < spaceRank[b.Space]
+		}
+		if ra, rb := rank(a), rank(b); ra != rb {
+			return ra < rb
+		}
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
+		return a.Alias < b.Alias
+	})
+	rows := make([]Row, len(conns))
+	for i, c := range conns {
+		rows[i] = Row{Group: c.Group, Conn: c}
 	}
 	return rows
 }

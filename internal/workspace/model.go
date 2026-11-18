@@ -406,12 +406,25 @@ func (m *Model) enter() tea.Cmd {
 	if c == nil {
 		return nil
 	}
+	saved := m.showSpaceOf(c)
 	if c.Open() {
 		m.st.Activate(c.Alias)
 		m.focus = focusPane
+		return saved
+	}
+	return tea.Batch(saved, m.open(c.Alias, Launch{}))
+}
+
+// showSpaceOf makes c's Space the active Space when the filter found c in
+// another Space, so whatever acts on c acts in its own Space: opening it,
+// a new tab or Action, its Group, the form. The cursor stays on c.
+func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
+	if c.Space == m.st.Space() {
 		return nil
 	}
-	return m.open(c.Alias, Launch{})
+	cmd := m.showSpace(c.Space)
+	m.st.SetCursor(c.Alias)
+	return cmd
 }
 
 // open starts a new Session (tab) for alias running what l says, and shows
@@ -826,7 +839,11 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			return nil
 		}
 		c := row.Conn
-		m.drag = &drag{alias: c.Alias, fromY: mm.Y}
+		if !m.st.CrossSpace() {
+			// A match from another Space has another Space's Groups to drop on.
+			m.drag = &drag{alias: c.Alias, fromY: mm.Y}
+		}
+		saved := m.showSpaceOf(c)
 		if c.Open() {
 			m.st.Activate(c.Alias)
 			m.focus, m.scrolling = focusPane, false
@@ -834,6 +851,7 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			m.st.SetCursor(c.Alias)
 			m.focus = focusList
 		}
+		return saved
 	}
 	return nil
 }

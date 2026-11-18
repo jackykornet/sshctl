@@ -538,6 +538,40 @@ func TestRenameSpaceKeepsItsActiveConnectionAndCollapsedGroups(t *testing.T) {
 	}
 }
 
+func TestTheFilterSearchesEverySpace(t *testing.T) {
+	s := spaced() // home: web-1 (web), loose; acme: db (prod), api (web)
+	if _, err := s.OpenSession("loose"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetFilter("e") // web-1 and api's Group web; loose is open
+	if !s.CrossSpace() {
+		t.Fatal("a filter with several Spaces is not cross-Space")
+	}
+	// Space by Space in the user's order, then by Group, then alias; no headers.
+	if got, want := rowNames(s.Rows()), []string{"web-1", "loose", "api"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+	s.SetFilter("db")
+	if got, want := rowNames(s.Rows()), []string{"loose", "db"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("rows for db = %v, want the open loose and acme's db", got)
+	}
+	s.SetFilter("")
+	if s.CrossSpace() {
+		t.Error("with no filter the list is still cross-Space")
+	}
+	if got, want := rowNames(s.Rows()), []string{"[web]", "web-1", "[]", "loose"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("rows without the filter = %v, want home's list %v", got, want)
+	}
+}
+
+func TestTheFilterStaysInTheSpaceWithOnlyOneSpace(t *testing.T) {
+	s := sample()
+	s.SetFilter("web")
+	if s.CrossSpace() {
+		t.Error("with one Space the filter is cross-Space")
+	}
+}
+
 func TestResolveSpaceTakesANumberOrAName(t *testing.T) {
 	s := spaced() // home (the default Space), acme
 	tests := []struct {

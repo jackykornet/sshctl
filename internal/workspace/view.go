@@ -126,7 +126,11 @@ func (m *Model) renderList(w, h int) []string {
 			line = pointer + m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
-			line = pointer + connLabel(r.Conn, grouped)
+			space := ""
+			if m.st.CrossSpace() {
+				space = m.st.SpaceName(r.Conn.Space)
+			}
+			line = pointer + connLabel(r.Conn, grouped && space == "", space)
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
@@ -251,8 +255,9 @@ func (m *Model) headerLabel(group string) string {
 }
 
 // connLabel is a Connection row after the cursor pointer, indented under its
-// group header when the list is grouped.
-func connLabel(c *Connection, grouped bool) string {
+// group header when the list is grouped. A space names the Connection's
+// Space, for a filter across every Space.
+func connLabel(c *Connection, grouped bool, space string) string {
 	marker, name := "  ", c.Alias
 	switch {
 	case c.AllEnded():
@@ -269,21 +274,32 @@ func connLabel(c *Connection, grouped bool) string {
 	if c.Unseen() {
 		line += " " + unseenStyle.Render(unseenMarker)
 	}
-	if extra := rowDetail(c, grouped); extra != "" {
+	if extra := rowDetail(c, grouped, space); extra != "" {
 		line += " " + dimStyle.Render(extra)
 	}
 	return line
 }
 
 // rowDetail is a Connection's description, or (missing) when it is orphaned.
-// The group is added only when the list has no group headers to show it.
-func rowDetail(c *Connection, grouped bool) string {
+// The group is added only when the list has no group headers to show it,
+// after the Connection's space when that is given: [space/group].
+func rowDetail(c *Connection, grouped bool, space string) string {
 	if c.Orphaned {
+		if space != "" {
+			return "(missing) [" + space + "]"
+		}
 		return "(missing)"
 	}
 	d := c.Description
-	if c.Group != "" && !grouped {
-		d = strings.TrimSpace(d + " [" + c.Group + "]")
+	where := c.Group
+	if grouped {
+		where = ""
+	}
+	if space != "" {
+		where = strings.TrimSuffix(space+"/"+where, "/")
+	}
+	if where != "" {
+		d = strings.TrimSpace(d + " [" + where + "]")
 	}
 	return d
 }
