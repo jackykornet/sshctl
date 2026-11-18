@@ -43,15 +43,49 @@ func TestEachCrossSpaceMatchShowsItsSpace(t *testing.T) {
 	}
 }
 
-func TestGroupActionsRefuseAMatchFromAnotherSpace(t *testing.T) {
-	m := newSpaceModel(t, 80, 10)
-	press(m, text("/db")...)
-	press(m, keyEnter)
-	for _, k := range []string{"g", "m"} {
-		press(m, keyPrefix, text(k)[0])
-		if m.modal != nil || !strings.Contains(m.status, "db is in space acme") {
-			t.Errorf("prefix %s on acme's db: modal %T, status %q; want it refused", k, m.modal, m.status)
-		}
+func TestEveryActionOnAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
+	tests := []struct {
+		name  string
+		keys  []tea.KeyPressMsg
+		check func(t *testing.T, m *Model)
+	}{
+		{"prefix n opens a tab there", []tea.KeyPressMsg{keyPrefix, text("n")[0]}, func(t *testing.T, m *Model) {
+			if c := m.st.Active(); c == nil || c.Alias != "db" {
+				t.Errorf("Active connection = %v, want db", c)
+			}
+		}},
+		{"prefix g opens its Group there", []tea.KeyPressMsg{keyPrefix, text("g")[0]}, func(t *testing.T, m *Model) {
+			if c := m.st.Active(); c == nil || c.Alias != "db" {
+				t.Errorf("Active connection = %v, want db of Group data", c)
+			}
+		}},
+		{"prefix m moves it among its own Groups", []tea.KeyPressMsg{keyPrefix, text("m")[0]}, func(t *testing.T, m *Model) {
+			if in, ok := m.modal.(*moveInput); !ok || in.alias != "db" {
+				t.Errorf("modal = %#v, want the move prompt for db", m.modal)
+			}
+		}},
+		{"a adds in its Space and Group", text("a"), func(t *testing.T, m *Model) {
+			if f := m.form(); f == nil || f.space != "acme" || f.spec().Group != "data" {
+				t.Errorf("form = %+v, want a new Connection in acme's data", f)
+			}
+		}},
+		{"e edits it with its Space's Groups", text("e"), func(t *testing.T, m *Model) {
+			if f := m.form(); f == nil || f.old != "db" || !reflect.DeepEqual(m.st.groups, []string{"data"}) {
+				t.Errorf("form %+v with Groups %v, want db's form over acme's Groups", f, m.st.groups)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newSpaceModel(t, 80, 10)
+			press(m, text("/db")...)
+			press(m, keyEnter)
+			press(m, tt.keys...)
+			if got := m.st.Space(); got != "acme" {
+				t.Fatalf("active Space = %q, want acme", got)
+			}
+			tt.check(t, m)
+		})
 	}
 }
 

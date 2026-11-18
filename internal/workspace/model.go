@@ -413,8 +413,9 @@ func (m *Model) enter() tea.Cmd {
 	return tea.Batch(saved, m.open(c.Alias, Launch{}))
 }
 
-// showSpaceOf makes c's Space the active Space, as when opening a match the
-// filter found in another Space; the cursor stays on c.
+// showSpaceOf makes c's Space the active Space when the filter found c in
+// another Space, so whatever acts on c acts in its own Space: opening it,
+// a new tab or Action, its Group, the form. The cursor stays on c.
 func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
 	if c.Space == m.st.Space() {
 		return nil
@@ -422,16 +423,6 @@ func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
 	cmd := m.showSpace(c.Space)
 	m.st.SetCursor(c.Alias)
 	return cmd
-}
-
-// inOtherSpace refuses, with a status, a Group action on c when c is a
-// match the filter found in another Space, whose Groups are not the ones
-// the list shows.
-func (m *Model) inOtherSpace(c *Connection) (tea.Cmd, bool) {
-	if c == nil || c.Space == m.st.Space() {
-		return nil, false
-	}
-	return m.setStatus(fmt.Sprintf("%s is in space %s; open it first", c.Alias, m.st.SpaceName(c.Space)), true), true
 }
 
 // open starts a new Session (tab) for alias running what l says, and shows
@@ -481,9 +472,6 @@ func (e *startError) Unwrap() error { return e.err }
 // status reports every member that failed to start.
 func (m *Model) openGroup() tea.Cmd {
 	row, ok := m.st.CursorRow()
-	if cmd, refused := m.inOtherSpace(row.Conn); refused {
-		return cmd
-	}
 	group := row.Group
 	if !ok || group == "" {
 		return m.setStatus("no group to open", false)
@@ -709,9 +697,6 @@ func (m *Model) startMove() tea.Cmd {
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to move", false)
-	}
-	if cmd, refused := m.inOtherSpace(c); refused {
-		return cmd
 	}
 	m.openModal(&moveInput{alias: c.Alias, group: newLine(c.Group)})
 	return nil

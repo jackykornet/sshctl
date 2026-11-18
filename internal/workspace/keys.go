@@ -97,20 +97,20 @@ var bindings = []binding{
 		help: "previous / next open connection in the Space",
 	},
 	{
-		keys: each(inPrefix, on("n", newTab(false)), on("c", newTab(true))),
+		keys: each(inPrefix, on("n", followCursor(newTab(false))), on("c", followCursor(newTab(true)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.
-		keys: each(inPrefix, on("i", actionTab(ActionBootstrap)), on("p", provisionTab)),
+		keys: each(inPrefix, on("i", followCursor(actionTab(ActionBootstrap))), on("p", followCursor(provisionTab))),
 		help: "bootstrap / provision the connection in its own tab",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
+		keys: keysIn(inPrefix, followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }), "g"),
 		help: "open the connection's group as tabs",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() }, "m"),
+		keys: keysIn(inPrefix, followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() }), "m"),
 		help: "move a connection to a group (or drag it)",
 	},
 	{
@@ -179,19 +179,19 @@ var tabKeys = []boundKey{on("[", selectTab(-1)), on("]", selectTab(1))}
 // act on the Group whose header is under the cursor, otherwise on a
 // Connection.
 var crud = []boundKey{
-	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	on("a", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.headerTarget(); ok {
 			m.openModal(&groupInput{})
 			return nil
 		}
 		return m.startAdd()
-	}),
-	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	})),
+	on("e", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.startRenameGroup(g)
 		}
 		return m.startEdit()
-	}),
+	})),
 	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.deleteGroup(g)
@@ -294,6 +294,20 @@ func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		return m.open(alias, Launch{Action: ActionProvision})
 	})
 	return nil
+}
+
+// followCursor runs run in the Space of the Connection under the cursor,
+// switching to it first when the filter found that Connection in another
+// Space (see Model.showSpaceOf). It only looks at the cursor when the
+// action would: while the list has focus, or no Connection is active.
+func followCursor(run action) action {
+	return func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+		var saved tea.Cmd
+		if c := m.st.Cursor(); c != nil && (m.focus == focusList || m.st.Active() == nil) {
+			saved = m.showSpaceOf(c)
+		}
+		return tea.Batch(saved, run(m, msg))
+	}
 }
 
 func on(key string, run action) boundKey { return boundKey{key: key, run: run} }

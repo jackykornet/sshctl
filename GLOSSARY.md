@@ -37,7 +37,7 @@ A Group's current position in its Space's connection list, counting from 1, show
 _Avoid_: Group ID, index
 
 **Space**:
-A named, ordered set of Groups and Connections kept apart from the rest, such as one per customer or project. Every Connection and every Group belongs to exactly one Space; a Group name is unique only within its Space. A Space is sshctl metadata only: aliases stay one namespace across all Spaces and every Host block stays where it was (ADR-0005). The **default Space** holds every Connection not put elsewhere; it can be renamed but not deleted, and a Space that still holds anything cannot be deleted. The Workspace shows one Space at a time, the **active Space**, while other Spaces' Sessions keep running. A Space can set its own dotfiles repo (between its Groups' and the global one) and its own Selected identity.
+A named, ordered set of Groups and Connections kept apart from the rest, such as one per customer or project. Every Connection and every Group belongs to exactly one Space; a Group name is unique only within its Space. A Space is sshctl metadata only: aliases stay one namespace across all Spaces and every Host block stays where it was (ADR-0005). The **default Space** holds every Connection not put elsewhere; it can be renamed but not deleted, and a Space that still holds anything cannot be deleted. The Workspace shows one Space at a time, the **active Space**, while other Spaces' Sessions keep running; only its filter searches every Space, and acting on a match from another Space makes that Space active. A Space can set its own dotfiles repo (between its Groups' and the global one) and its own Selected identity.
 _Avoid_: Workspace, project, tenant, customer
 
 **Space number**:
