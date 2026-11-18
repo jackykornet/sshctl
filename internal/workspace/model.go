@@ -17,7 +17,9 @@ const (
 	// autoHideWidth is the total width below which the connection list hides itself.
 	autoHideWidth = 60
 	statusTimeout = 4 * time.Second
-	wheelLines    = 3
+	// spaceNoteTimeout is how long the Space note stays without a key press.
+	spaceNoteTimeout = 3 * time.Second
+	wheelLines       = 3
 )
 
 // Snapshot is what the Workspace loads at startup and on refresh. Its
@@ -101,6 +103,9 @@ const (
 
 type clearStatusMsg struct{ id int }
 
+// spaceNoteMsg hides the Space note shown with the same id.
+type spaceNoteMsg struct{ id int }
+
 // drag is a Connection, or a Group header when group is set, held down with
 // the left mouse button in the list.
 type drag struct {
@@ -135,6 +140,10 @@ type Model struct {
 	status    string
 	statusErr bool
 	statusID  int
+	// spaceNote shows every Space's number and name under the Space bar
+	// until the next key, or the spaceNoteMsg carrying noteID.
+	spaceNote bool
+	noteID    int
 }
 
 // New loads the first Snapshot and builds the Workspace model.
@@ -208,6 +217,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.id == m.statusID {
 			m.status = ""
 		}
+	case spaceNoteMsg:
+		if msg.id == m.noteID {
+			m.spaceNote = false
+		}
 	case redrawMsg:
 		m.sessions.takeActivity()
 		return m.ev.listen()
@@ -278,6 +291,7 @@ func (m *Model) paste(text string) {
 // key routes a key press: to the modal when one is open, then through the
 // bindings for the context the Workspace is in (see bindings).
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
+	m.spaceNote = false
 	if m.modal != nil {
 		return m.modal.key(m, msg)
 	}
@@ -605,6 +619,18 @@ func (m *Model) showSpace(ref string) tea.Cmd {
 	return nil
 }
 
+// showSpaceNote shows every Space's number and name under the Space bar
+// for spaceNoteTimeout, or on the status line while the list is hidden.
+func (m *Model) showSpaceNote() tea.Cmd {
+	if m.listWidth() == 0 {
+		return m.setStatus(strings.Join(m.spaceNames(), " · "), false)
+	}
+	m.spaceNote = true
+	m.noteID++
+	id := m.noteID
+	return tea.Tick(spaceNoteTimeout, func(time.Time) tea.Msg { return spaceNoteMsg{id} })
+}
+
 // setCollapsed collapses or expands group and saves the collapsed groups.
 func (m *Model) setCollapsed(group string, collapsed bool) tea.Cmd {
 	if m.st.Collapsed(group) == collapsed {
@@ -890,6 +916,7 @@ func (m *Model) listRows() (rows []Row, offset, top int) {
 	if m.spaceBar() != "" {
 		top++
 	}
+	top += len(m.spaceNoteLines(m.listWidth()))
 	if m.filtering || m.st.Filter() != "" {
 		top++
 	}

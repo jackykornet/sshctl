@@ -81,13 +81,16 @@ var bindings = []binding{
 		help: "previous / next tab",
 	},
 	{
-		// The picker shares the digits' line so the help screen fits 80x24.
+		// The picker and the note share the digits' line so the help
+		// screen fits 80x24.
 		keys: merge(
 			keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }, "P"),
+			keysIn(inList, spaceNote, "S"),
 			keysIn(inList, switchSpace, digits...),
+			keysIn(inPrefix, spaceNote, "S"),
 			keysIn(inPrefix, switchSpace, digits...),
 		),
-		help: "Space picker / switch to Space 1-9",
+		help: "Space picker / Space names / switch to Space 1-9",
 	},
 	{
 		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
@@ -203,6 +206,8 @@ var digits = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
 func switchSpace(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	return m.switchSpace(int(msg.String()[0] - '0'))
 }
+
+func spaceNote(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.showSpaceNote() }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
 func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
