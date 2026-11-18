@@ -61,7 +61,7 @@ func (a *app) bootstrap(alias string) error {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
 	}
 	ctx := context.Background()
-	key := snap.Identity
+	key := snap.SpaceIdentity(e.Space)
 	if key == "" {
 		if key, err = a.generateIdentity(ctx); err != nil {
 			return err
@@ -150,7 +150,8 @@ func (a *app) installAndCheck(ctx context.Context, e catalog.Entry, key, pub str
 }
 
 // generateIdentity creates a new ed25519 key in ~/.ssh, never overwriting
-// one, and makes it the Selected identity. ssh-keygen runs in the user's
+// one, and makes it the global Selected identity, the one every Space
+// without its own uses. ssh-keygen runs in the user's
 // terminal, so it asks for a passphrase there.
 func (a *app) generateIdentity(ctx context.Context) (string, error) {
 	fmt.Fprintln(a.out, "There is no Selected identity, so sshctl creates an ed25519 key; ssh-keygen asks for a passphrase (leave it empty for none).")

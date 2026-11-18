@@ -122,15 +122,17 @@ type drag struct {
 
 // Model is the Workspace's Bubble Tea model.
 type Model struct {
-	opts      Options
-	st        *State
-	identity  string
-	ev        *events
-	sessions  *sessions
-	w, h      int
-	focus     focus
-	prefix    bool // armed outside modals; a modal keeps its own
-	filtering bool
+	opts Options
+	st   *State
+	// identities holds the Snapshot's Selected identities, global and per
+	// Space, for the status line's key (see selectedIdentities).
+	identities Snapshot
+	ev         *events
+	sessions   *sessions
+	w, h       int
+	focus      focus
+	prefix     bool // armed outside modals; a modal keeps its own
+	filtering  bool
 	// filter is the filter being typed, with its cursor; State holds its text.
 	filter    line
 	scrolling bool
@@ -169,7 +171,7 @@ func New(opts Options) (*Model, error) {
 	st.SetGroups(snap.Groups)
 	st.SetSpace(snap.ActiveSpace)
 	st.RestoreCollapsed(snap.Collapsed)
-	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
+	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
 		ev:         m.ev,
@@ -587,11 +589,17 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 	m.st.Reload(snap.Entries)
 	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
 	m.st.SetGroups(snap.Groups)
-	m.identity = snap.Identity
+	m.identities = selectedIdentities(snap)
 	if alias != "" {
 		m.st.SetCursor(alias)
 	}
 	return m.setStatus(status, false)
+}
+
+// selectedIdentities is the part of snap that says which key each
+// Space's Connections use.
+func selectedIdentities(snap Snapshot) Snapshot {
+	return Snapshot{Identity: snap.Identity, SpaceIdentities: snap.SpaceIdentities}
 }
 
 // switchSpace makes Space number n (counting from 1) the active Space; see

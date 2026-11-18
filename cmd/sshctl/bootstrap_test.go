@@ -397,3 +397,28 @@ func TestBootstrapStopsWhenKeyGenerationFails(t *testing.T) {
 		t.Errorf("Selected identity = %q, want none", got)
 	}
 }
+
+func TestBootstrapUsesTheSpacesSelectedIdentity(t *testing.T) {
+	a, out, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	key := filepath.Join(a.ssh.Home, ".ssh", "id_ed25519")
+	cat := a.catalog()
+	for _, err := range []error{
+		cat.AddSpace("acme"),
+		cat.SetSpace("web", "acme"),
+		cat.SetSpaceIdentity("acme", key),
+		cat.SetIdentity(filepath.Join(a.ssh.Home, ".ssh", "id_other")), // has no .pub
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	for _, argv := range h.argv[1:] {
+		if !slices.Contains(argv, key) {
+			t.Errorf("ssh %q does not use acme's Selected identity", argv)
+		}
+	}
+}
