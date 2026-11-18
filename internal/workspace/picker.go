@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // spacePicker lists every Space in the pane, with a cursor. Enter switches
@@ -123,32 +122,16 @@ func (m *Model) shiftSpace(p *spacePicker, delta int) tea.Cmd {
 // say shows text on the picker's status line until the next key.
 func (p *spacePicker) say(text string, isErr bool) { p.note, p.noteErr = text, isErr }
 
-// deleteSpace asks before deleting the Space under the picker's cursor. It
-// refuses the default Space and, naming what is left, one that still has
-// Groups or Connections.
+// deleteSpace deletes the Space under the picker's cursor, asking first
+// when it looks empty. The catalog refuses the default Space and one that
+// still has Groups or Connections, naming what is left; a Space that is
+// not empty is given to it without asking, so its refusal shows at once.
 func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 	t, ok := p.target(m)
 	if !ok {
 		return nil
 	}
-	ref, _ := m.st.SpaceRef(p.cursor + 1)
-	if ref == "" {
-		p.say(catalog.ErrDefaultSpace.Error(), true)
-		return nil
-	}
-	groups, aliases := m.st.SpaceContents(ref)
-	var left []string
-	if len(groups) > 0 {
-		left = append(left, "groups "+strings.Join(groups, ", "))
-	}
-	if len(aliases) > 0 {
-		left = append(left, "connections "+strings.Join(aliases, ", "))
-	}
-	if len(left) > 0 {
-		p.say(fmt.Sprintf("cannot delete space %s: it still has %s", t.Name, strings.Join(left, " and ")), true)
-		return nil
-	}
-	m.ask(fmt.Sprintf("Delete space %s? (y/n)", t.Name), func(m *Model) tea.Cmd {
+	del := func(m *Model) tea.Cmd {
 		if err := m.opts.Catalog.DeleteSpace(t.Name); err != nil {
 			p.say("delete space "+t.Name+": "+err.Error(), true)
 			return nil
@@ -157,7 +140,11 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 		p.cursor = min(p.cursor, len(m.st.SpaceTabs())-1)
 		p.say("deleted space "+t.Name, false)
 		return cmd
-	})
+	}
+	if ref, _ := m.st.SpaceRef(p.cursor + 1); ref == "" || !m.st.SpaceEmpty(ref) {
+		return del(m)
+	}
+	m.ask(fmt.Sprintf("Delete space %s? (y/n)", t.Name), del)
 	return nil
 }
 

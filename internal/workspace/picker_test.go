@@ -122,18 +122,20 @@ func TestThePickerDeletesOnlyAnEmptySpaceOtherThanTheDefault(t *testing.T) {
 		want   string
 	}{
 		{0, "the default space cannot be deleted"},
-		{1, "cannot delete space acme: it still has groups data and connections db"},
+		{1, `"acme" still has groups data and connections db`},
 	}
 	for _, tt := range tests {
 		p.cursor = tt.cursor
+		f.spaceErr = errors.New(tt.want) // the catalog refuses, naming what is left
 		press(m, text("d")...)
 		if status, _ := m.modal.status(); m.modal != p || !strings.Contains(status, tt.want) {
-			t.Errorf("d on Space %d: modal %T, status %q; want the picker saying %q", tt.cursor+1, m.modal, status, tt.want)
+			t.Errorf("d on Space %d: modal %T, status %q; want the picker saying %q without asking", tt.cursor+1, m.modal, status, tt.want)
 		}
 	}
-	if len(f.spaceOps) != 0 {
-		t.Fatalf("refused deletes called the catalog: %v", f.spaceOps)
+	if want := []string{"delete default", "delete acme"}; !reflect.DeepEqual(f.spaceOps, want) {
+		t.Fatalf("Space calls = %v, want %v", f.spaceOps, want)
 	}
+	f.spaceOps = nil
 
 	p.cursor = 2
 	press(m, text("d")...)
@@ -196,4 +198,25 @@ func TestSpacePickerGolden(t *testing.T) {
 	press(m, text("P")...)
 	press(m, keyDown)
 	golden(t, "space-picker", m)
+}
+
+func TestThePickerRenamesAndMovesTheDefaultSpace(t *testing.T) {
+	f := spaceCatalog() // default (web, mine), acme, globex
+	m := newStoreModel(t, f)
+	press(m, text("P")...)
+	press(m, text("e")...)
+	press(m, keyClear)
+	press(m, text("home")...)
+	press(m, keyEnter)
+	press(m, text("J")...)
+	if want := []string{"rename default→home", "move home 2"}; !reflect.DeepEqual(f.spaceOps, want) {
+		t.Fatalf("Space calls = %v, want %v", f.spaceOps, want)
+	}
+	tabs := m.st.SpaceTabs()
+	if tabs[1].Name != "home" || !tabs[1].Active || m.picker().cursor != 1 {
+		t.Errorf("Spaces %+v, cursor %d; want home second, still active, under the cursor", tabs, m.picker().cursor)
+	}
+	if got := aliases(m.st.Rows()); !reflect.DeepEqual(got, []string{"web", "mine"}) {
+		t.Errorf("home lists %v, want [web mine]", got)
+	}
 }

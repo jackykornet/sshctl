@@ -29,7 +29,9 @@ type commandCall struct {
 type fakeCatalog struct {
 	entries        []Entry
 	groups         []string // the default Space's stored Group names, in order
-	spaces         []Space  // Spaces after the default Space
+	spaces         []Space  // the Spaces other than the default Space, in order
+	defaultName    string   // the default Space's name; "" reads as "default"
+	defaultAt      int      // the default Space's index among all Spaces
 	spaceGroups    []Group  // the other Spaces' Groups
 	activeSpace    string
 	identity       string
@@ -67,6 +69,27 @@ func (f *fakeCatalog) spaceOp(op string) error {
 	return err
 }
 
+// allSpaces returns every Space in order, the default Space among them.
+func (f *fakeCatalog) allSpaces() []Space {
+	name := f.defaultName
+	if name == "" {
+		name = "default"
+	}
+	return slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Name: name, Default: true})
+}
+
+// setSpaces stores all, every Space in order, as spaces and defaultAt.
+func (f *fakeCatalog) setSpaces(all []Space) {
+	f.spaces = nil
+	for i, s := range all {
+		if s.Default {
+			f.defaultName, f.defaultAt = s.Name, i
+		} else {
+			f.spaces = append(f.spaces, s)
+		}
+	}
+}
+
 // spaceIndex returns the index in spaces of the Space name, or -1 (also for
 // the default Space, which spaces does not hold).
 func (f *fakeCatalog) spaceIndex(name string) int {
@@ -89,6 +112,7 @@ func (f *fakeCatalog) RenameSpace(old, name string) error {
 	}
 	i := f.spaceIndex(old)
 	if i < 0 {
+		f.defaultName = name // Connections refer to the default Space as ""
 		return nil
 	}
 	f.spaces[i].Name = name
@@ -121,25 +145,26 @@ func (f *fakeCatalog) DeleteSpace(name string) error {
 	return nil
 }
 
-// MoveSpace moves a Space after the default Space to position, counting
-// the default Space as 1.
+// MoveSpace puts the Space name, the default Space too, at position,
+// counting from 1.
 func (f *fakeCatalog) MoveSpace(name string, position int) error {
 	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, position)); err != nil {
 		return err
 	}
-	i := f.spaceIndex(name)
-	if i < 0 || position < 2 || position > len(f.spaces)+1 {
+	all := f.allSpaces()
+	i := slices.IndexFunc(all, func(s Space) bool { return s.Name == name })
+	if i < 0 || position < 1 || position > len(all) {
 		return errors.New("bad space move")
 	}
-	s := f.spaces[i]
-	f.spaces = slices.Insert(slices.Delete(f.spaces, i, i+1), position-2, s)
+	s := all[i]
+	f.setSpaces(slices.Insert(slices.Delete(all, i, i+1), position-1, s))
 	return nil
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
-	snap.Spaces = append([]Space{{Name: "default", Default: true}}, f.spaces...)
+	snap.Spaces = f.allSpaces()
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}

@@ -270,22 +270,20 @@ func (s *State) RenameSpace(old, name string) {
 	}
 }
 
-// SpaceContents lists the stored Groups of the Space ref ("" for the
-// default Space) and the Connections in it, each sorted by name.
-func (s *State) SpaceContents(ref string) (groups, aliases []string) {
+// SpaceEmpty reports whether the Space ref ("" for the default Space) has
+// no stored Groups and no Connections.
+func (s *State) SpaceEmpty(ref string) bool {
 	for _, g := range s.allGroups {
 		if g.Space == ref {
-			groups = append(groups, g.Name)
+			return false
 		}
 	}
 	for _, c := range s.conns {
 		if c.Space == ref {
-			aliases = append(aliases, c.Alias)
+			return false
 		}
 	}
-	sort.Strings(groups)
-	sort.Strings(aliases)
-	return groups, aliases
+	return true
 }
 
 // Space returns the active Space as Connections refer to it, "" for the
