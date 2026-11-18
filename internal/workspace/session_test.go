@@ -132,7 +132,7 @@ func TestPrefixTwiceSendsLiteralPrefix(t *testing.T) {
 func TestScrollback(t *testing.T) {
 	m, _ := newSessionModel(t, script{
 		sh:  `i=1; while [ $i -le 40 ]; do echo "line $i"; i=$((i+1)); done; sleep 30`,
-		cmd: `for /l %i in (1,1,40) do @echo line %i`,
+		cmd: `(for /l %i in (1,1,40) do @echo line %i) & ping -n 30 127.0.0.1 >nul`,
 	})
 	press(m, keyEnter)
 	pump(t, m, func() bool { return strings.Contains(screen(m), "line 40") })
