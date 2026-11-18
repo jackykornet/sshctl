@@ -198,9 +198,12 @@ func (s *State) SpaceRef(n int) (string, bool) {
 }
 
 // ActiveSpaceName returns the active Space's name.
-func (s *State) ActiveSpaceName() string {
+func (s *State) ActiveSpaceName() string { return s.SpaceName(s.space) }
+
+// SpaceName returns the name of the Space ref ("" for the default Space).
+func (s *State) SpaceName(ref string) string {
 	for _, sp := range s.spaces {
-		if spaceRef(sp) == s.space {
+		if spaceRef(sp) == ref {
 			return sp.Name
 		}
 	}
@@ -299,12 +302,7 @@ func (s *State) SetSpace(space string) {
 		s.cursor = rowKey{} // a header key could name another Space's Group
 	}
 	s.space = space
-	s.groups = nil
-	for _, g := range s.allGroups {
-		if g.Space == space {
-			s.groups = append(s.groups, g.Name)
-		}
-	}
+	s.groups = s.SpaceGroups(space)
 	if c := s.Active(); c != nil {
 		s.SetCursor(c.Alias)
 		s.clearShownActivity()
@@ -314,13 +312,21 @@ func (s *State) SetSpace(space string) {
 }
 
 // Reload replaces the loaded entries while keeping every open Connection and its Sessions.
-// An open Connection that is no longer loaded becomes orphaned.
+// An open Connection that is no longer loaded becomes orphaned. The Active
+// connection of a Space that moved to another Space is Active there, unless
+// that Space has an Active connection of its own.
 func (s *State) Reload(entries []Entry) {
 	loaded := map[string]bool{}
 	s.loaded = loaded
 	for _, e := range entries {
 		loaded[e.Alias] = true
 		if c, ok := s.conns[e.Alias]; ok {
+			if c.Space != e.Space && s.active[c.Space] == e.Alias {
+				delete(s.active, c.Space)
+				if other := s.conns[s.active[e.Space]]; other == nil || other.Space != e.Space || !other.Open() {
+					s.active[e.Space] = e.Alias
+				}
+			}
 			c.Entry = e
 		} else {
 			s.conns[e.Alias] = &Connection{Entry: e}
@@ -366,11 +372,22 @@ func (s *State) GroupPosition(group string) int {
 	return slices.Index(s.groups, group) + 1
 }
 
-// ResolveGroup turns what the user typed for a Group into its name. All
-// digits is a Group number: 0 means ungrouped, and n the stored Group at
-// position n (ok is false when there is none). Anything else is a name, as
-// typed; Group names are never all digits.
+// ResolveGroup turns what the user typed for a Group of the active Space
+// into its name; see ResolveGroupIn.
 func (s *State) ResolveGroup(input string) (group string, ok bool) {
+	return resolveGroup(s.groups, input)
+}
+
+// ResolveGroupIn turns what the user typed for a Group of the Space ref
+// ("" for the default Space) into its name. All digits is a Group number
+// within that Space: 0 means ungrouped, and n the stored Group at position
+// n (ok is false when there is none). Anything else is a name, as typed;
+// Group names are never all digits.
+func (s *State) ResolveGroupIn(ref, input string) (group string, ok bool) {
+	return resolveGroup(s.SpaceGroups(ref), input)
+}
+
+func resolveGroup(groups []string, input string) (string, bool) {
 	if !isDigits(input) {
 		return input, true
 	}
@@ -378,10 +395,41 @@ func (s *State) ResolveGroup(input string) (group string, ok bool) {
 	if err == nil && n == 0 {
 		return "", true
 	}
-	if err != nil || n > len(s.groups) {
+	if err != nil || n > len(groups) {
 		return "", false
 	}
-	return s.groups[n-1], true
+	return groups[n-1], true
+}
+
+// SpaceGroups returns the stored Groups of the Space ref ("" for the
+// default Space) in the user's order.
+func (s *State) SpaceGroups(ref string) []string {
+	var out []string
+	for _, g := range s.allGroups {
+		if g.Space == ref {
+			out = append(out, g.Name)
+		}
+	}
+	return out
+}
+
+// ResolveSpace turns what the user typed for a Space into how Connections
+// refer to it ("" for the default Space): all digits is a Space number,
+// anything else a Space's name. ok is false when there is no such Space.
+func (s *State) ResolveSpace(input string) (ref string, ok bool) {
+	if isDigits(input) {
+		n, err := strconv.Atoi(input)
+		if err != nil {
+			return "", false
+		}
+		return s.SpaceRef(n)
+	}
+	for _, sp := range s.spaces {
+		if sp.Name == input {
+			return spaceRef(sp), true
+		}
+	}
+	return "", false
 }
 
 func isDigits(s string) bool {

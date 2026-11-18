@@ -704,7 +704,7 @@ func (m *Model) moveTo(alias, group string) tea.Cmd {
 		return nil
 	}
 	if group != "" && !m.st.HasGroup(group) {
-		m.askCreateGroup(group, func(m *Model) tea.Cmd {
+		m.askCreateGroup(m.st.Space(), group, func(m *Model) tea.Cmd {
 			if cmd := m.reload("", ""); m.statusErr {
 				return cmd
 			}
