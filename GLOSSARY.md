@@ -62,6 +62,10 @@ _Avoid_: Setup, personalize, deploy
 Changing a host's SSH server settings, such as turning off password login, so that the change undoes itself if the user would be locked out. It needs root and is never part of Bootstrap or Provision.
 _Avoid_: Lock down, secure
 
+**Experimental feature**:
+A feature that is not fully tested yet, and that the user must turn on (`sshctl experimental enable`) before using it; until then, sshctl refuses it and says how to turn it on. Bootstrap and Provision are Experimental features. Whether each is on is a synced setting, so it holds on every machine.
+_Avoid_: Beta, feature flag, preview
+
 ## Workspace
 
 **Workspace**:

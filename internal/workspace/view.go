@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"github.com/sshctl/sshctl/internal/catalog"
 	"path/filepath"
 	"strings"
 
@@ -384,7 +385,7 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h, m.spaceNames(), f.groups(m.st))
+		return f.render(w, h, m.spaceNames(), f.groups(m.st), m.features.On(catalog.FeatureBootstrap))
 	}
 	if p := m.picker(); p != nil {
 		return p.render(m, w, h)
@@ -436,7 +437,7 @@ func (m *Model) helpLines() (title string, body []string) {
 	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  (↑/↓ PgUp/PgDn scroll · any other key closes)")
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
-		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(b.help))
+		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(m.helpText(b)))
 	}
 	return title, body
 }

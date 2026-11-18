@@ -60,6 +60,16 @@ type Entry struct {
 	Host    Host
 }
 
+// Experimental says which Experimental features are on; see
+// config.Experimental.
+type Experimental = config.Experimental
+
+// The Experimental features, by name.
+const (
+	FeatureBootstrap = config.FeatureBootstrap
+	FeatureProvision = config.FeatureProvision
+)
+
 // CollapsedKey is how Snapshot.Collapsed and SetCollapsed name space's
 // Group group: the Group name in the default Space (""), "space/group" in
 // any other.
@@ -87,6 +97,8 @@ type Snapshot struct {
 	// Collapsed lists the groups the Workspace shows collapsed on this
 	// machine, by CollapsedKey (ADR-0004).
 	Collapsed []string
+	// Experimental says which Experimental features are on.
+	Experimental Experimental
 	// Include is set when sshctl's hosts file exists but the user's
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
 	// on a new machine the file was synced to (ADR-0004). AddInclude fixes it.
@@ -200,7 +212,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Spaces: cfg.Spaces, ActiveSpace: cfg.ActiveSpace, Groups: cfg.Groups, Identity: cfg.SelectedIdentity, SpaceIdentities: cfg.SpaceIdentities, Collapsed: cfg.CollapsedGroups}
+	snap := Snapshot{Spaces: cfg.Spaces, ActiveSpace: cfg.ActiveSpace, Groups: cfg.Groups, Identity: cfg.SelectedIdentity, SpaceIdentities: cfg.SpaceIdentities, Collapsed: cfg.CollapsedGroups, Experimental: cfg.Experimental}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -320,6 +332,23 @@ func (c *Catalog) SetSpaceIdentity(space, key string) error {
 		cfg.SpaceIdentities[ref] = key
 		return nil
 	})
+}
+
+// CheckFeature returns nil when the Experimental feature is on, and
+// otherwise an error wrapping config.ErrFeatureOff that says how to turn
+// it on.
+func (c *Catalog) CheckFeature(feature string) error {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return err
+	}
+	return cfg.Experimental.Check(feature)
+}
+
+// SetFeature turns an Experimental feature on or off. It refuses one
+// config.Features does not list, with config.ErrUnknownFeature.
+func (c *Catalog) SetFeature(feature string, on bool) error {
+	return c.update(func(cfg *config.Config) error { return cfg.Experimental.Set(feature, on) })
 }
 
 // Dotfiles returns the global dotfiles setting: a repo URL,

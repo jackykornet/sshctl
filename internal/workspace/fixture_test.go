@@ -41,6 +41,10 @@ type fakeCatalog struct {
 	failGroup      bool
 	include        *IncludeError
 	provision      map[string]error // ProvisionRepo's error per alias
+	// off lists the Experimental features Snapshot reports off; every
+	// other one is on, so tests of Bootstrap and Provision need not turn
+	// them on.
+	off []string
 
 	loads     int
 	opened    []string    // RecordOpen aliases
@@ -166,6 +170,11 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
 	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, SpaceIdentities: f.spaceKeys, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
 	snap.Spaces = f.allSpaces()
+	for _, feature := range []string{catalog.FeatureBootstrap, catalog.FeatureProvision} {
+		if err := snap.Experimental.Set(feature, !slices.Contains(f.off, feature)); err != nil {
+			panic(err)
+		}
+	}
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}

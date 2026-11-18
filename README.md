@@ -45,6 +45,8 @@ sshctl bootstrap [--] <alias>
 sshctl provision [--] <alias>
 sshctl provision default [<url|none> | --unset] [--group <name>]
 sshctl config show
+sshctl experimental list
+sshctl experimental enable|disable <bootstrap|provision>
 ```
 
 Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(orphaned)`. `add` and `edit` prompt for a description and group; an empty answer keeps the current value, and a Connection with neither keeps no metadata. The group must already exist: `add` and `edit` refuse an unknown one and tell you to run `sshctl group add`. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
@@ -61,7 +63,23 @@ Spaces keep Connections apart, for example one per customer or project, and are 
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
 
+### Experimental features
+
+Bootstrap and Provision are not fully tested yet, so they start off. Turn one on before you use it:
+
+```sh
+sshctl experimental enable bootstrap
+sshctl experimental enable provision
+sshctl experimental list
+bootstrap  on
+provision  on
+```
+
+While a feature is off, its commands (`bootstrap`; `provision`, `provision default` and `space dotfiles`) and its Workspace keys refuse with `Bootstrap is experimental and off. Turn it on with: sshctl experimental enable bootstrap` and change nothing, and the help (`sshctl --help`, the Workspace's `?`) marks it `(experimental, off)`. `sshctl experimental disable <feature>` turns it off again. The setting is `"experimental": { "bootstrap": true, "provision": true }` in `config.json`, so it is synced with the rest of your config and holds on every machine. A running Workspace sees a change after `^B r`.
+
 ### Bootstrap
+
+Bootstrap is an [Experimental feature](#experimental-features): turn it on with `sshctl experimental enable bootstrap` first.
 
 `bootstrap <alias>` makes a Connection reachable with your selected key (`sshctl key use`), in your terminal:
 
@@ -73,6 +91,8 @@ Group launching starts a separate terminal for each Connection in the group. The
 If step 2 or 3 fails, nothing after step 1 changes, the `IdentityFile` step 1 cleared is put back, and sshctl says why. A host without a POSIX `sh` fails before anything is installed. For a host defined elsewhere in your ssh_config, Bootstrap only installs the key and leaves the Host block as it is. With no selected key, Bootstrap first creates one: `ssh-keygen` makes an ed25519 key at `~/.ssh/id_ed25519`, or at `~/.ssh/sshctl_ed25519` when `id_ed25519` already exists (an existing key is never overwritten), asks you for a passphrase (leave it empty for none), and the new key becomes the selected key. Bootstrap never changes the host's SSH server settings, and never runs Provision. Running it again is safe.
 
 ### Provision
+
+Provision is an [Experimental feature](#experimental-features): turn it on with `sshctl experimental enable provision` first.
 
 `provision <alias>` applies your dotfiles to the Connection's host with [chezmoi](https://www.chezmoi.io/), in your terminal over `ssh <alias>` (with the selected key's `-i`). If chezmoi is already on the host (on `PATH` or in `~/.local/bin`), it runs `chezmoi update --apply`. Otherwise it installs chezmoi into `~/.local/bin` with chezmoi's install script, fetched with `curl -fsLS` or, when curl is missing, `wget -qO-`, and runs `init --apply <repo>`; that is the same as running `sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply <repo>` on the host. Provision runs only chezmoi: anything else, such as installing tools with mise, is up to your dotfiles. It never uses sudo and writes only inside the remote home. It never runs on its own and is not part of connecting.
 
@@ -109,10 +129,10 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `1`–`9` (prefix `1`–`9` in the terminal) | Switch to Space 1–9 |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
-| prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`) |
+| prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`); both refuse while the [Experimental feature](#experimental-features) is off |
 | prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
-| `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab |
+| `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab (while Bootstrap is off, `Ctrl+O` saves nothing and the form says why) |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `s` | Scroll back through the tab's history (`q` to leave; the mouse wheel also scrolls) |
@@ -163,7 +183,7 @@ sshctl has no sync command. To keep the same Connections and Groups on every mac
 
 | Sync | File | Holds |
 | --- | --- | --- |
-| Yes | `~/.config/sshctl/config.json` | Groups, Connections' descriptions and Groups, Provision repos, `workspace` settings |
+| Yes | `~/.config/sshctl/config.json` | Groups, Connections' descriptions and Groups, Provision repos, Experimental features, `workspace` settings |
 | Yes | `~/.ssh/sshctl_config` | The Host blocks sshctl writes |
 | Never | `~/.config/sshctl/state.json` | This machine's History, selected key and key list, collapsed Groups, list width |
 | Never | Private keys (`~/.ssh/id_ed25519` and the like) | Copy or create them on each machine yourself |

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
@@ -46,6 +47,10 @@ func (a *app) spaceCommand(args []string) error {
 			return a.catalog().MoveSpace(args[1], position)
 		}
 	case "dotfiles":
+		// A Space's dotfiles repo is a Provision setting.
+		if err := a.checkFeature(config.FeatureProvision); err != nil {
+			return err
+		}
 		return a.spaceDotfiles(args[1:])
 	}
 	return errors.New("usage: sshctl " + spaceUsage)

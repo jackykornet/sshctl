@@ -120,6 +120,9 @@ func cliTree(t *testing.T, sshConfig string, cfg *config.Config, in string) (*ap
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "sshctl.json")
+	// The commands' own tests run with every Experimental feature on;
+	// experimental_test.go turns them off.
+	cfg.Experimental = config.Experimental{Bootstrap: true, Provision: true}
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatal(err)
 	}

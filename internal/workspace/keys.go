@@ -44,6 +44,9 @@ type boundKey struct {
 type binding struct {
 	keys [numContexts][]boundKey
 	help string
+	// features lists the Experimental features the binding runs; the
+	// help screen says which of them are off.
+	features []string
 }
 
 // bindings lists every Workspace key binding, in help-screen order.
@@ -102,8 +105,9 @@ var bindings = []binding{
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.
-		keys: each(inPrefix, on("i", followCursor(actionTab(ActionBootstrap))), on("p", followCursor(provisionTab))),
-		help: "bootstrap / provision the connection in its own tab",
+		keys:     each(inPrefix, on("i", followCursor(bootstrapTab)), on("p", followCursor(provisionTab))),
+		help:     "bootstrap / provision in its own tab",
+		features: []string{catalog.FeatureBootstrap, catalog.FeatureProvision},
 	},
 	{
 		keys: keysIn(inPrefix, followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }), "g"),
@@ -278,10 +282,41 @@ func actionTab(a Action) action {
 	}
 }
 
+// bootstrapTab runs Bootstrap in a new tab of the Connection actionTab
+// would pick, and refuses at once, with no tab, while Bootstrap is off.
+func bootstrapTab(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	if err := m.features.Check(catalog.FeatureBootstrap); err != nil {
+		return m.setStatus(err.Error(), true)
+	}
+	return actionTab(ActionBootstrap)(m, msg)
+}
+
+// helpText is b's help-screen text, saying which of its Experimental
+// features are off.
+func (m *Model) helpText(b binding) string {
+	var off []string
+	for _, f := range b.features {
+		if !m.features.On(f) {
+			off = append(off, f)
+		}
+	}
+	switch {
+	case len(off) == 0:
+		return b.help
+	case len(off) == len(b.features):
+		return b.help + " (experimental, off)"
+	}
+	return b.help + " (" + strings.Join(off, ", ") + " off)"
+}
+
 // provisionTab asks before running Provision in a new tab of the Connection
-// actionTab would pick. A dotfiles setting of none refuses at once, with no
-// tab; with no repo set, the tab itself asks for one.
+// actionTab would pick. While Provision is off, or with a dotfiles setting
+// of none, it refuses at once, with no tab; with no repo set, the tab
+// itself asks for one.
 func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	if err := m.features.Check(catalog.FeatureProvision); err != nil {
+		return m.setStatus(err.Error(), true)
+	}
 	target := m.moveTarget()
 	if target == nil {
 		return m.setStatus(fmt.Sprintf("no connection to %s", ActionProvision), false)

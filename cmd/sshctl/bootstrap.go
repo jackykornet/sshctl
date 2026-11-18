@@ -9,12 +9,16 @@ import (
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
 const bootstrapUsage = "bootstrap <alias>"
 
 func (a *app) bootstrapCommand(args []string) error {
+	if err := a.checkFeature(config.FeatureBootstrap); err != nil {
+		return err
+	}
 	alias, ok := aliasArg(args)
 	if !ok {
 		return errors.New("usage: sshctl " + bootstrapUsage)

@@ -9,7 +9,7 @@
   P/S/1-9  ^B S/1-9     Space picker / Space names / switch to Space 1-9        
   Alt+↑/↓               previous / next open connection in the Space            
   ^B n/c                new tab for the active connection (c runs claude)       
-  ^B i/p                bootstrap / provision the connection in its own tab     
+  ^B i/p                bootstrap / provision in its own tab                    
   ^B g                  open the connection's group as tabs                     
   ^B m                  move a connection to a group (or drag it)               
   a/e/d  ^B a/e/d       add / edit / delete the cursor's connection or group    

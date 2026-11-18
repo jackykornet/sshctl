@@ -15,6 +15,9 @@ import (
 const provisionUsage = "provision <alias> | provision default [<url|none> | --unset] [--group <name>]"
 
 func (a *app) provisionCommand(args []string) error {
+	if err := a.checkFeature(config.FeatureProvision); err != nil {
+		return err
+	}
 	if len(args) > 0 && args[0] == "default" {
 		return a.provisionDefault(args[1:])
 	}
