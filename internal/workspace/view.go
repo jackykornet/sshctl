@@ -481,8 +481,8 @@ func (m *Model) renderStatus(w int) string {
 
 func (m *Model) sessionStatus() string {
 	key := "OpenSSH default"
-	if m.identity != "" {
-		key = filepath.Base(m.identity)
+	if k := m.keys.SpaceIdentity(m.st.Space()); k != "" {
+		key = filepath.Base(k)
 	}
 	space := ""
 	if m.spaceBar() != "" {

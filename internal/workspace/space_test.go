@@ -148,3 +148,17 @@ func TestReloadOpensTheSavedSpaceWhenTheActiveOneIsGone(t *testing.T) {
 		t.Errorf("after the reload, active Space = %q, want acme-corp", got)
 	}
 }
+
+func TestTheStatusBarShowsTheActiveSpacesKey(t *testing.T) {
+	f := spaceCatalog()
+	f.identity = "/home/me/.ssh/id_global"
+	f.spaceKeys = map[string]string{"acme": "/home/me/.ssh/id_acme"}
+	m := newStoreModel(t, f)
+	if got := m.sessionStatus(); !strings.HasSuffix(got, "key: id_global") {
+		t.Errorf("default Space status %q, want the global key", got)
+	}
+	press(m, text("2")...)
+	if got := m.sessionStatus(); !strings.HasSuffix(got, "key: id_acme") {
+		t.Errorf("acme status %q, want acme's key", got)
+	}
+}

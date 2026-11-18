@@ -16,6 +16,10 @@ type Space struct {
 	// Group not put in another. Groups and Connections refer to it as "",
 	// so renaming it touches nothing but this record.
 	Default bool `json:"default,omitempty"`
+	// Dotfiles is the dotfiles repo URL Provision applies to the Space's
+	// Connections whose Group sets none, DotfilesNone to refuse Provision
+	// for them, or "" when unset, so the global Provision.Dotfiles applies.
+	Dotfiles string `json:"dotfiles,omitempty"`
 }
 
 // DefaultSpaceName is the default Space's name until the user renames it.
@@ -129,6 +133,10 @@ func (c *Config) RenameSpace(space, name string) {
 	if c.ActiveSpace == space {
 		c.ActiveSpace = name
 	}
+	if key, ok := c.SpaceIdentities[space]; ok {
+		delete(c.SpaceIdentities, space)
+		c.SpaceIdentities[name] = key
+	}
 }
 
 // DeleteSpace removes the record of the Space space, which must not be the
@@ -145,6 +153,16 @@ func (c *Config) DeleteSpace(space string) {
 	if c.ActiveSpace == space {
 		c.ActiveSpace = ""
 	}
+	delete(c.SpaceIdentities, space)
+}
+
+// IdentityFor returns the Selected identity for the Connections of space
+// ("" for the default Space): the Space's own, or else the global one.
+func (c *Config) IdentityFor(space string) string {
+	if key, ok := c.SpaceIdentities[space]; ok {
+		return key
+	}
+	return c.SelectedIdentity
 }
 
 // SpaceContents lists the Groups of space and the Connections whose

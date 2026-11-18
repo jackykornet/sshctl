@@ -78,8 +78,12 @@ type Snapshot struct {
 	// Groups lists every Group of every Space in the user's order,
 	// including empty ones.
 	Groups []Group
-	// Identity is the Selected identity's key path, or "" when OpenSSH chooses keys.
+	// Identity is the global Selected identity's key path, or "" when
+	// OpenSSH chooses keys.
 	Identity string
+	// SpaceIdentities is the Selected identity of each Space that selects
+	// its own, by how Connections refer to the Space; see SpaceIdentity.
+	SpaceIdentities map[string]string
 	// Collapsed lists the groups the Workspace shows collapsed on this
 	// machine, by CollapsedKey (ADR-0004).
 	Collapsed []string
@@ -87,6 +91,15 @@ type Snapshot struct {
 	// ssh_config does not Include it, so ssh cannot see its Host blocks, as
 	// on a new machine the file was synced to (ADR-0004). AddInclude fixes it.
 	Include *IncludeError
+}
+
+// SpaceIdentity returns the Selected identity for the Connections of the
+// Space ref ("" for the default Space): its own, or else the global one.
+func (s Snapshot) SpaceIdentity(ref string) string {
+	if key, ok := s.SpaceIdentities[ref]; ok {
+		return key
+	}
+	return s.Identity
 }
 
 // Entry returns the Connection alias, Orphaned or not, and whether there
@@ -172,7 +185,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, h := range hosts {
 		managed[h.Alias] = h
 	}
-	snap := Snapshot{Spaces: cfg.Spaces, ActiveSpace: cfg.ActiveSpace, Groups: cfg.Groups, Identity: cfg.SelectedIdentity, Collapsed: cfg.CollapsedGroups}
+	snap := Snapshot{Spaces: cfg.Spaces, ActiveSpace: cfg.ActiveSpace, Groups: cfg.Groups, Identity: cfg.SelectedIdentity, SpaceIdentities: cfg.SpaceIdentities, Collapsed: cfg.CollapsedGroups}
 	if snap.Include, err = c.missingInclude(); err != nil {
 		return Snapshot{}, err
 	}
@@ -264,6 +277,36 @@ func (c *Catalog) SetIdentity(key string) error {
 	})
 }
 
+// IdentityFor returns the Selected identity ssh uses for alias: its
+// Space's own, or else the global one; "" when OpenSSH chooses keys.
+func (c *Catalog) IdentityFor(alias string) (string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return "", err
+	}
+	return cfg.IdentityFor(cfg.Connections[alias].Space), nil
+}
+
+// SetSpaceIdentity makes key (a private key path) the Selected identity of
+// the Space space's Connections; "" unsets it, so the global one applies.
+func (c *Catalog) SetSpaceIdentity(space, key string) error {
+	return c.update(func(cfg *config.Config) error {
+		ref, err := spaceRef(cfg, space)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			delete(cfg.SpaceIdentities, ref)
+			return nil
+		}
+		if cfg.SpaceIdentities == nil {
+			cfg.SpaceIdentities = map[string]string{}
+		}
+		cfg.SpaceIdentities[ref] = key
+		return nil
+	})
+}
+
 // Dotfiles returns the global dotfiles setting: a repo URL,
 // config.DotfilesNone, or "" when unset.
 func (c *Catalog) Dotfiles() (string, error) {
@@ -308,35 +351,36 @@ var (
 	ErrProvisionRefused = errors.New("Provision is refused by the dotfiles setting none")
 )
 
-// ProvisionRepo returns the dotfiles repo Provision applies to alias's host:
-// its Group's setting when that is set, otherwise the global one. There is
-// no per-Connection setting. A Group set to config.DotfilesNone refuses
-// Provision whatever the global setting is, and the error names the Group.
+// ProvisionRepo returns the dotfiles repo Provision applies to alias's host,
+// resolved Group → Space → global (ADR-0005): the first of its Group's, its
+// Space's and the global setting that is set. There is no per-Connection
+// setting. A setting of config.DotfilesNone refuses Provision whatever the
+// settings after it are, and the error names the Group or Space it is on.
 func (c *Catalog) ProvisionRepo(alias string) (string, error) {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return "", err
 	}
-	if m := cfg.Connections[alias]; m.Group != "" {
-		group := m.Group
-		if i := cfg.GroupIndex(m.Space, group); i >= 0 {
-			switch repo := cfg.Groups[i].Dotfiles; repo {
-			case "":
-			case config.DotfilesNone:
-				return "", fmt.Errorf("%w of group %s", ErrProvisionRefused, group)
-			default:
-				return repo, nil
-			}
+	m := cfg.Connections[alias]
+	type setting struct{ repo, on string }
+	var settings []setting
+	if i := cfg.GroupIndex(m.Space, m.Group); m.Group != "" && i >= 0 {
+		settings = append(settings, setting{cfg.Groups[i].Dotfiles, " of group " + m.Group})
+	}
+	if i := cfg.SpaceIndex(m.Space); i >= 0 {
+		settings = append(settings, setting{cfg.Spaces[i].Dotfiles, " of space " + cfg.Spaces[i].Name})
+	}
+	settings = append(settings, setting{cfg.Provision.Dotfiles, ""})
+	for _, s := range settings {
+		switch s.repo {
+		case "":
+		case config.DotfilesNone:
+			return "", fmt.Errorf("%w%s", ErrProvisionRefused, s.on)
+		default:
+			return s.repo, nil
 		}
 	}
-	switch repo := cfg.Provision.Dotfiles; repo {
-	case "":
-		return "", ErrNoDotfiles
-	case config.DotfilesNone:
-		return "", ErrProvisionRefused
-	default:
-		return repo, nil
-	}
+	return "", ErrNoDotfiles
 }
 
 // update loads the sshctl config, applies change and saves it, unless

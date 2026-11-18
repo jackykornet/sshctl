@@ -61,7 +61,7 @@ func (a *app) bootstrap(alias string) error {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
 	}
 	ctx := context.Background()
-	key := snap.Identity
+	key := snap.SpaceIdentity(e.Space)
 	if key == "" {
 		if key, err = a.generateIdentity(ctx); err != nil {
 			return err

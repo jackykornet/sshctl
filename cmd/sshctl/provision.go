@@ -37,7 +37,7 @@ func (a *app) provision(alias string) error {
 		return err
 	}
 	ctx := context.Background()
-	key, err := a.identity()
+	key, err := a.identityFor(alias)
 	if err != nil {
 		return err
 	}

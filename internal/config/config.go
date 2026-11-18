@@ -95,6 +95,11 @@ type State struct {
 	Keys []string `json:"keys,omitempty"`
 	// SelectedIdentity is the Selected identity's key path, or "".
 	SelectedIdentity string `json:"defaultKey,omitempty"`
+	// SpaceIdentities is the Selected identity of each Space that selects
+	// its own, by how Connections refer to the Space ("" for the default
+	// Space). Key paths are per machine, so it is here rather than on the
+	// Space record (ADR-0005).
+	SpaceIdentities map[string]string `json:"spaceKeys,omitempty"`
 	// CollapsedGroups lists the groups whose members the connection list
 	// hides, by CollapsedKey.
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
