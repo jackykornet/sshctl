@@ -69,19 +69,30 @@ Usage: sshctl                 Open the Workspace (in a terminal)
        sshctl <command> [arguments]
 
 Commands:
-  list                         List Connections
+  list [--space <name>]        List Connections, or one Space's
   connect <alias> [--claude]   Connect using OpenSSH
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
   remove <alias>               Remove sshctl metadata
+  space list                   List Spaces: number, name, groups, connections
+  space add <name>             Create a Space
+  space rename <old> <new>     Rename a Space, keeping its contents
+  space delete <name>          Delete an empty Space
+  space move <name> <position> Set a Space's position (its number)
+  space dotfiles <name> [<url|none>|--unset]
+                               Show or set a Space's dotfiles repo
+  group [--space <name>] ...   Pick the Space for a group command;
+                               <group> is a Group name or number
   group list                   List Groups: number, name, members, dotfiles
   group add <name>             Create a Group
-  group rename <old> <new>     Rename a Group, moving its Connections
-  group delete <name> [--yes]  Delete a Group; its Connections become ungrouped
-  group move <name> <position> Set a Group's position (its number)
+  group rename <group> <new>   Rename a Group, moving its Connections
+  group delete <group> [--yes] Delete a Group; its Connections become ungrouped
+  group move <group> <pos>     Set a Group's position (its number)
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
-  key list|use|add             List, select, or register keys
+  key list|use|add             List, select, or register keys;
+                               key use --space <name> <key|none> selects a
+                               Space's key; none falls back to the global one
   agent ensure                 Inspect SSH agent and optionally add the Selected identity
   known-hosts list|remove      Show or remove known hosts
   bootstrap <alias>            Install your key on the host and use it
@@ -95,14 +106,18 @@ Use sshctl <command> --help for command usage where available.
 }
 func usage(command string) string {
 	switch command {
+	case "list":
+		return "list [--space <name>]"
 	case "connect":
 		return "connect <alias> [--claude]"
 	case "add", "edit", "remove":
 		return command + " <alias>"
 	case "group":
 		return groupUsage
+	case "space":
+		return spaceUsage
 	case "key":
-		return "key list | use <key-path|none> | add <private-key-path>"
+		return "key list | use [--space <name>] <key-path|none> | add <private-key-path>"
 	case "agent":
 		return "agent ensure"
 	case "known-hosts":
@@ -129,7 +144,7 @@ func (a *app) execute(args []string) error {
 	}
 	switch args[0] {
 	case "list":
-		return a.list()
+		return a.list(args[1:])
 	case "connect":
 		return a.connect(args[1:])
 	case "add":
@@ -140,6 +155,8 @@ func (a *app) execute(args []string) error {
 		return a.remove(args[1:])
 	case "group":
 		return a.groupCommand(args[1:])
+	case "space":
+		return a.spaceCommand(args[1:])
 	case "history":
 		for _, h := range a.cfg.History {
 			fmt.Fprintln(a.out, h)
@@ -169,22 +186,38 @@ func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
 // catalog is the Connection catalog over a's config files, read fresh on each call.
 func (a *app) catalog() *catalog.Catalog { return catalog.New(a.cfgPath, a.legacy, a.ssh) }
 
-// identity returns the Selected identity as the catalog holds it now, or ""
-// when OpenSSH chooses keys.
+// identity returns the global Selected identity as the catalog holds it
+// now, or "" when OpenSSH chooses keys.
 func (a *app) identity() (string, error) {
 	snap, err := a.catalog().Snapshot()
 	return snap.Identity, err
 }
 
+// identityFor returns the Selected identity ssh uses for alias as the
+// catalog holds it now: its Space's own, or else the global one.
+func (a *app) identityFor(alias string) (string, error) { return a.catalog().IdentityFor(alias) }
+
 // list prints the Connections the Workspace lists: ssh_config's aliases, then
-// the Orphaned connections. When sshctl's hosts file is not Included in
-// ssh_config it adds a one-line hint on stderr.
-func (a *app) list() error {
+// the Orphaned connections, all of them or, with --space, one Space's. When
+// sshctl's hosts file is not Included in ssh_config it adds a one-line hint
+// on stderr.
+func (a *app) list(args []string) error {
+	space, rest, err := cutSpaceOption(args)
+	if err != nil || len(rest) > 0 {
+		return errors.New("usage: sshctl " + usage("list"))
+	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
+	spaces, err := space.spaces(snap)
+	if err != nil {
+		return err
+	}
 	for _, e := range snap.Entries {
+		if space.set && e.Space != spaces[0].ref {
+			continue
+		}
 		var label []string
 		if e.Description != "" {
 			label = append(label, e.Description)
@@ -220,7 +253,7 @@ func (a *app) connect(args []string) error {
 		return errors.New("usage: sshctl connect <alias> [--claude]")
 	}
 	alias := pos[0]
-	key, err := a.identity()
+	key, err := a.identityFor(alias)
 	if err != nil {
 		return err
 	}
@@ -245,7 +278,7 @@ func (a *app) metadata(args []string, edit bool) error {
 		return err
 	}
 	c, _ := snap.Entry(alias)
-	if edit && c.Description == "" && c.Group == "" {
+	if edit && c.Description == "" && c.Group == "" && c.Space == "" {
 		return fmt.Errorf("no sshctl metadata for %q", alias)
 	}
 	reader := bufio.NewReader(a.in)
@@ -267,7 +300,7 @@ func (a *app) metadata(args []string, edit bool) error {
 	}
 	// Saving under the same alias without Managed changes only the
 	// description and group, never a Host block.
-	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Group: c.Group})
+	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Space: c.Space, Group: c.Group})
 	if errors.Is(err, catalog.ErrUnknownGroup) {
 		return fmt.Errorf("no group %q; create it first with: sshctl group add %s", c.Group, c.Group)
 	}
@@ -284,26 +317,30 @@ func (a *app) remove(args []string) error {
 	}
 	return err
 }
-func (a *app) groupConnect(args []string) error {
+func (a *app) groupConnect(space spaceOption, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: sshctl group connect <group>")
+		return errors.New("usage: sshctl group [--space <name>] connect <group>")
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
+	ref, group, err := findGroup(snap, space, args[0])
+	if err != nil {
+		return err
+	}
 	var names []string
 	for _, e := range snap.Entries {
-		if e.Group == args[0] {
+		if e.Space == ref && e.Group == group {
 			names = append(names, e.Alias)
 		}
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		return fmt.Errorf("group %q has no Connections", args[0])
+		return fmt.Errorf("group %q has no Connections", group)
 	}
 	for _, n := range names {
-		if err := platform.OpenSSH(n, snap.Identity); err != nil {
+		if err := platform.OpenSSH(n, snap.SpaceIdentity(ref)); err != nil {
 			return err
 		}
 	}
@@ -336,16 +373,27 @@ func (a *app) keys(args []string) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		selected, err := a.identity()
+		snap, err := a.catalog().Snapshot()
 		if err != nil {
 			return err
 		}
 		for _, k := range keys {
-			tag := ""
-			if selected != "" && (k == selected || strings.TrimSuffix(k, ".pub") == selected) {
-				tag = " (Selected identity)"
+			var tags []string
+			if isKey(k, snap.Identity) {
+				tags = append(tags, "Selected identity")
 			}
-			fmt.Fprintln(a.out, k+tag)
+			var spaces []string
+			for ref, key := range snap.SpaceIdentities {
+				if isKey(k, key) {
+					spaces = append(spaces, "Selected identity of space "+snap.SpaceName(ref))
+				}
+			}
+			sort.Strings(spaces)
+			tags = append(tags, spaces...)
+			if len(tags) > 0 {
+				k += " (" + strings.Join(tags, ", ") + ")"
+			}
+			fmt.Fprintln(a.out, k)
 		}
 		return nil
 	case "add":
@@ -367,10 +415,11 @@ func (a *app) keys(args []string) error {
 		a.cfg.Keys = append(a.cfg.Keys, abs)
 		return a.save()
 	case "use":
-		if len(args) != 2 {
-			return errors.New("usage: sshctl key use <key-path|none>")
+		space, rest, err := cutSpaceOption(args[1:])
+		if err != nil || len(rest) != 1 {
+			return errors.New("usage: sshctl key use [--space <name>] <key-path|none>")
 		}
-		k := args[1]
+		k := rest[0]
 		if k != "none" {
 			abs, err := filepath.Abs(k)
 			if err != nil {
@@ -383,10 +432,21 @@ func (a *app) keys(args []string) error {
 		} else {
 			k = ""
 		}
+		if space.set {
+			// none unsets the Space's own, so the global one applies.
+			return a.catalog().SetSpaceIdentity(space.name, k)
+		}
 		return a.catalog().SetIdentity(k)
 	}
 	return errors.New("usage: sshctl key list|use|add")
 }
+
+// isKey reports whether the key file k (a private key or its .pub) is the
+// private key selected, which is set.
+func isKey(k, selected string) bool {
+	return selected != "" && (k == selected || strings.TrimSuffix(k, ".pub") == selected)
+}
+
 func (a *app) agentEnsure() error {
 	status, err := openssh.AgentStatus()
 	if err != nil {

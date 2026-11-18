@@ -1,0 +1,18 @@
+ [1] [2] [3]                │                                                   
+ ▾ 1 web 2                  │  Add connection                                   
+     prod-web public site   │                                                   
+›    staging                │    Alias          name used with ssh              
+                            │    HostName       host or IP address              
+                            │    User           OpenSSH default                 
+                            │    Port           22                              
+                            │    Identity file  OpenSSH default                 
+                            │    Description                                    
+                            │  › Space          default█                        
+                            │                   1 default · 2 acme · 3 idle     
+                            │    Group          web                             
+                            │                   0 none · 1 web                  
+                            │                                                   
+                            │  Tab/↑↓ move · Ctrl+S save · Esc cancel           
+                            │  Ctrl+O save and Bootstrap                        
+                            │                                                   
+ default · no active connection · key: id_ed25519                     ^B ? help 

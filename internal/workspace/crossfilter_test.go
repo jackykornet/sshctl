@@ -1,0 +1,103 @@
+package workspace
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+func TestOpeningAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
+	m := newSpaceModel(t, 80, 10) // default: staging, prod-web (web); acme: db (data); idle
+	press(m, text("/db")...)
+	press(m, keyEnter) // done typing
+	if got := rowNames(m.st.Rows()); !reflect.DeepEqual(got, []string{"db"}) {
+		t.Fatalf("filter db lists %v, want acme's db", got)
+	}
+	press(m, keyEnter)
+	if got := m.st.Space(); got != "acme" {
+		t.Fatalf("opening db left Space %q active, want acme", got)
+	}
+	if c := m.st.Active(); c == nil || c.Alias != "db" || !c.Open() {
+		t.Fatalf("Active connection = %v, want db with a tab", c)
+	}
+
+	// Clearing the filter shows the active Space's list again.
+	m.focus = focusList
+	press(m, keyEsc)
+	if got, want := rowNames(m.st.Rows()), []string{"[data]", "db"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after Esc, rows = %v, want acme's %v", got, want)
+	}
+}
+
+func TestEachCrossSpaceMatchShowsItsSpace(t *testing.T) {
+	m := newSpaceModel(t, 80, 10)
+	press(m, text("/a")...) // staging, db's Group data
+	golden(t, "filter-spaces", m)
+	got := strings.Join(listText(m), "\n")
+	for _, want := range []string{"staging [default/web]", "db [acme/data]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("list lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestEveryActionOnAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
+	tests := []struct {
+		name  string
+		keys  []tea.KeyPressMsg
+		check func(t *testing.T, m *Model)
+	}{
+		{"prefix n opens a tab there", []tea.KeyPressMsg{keyPrefix, text("n")[0]}, func(t *testing.T, m *Model) {
+			if c := m.st.Active(); c == nil || c.Alias != "db" {
+				t.Errorf("Active connection = %v, want db", c)
+			}
+		}},
+		{"prefix g opens its Group there", []tea.KeyPressMsg{keyPrefix, text("g")[0]}, func(t *testing.T, m *Model) {
+			if c := m.st.Active(); c == nil || c.Alias != "db" {
+				t.Errorf("Active connection = %v, want db of Group data", c)
+			}
+		}},
+		{"prefix m moves it among its own Groups", []tea.KeyPressMsg{keyPrefix, text("m")[0]}, func(t *testing.T, m *Model) {
+			if in, ok := m.modal.(*moveInput); !ok || in.alias != "db" {
+				t.Errorf("modal = %#v, want the move prompt for db", m.modal)
+			}
+		}},
+		{"a adds in its Space and Group", text("a"), func(t *testing.T, m *Model) {
+			if f := m.form(); f == nil || f.space != "acme" || f.spec().Group != "data" {
+				t.Errorf("form = %+v, want a new Connection in acme's data", f)
+			}
+		}},
+		{"e edits it with its Space's Groups", text("e"), func(t *testing.T, m *Model) {
+			if f := m.form(); f == nil || f.old != "db" || !reflect.DeepEqual(m.st.groups, []string{"data"}) {
+				t.Errorf("form %+v with Groups %v, want db's form over acme's Groups", f, m.st.groups)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newSpaceModel(t, 80, 10)
+			press(m, text("/db")...)
+			press(m, keyEnter)
+			press(m, tt.keys...)
+			if got := m.st.Space(); got != "acme" {
+				t.Fatalf("active Space = %q, want acme", got)
+			}
+			tt.check(t, m)
+		})
+	}
+}
+
+func TestClickingAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
+	m := newSpaceModel(t, 80, 10)
+	press(m, text("/a")...)
+	press(m, keyEnter)
+	m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft}) // db, under the bar, filter and staging
+	if got := m.st.Space(); got != "acme" {
+		t.Fatalf("clicking db left Space %q active, want acme", got)
+	}
+	if m.drag != nil {
+		t.Error("a click on a match from another Space started a drag")
+	}
+}

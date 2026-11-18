@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -16,7 +17,9 @@ type commandCall struct {
 }
 
 // fakeCatalog stands in for the Connection catalog. Snapshot lists entries
-// (with identity and startCollapsed) or fails with loadErr. It records every
+// (with identity and startCollapsed) or fails with loadErr. It has the
+// default Space, then spaces, with activeSpace active and spaceGroups as
+// their Groups; SetActiveSpace records and changes activeSpace. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
 // the deleted alias) on the next Snapshot. Snapshot reports include, the
@@ -25,8 +28,14 @@ type commandCall struct {
 // tested in internal/catalog.
 type fakeCatalog struct {
 	entries        []Entry
-	groups         []string // stored Group names, in order
+	groups         []string // the default Space's stored Group names, in order
+	spaces         []Space  // the Spaces other than the default Space, in order
+	defaultName    string   // the default Space's name; "" reads as "default"
+	defaultAt      int      // the default Space's index among all Spaces
+	spaceGroups    []Group  // the other Spaces' Groups
+	activeSpace    string
 	identity       string
+	spaceKeys      map[string]string // SpaceIdentities
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
@@ -47,14 +56,120 @@ type fakeCatalog struct {
 	moveGroupErr error
 	groupOps     []string // "add x", "rename x→y", "delete x", one per Group call
 	groupErr     error    // returned by the next Group call, which then changes nothing
+	groupSpaces  []string // the Space of each Group call
+	activeSaves  []string // SetActiveSpace spaces
+	spaceOps     []string // "add x", "rename x→y", "delete x", "move x 2", one per Space call
+	spaceErr     error    // returned by the next Space call, which then changes nothing
+}
+
+// spaceOp records op and returns spaceErr, once.
+func (f *fakeCatalog) spaceOp(op string) error {
+	f.spaceOps = append(f.spaceOps, op)
+	err := f.spaceErr
+	f.spaceErr = nil
+	return err
+}
+
+// allSpaces returns every Space in order, the default Space among them.
+func (f *fakeCatalog) allSpaces() []Space {
+	name := f.defaultName
+	if name == "" {
+		name = "default"
+	}
+	return slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Name: name, Default: true})
+}
+
+// setSpaces stores all, every Space in order, as spaces and defaultAt.
+func (f *fakeCatalog) setSpaces(all []Space) {
+	f.spaces = nil
+	for i, s := range all {
+		if s.Default {
+			f.defaultName, f.defaultAt = s.Name, i
+		} else {
+			f.spaces = append(f.spaces, s)
+		}
+	}
+}
+
+// spaceIndex returns the index in spaces of the Space name, or -1 (also for
+// the default Space, which spaces does not hold).
+func (f *fakeCatalog) spaceIndex(name string) int {
+	return slices.IndexFunc(f.spaces, func(s Space) bool { return s.Name == name })
+}
+
+func (f *fakeCatalog) AddSpace(name string) error {
+	if err := f.spaceOp("add " + name); err != nil {
+		return err
+	}
+	f.spaces = append(f.spaces, Space{Name: name})
+	return nil
+}
+
+// RenameSpace renames a Space after the default Space, moving its Groups,
+// Connections and active state with it, as the catalog does.
+func (f *fakeCatalog) RenameSpace(old, name string) error {
+	if err := f.spaceOp("rename " + old + "→" + name); err != nil {
+		return err
+	}
+	i := f.spaceIndex(old)
+	if i < 0 {
+		f.defaultName = name // Connections refer to the default Space as ""
+		return nil
+	}
+	f.spaces[i].Name = name
+	for j := range f.spaceGroups {
+		if f.spaceGroups[j].Space == old {
+			f.spaceGroups[j].Space = name
+		}
+	}
+	for j := range f.entries {
+		if f.entries[j].Space == old {
+			f.entries[j].Space = name
+		}
+	}
+	if f.activeSpace == old {
+		f.activeSpace = name
+	}
+	return nil
+}
+
+func (f *fakeCatalog) DeleteSpace(name string) error {
+	if err := f.spaceOp("delete " + name); err != nil {
+		return err
+	}
+	if i := f.spaceIndex(name); i >= 0 {
+		f.spaces = slices.Delete(f.spaces, i, i+1)
+	}
+	if f.activeSpace == name {
+		f.activeSpace = ""
+	}
+	return nil
+}
+
+// MoveSpace puts the Space name, the default Space too, at position,
+// counting from 1.
+func (f *fakeCatalog) MoveSpace(name string, position int) error {
+	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, position)); err != nil {
+		return err
+	}
+	all := f.allSpaces()
+	i := slices.IndexFunc(all, func(s Space) bool { return s.Name == name })
+	if i < 0 || position < 1 || position > len(all) {
+		return errors.New("bad space move")
+	}
+	s := all[i]
+	f.setSpaces(slices.Insert(slices.Delete(all, i, i+1), position-1, s))
+	return nil
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 	f.loads++
-	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, Collapsed: f.startCollapsed}
+	snap := Snapshot{Entries: append([]Entry(nil), f.entries...), Identity: f.identity, SpaceIdentities: f.spaceKeys, Collapsed: f.startCollapsed, ActiveSpace: f.activeSpace}
+	snap.Spaces = f.allSpaces()
 	for _, g := range f.groups {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}
+	snap.Groups = append(snap.Groups, f.spaceGroups...)
 	if f.includes == 0 {
 		snap.Include = f.include
 	}
@@ -90,7 +205,7 @@ func (f *fakeCatalog) Save(old string, s Spec) error {
 		}
 	}
 	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
-	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Group: s.Group, Managed: s.Managed, Host: s.Host})
+	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host})
 	return nil
 }
 
@@ -102,9 +217,15 @@ func (f *fakeCatalog) Delete(alias string) error {
 
 func (f *fakeCatalog) AddInclude() error { f.includes++; return nil }
 
+func (f *fakeCatalog) SetActiveSpace(space string) error {
+	f.activeSaves = append(f.activeSaves, space)
+	f.activeSpace = space
+	return nil
+}
+
 // MoveGroup records the call and, unless moveGroupErr is set, puts name at
 // position (from 1) in groups.
-func (f *fakeCatalog) MoveGroup(name string, position int) error {
+func (f *fakeCatalog) MoveGroup(_, name string, position int) error {
 	f.groupMoves = append(f.groupMoves, [2]any{name, position})
 	if f.moveGroupErr != nil {
 		return f.moveGroupErr
@@ -117,32 +238,33 @@ func (f *fakeCatalog) MoveGroup(name string, position int) error {
 	return nil
 }
 
-// groupOp records op and returns groupErr, once.
-func (f *fakeCatalog) groupOp(op string) error {
+// groupOp records op on space's Group and returns groupErr, once.
+func (f *fakeCatalog) groupOp(space, op string) error {
 	f.groupOps = append(f.groupOps, op)
+	f.groupSpaces = append(f.groupSpaces, space)
 	err := f.groupErr
 	f.groupErr = nil
 	return err
 }
 
-func (f *fakeCatalog) AddGroup(name string) error {
-	if err := f.groupOp("add " + name); err != nil {
+func (f *fakeCatalog) AddGroup(space, name string) error {
+	if err := f.groupOp(space, "add "+name); err != nil {
 		return err
 	}
 	f.groups = append(f.groups, name)
 	return nil
 }
 
-func (f *fakeCatalog) RenameGroup(old, name string) error {
-	if err := f.groupOp("rename " + old + "→" + name); err != nil {
+func (f *fakeCatalog) RenameGroup(space, old, name string) error {
+	if err := f.groupOp(space, "rename "+old+"→"+name); err != nil {
 		return err
 	}
 	f.regroup(old, name)
 	return nil
 }
 
-func (f *fakeCatalog) DeleteGroup(name string) error {
-	if err := f.groupOp("delete " + name); err != nil {
+func (f *fakeCatalog) DeleteGroup(space, name string) error {
+	if err := f.groupOp(space, "delete "+name); err != nil {
 		return err
 	}
 	f.regroup(name, "")

@@ -17,7 +17,9 @@ const (
 	// autoHideWidth is the total width below which the connection list hides itself.
 	autoHideWidth = 60
 	statusTimeout = 4 * time.Second
-	wheelLines    = 3
+	// spaceNoteTimeout is how long the Space note stays without a key press.
+	spaceNoteTimeout = 3 * time.Second
+	wheelLines       = 3
 )
 
 // Snapshot is what the Workspace loads at startup and on refresh. Its
@@ -44,14 +46,29 @@ type Catalog interface {
 	Delete(alias string) error
 	// AddInclude makes ssh_config read sshctl's hosts file.
 	AddInclude() error
-	// MoveGroup puts the stored Group name at position, counting from 1.
-	MoveGroup(name string, position int) error
-	// AddGroup creates an empty Group after the others.
-	AddGroup(name string) error
+	// The Group methods take the Space by name, "" for the default Space.
+
+	// MoveGroup puts space's Group name at position among space's Groups,
+	// counting from 1.
+	MoveGroup(space, name string, position int) error
+	// AddGroup creates an empty Group after space's others.
+	AddGroup(space, name string) error
 	// RenameGroup renames a Group; its members move with it.
-	RenameGroup(old, name string) error
+	RenameGroup(space, old, name string) error
 	// DeleteGroup deletes a Group; its members become ungrouped.
-	DeleteGroup(name string) error
+	DeleteGroup(space, name string) error
+	// SetActiveSpace saves the Space the Workspace shows, by name ("" for
+	// the default Space).
+	SetActiveSpace(space string) error
+	// AddSpace creates an empty Space after the others.
+	AddSpace(name string) error
+	// RenameSpace renames a Space; its Groups and Connections, collapsed
+	// Groups and whether it is active move with it.
+	RenameSpace(old, name string) error
+	// DeleteSpace deletes an empty Space other than the default Space.
+	DeleteSpace(name string) error
+	// MoveSpace puts a Space at position, counting from 1.
+	MoveSpace(name string, position int) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -86,6 +103,9 @@ const (
 
 type clearStatusMsg struct{ id int }
 
+// hideSpaceNoteMsg hides the Space note shown with the same id.
+type hideSpaceNoteMsg struct{ id int }
+
 // drag is a Connection, or a Group header when group is set, held down with
 // the left mouse button in the list.
 type drag struct {
@@ -102,15 +122,17 @@ type drag struct {
 
 // Model is the Workspace's Bubble Tea model.
 type Model struct {
-	opts      Options
-	st        *State
-	identity  string
-	ev        *events
-	sessions  *sessions
-	w, h      int
-	focus     focus
-	prefix    bool // armed outside modals; a modal keeps its own
-	filtering bool
+	opts Options
+	st   *State
+	// identities holds the Snapshot's Selected identities, global and per
+	// Space, for the status line's key (see selectedIdentities).
+	identities Snapshot
+	ev         *events
+	sessions   *sessions
+	w, h       int
+	focus      focus
+	prefix     bool // armed outside modals; a modal keeps its own
+	filtering  bool
 	// filter is the filter being typed, with its cursor; State holds its text.
 	filter    line
 	scrolling bool
@@ -120,6 +142,10 @@ type Model struct {
 	status    string
 	statusErr bool
 	statusID  int
+	// spaceNote shows every Space's number and name under the Space bar
+	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
+	spaceNote   bool
+	spaceNoteID int
 }
 
 // New loads the first Snapshot and builds the Workspace model.
@@ -141,11 +167,11 @@ func New(opts Options) (*Model, error) {
 		return nil, err
 	}
 	st := NewState(snap.Entries)
-	st.SetGroups(groupNames(snap.Groups))
-	for _, g := range snap.Collapsed {
-		st.SetCollapsed(g, true)
-	}
-	m := &Model{opts: opts, st: st, identity: snap.Identity, ev: newEvents()}
+	st.SetSpaces(snap.Spaces, snap.ActiveSpace)
+	st.SetGroups(snap.Groups)
+	st.SetSpace(snap.ActiveSpace)
+	st.RestoreCollapsed(snap.Collapsed)
+	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
 		ev:         m.ev,
@@ -161,15 +187,6 @@ func New(opts Options) (*Model, error) {
 		m.offerInclude(snap.Include)
 	}
 	return m, nil
-}
-
-// groupNames returns the names of groups, in order.
-func groupNames(groups []catalog.Group) []string {
-	out := make([]string, len(groups))
-	for i, g := range groups {
-		out[i] = g.Name
-	}
-	return out
 }
 
 // Run starts the Workspace and blocks until it quits. Every Session still
@@ -201,6 +218,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case clearStatusMsg:
 		if msg.id == m.statusID {
 			m.status = ""
+		}
+	case hideSpaceNoteMsg:
+		if msg.id == m.spaceNoteID {
+			m.spaceNote = false
 		}
 	case redrawMsg:
 		m.sessions.takeActivity()
@@ -272,6 +293,7 @@ func (m *Model) paste(text string) {
 // key routes a key press: to the modal when one is open, then through the
 // bindings for the context the Workspace is in (see bindings).
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
+	m.spaceNote = false
 	if m.modal != nil {
 		return m.modal.key(m, msg)
 	}
@@ -384,12 +406,25 @@ func (m *Model) enter() tea.Cmd {
 	if c == nil {
 		return nil
 	}
+	saved := m.showSpaceOf(c)
 	if c.Open() {
 		m.st.Activate(c.Alias)
 		m.focus = focusPane
+		return saved
+	}
+	return tea.Batch(saved, m.open(c.Alias, Launch{}))
+}
+
+// showSpaceOf makes c's Space the active Space when the filter found c in
+// another Space, so whatever acts on c acts in its own Space: opening it,
+// a new tab or Action, its Group, the form. The cursor stays on c.
+func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
+	if c.Space == m.st.Space() {
 		return nil
 	}
-	return m.open(c.Alias, Launch{})
+	cmd := m.showSpace(c.Space)
+	m.st.SetCursor(c.Alias)
+	return cmd
 }
 
 // open starts a new Session (tab) for alias running what l says, and shows
@@ -565,12 +600,54 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
-	m.st.SetGroups(groupNames(snap.Groups))
-	m.identity = snap.Identity
+	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
+	m.st.SetGroups(snap.Groups)
+	m.identities = selectedIdentities(snap)
 	if alias != "" {
 		m.st.SetCursor(alias)
 	}
 	return m.setStatus(status, false)
+}
+
+// selectedIdentities is the part of snap that says which key each
+// Space's Connections use.
+func selectedIdentities(snap Snapshot) Snapshot {
+	return Snapshot{Identity: snap.Identity, SpaceIdentities: snap.SpaceIdentities}
+}
+
+// switchSpace makes Space number n (counting from 1) the active Space; see
+// showSpace.
+func (m *Model) switchSpace(n int) tea.Cmd {
+	ref, ok := m.st.SpaceRef(n)
+	if !ok {
+		return m.setStatus(fmt.Sprintf("no space %d", n), true)
+	}
+	return m.showSpace(ref)
+}
+
+// showSpace makes the Space ref ("" for the default Space) the active Space
+// and saves it. The list gets focus unless that Space has an Active
+// connection. Sessions in every Space keep running.
+func (m *Model) showSpace(ref string) tea.Cmd {
+	m.st.SetSpace(ref)
+	m.scrolling = false
+	if m.st.Active() == nil {
+		m.focus = focusList
+	}
+	if err := m.opts.Catalog.SetActiveSpace(ref); err != nil {
+		return m.setStatus("save active space: "+err.Error(), true)
+	}
+	return nil
+}
+
+// showSpaceNote shows every Space's number and name under the Space bar,
+// or on the status line while the list is hidden, until the next key or
+// spaceNoteTimeout.
+func (m *Model) showSpaceNote() tea.Cmd {
+	m.spaceNote = true
+	m.spaceNoteID++
+	id := m.spaceNoteID
+	return tea.Tick(spaceNoteTimeout, func(time.Time) tea.Msg { return hideSpaceNoteMsg{id} })
 }
 
 // setCollapsed collapses or expands group and saves the collapsed groups.
@@ -607,7 +684,7 @@ func (m *Model) shiftGroup(delta int) tea.Cmd {
 // moveGroup saves group at position (counting from 1) and reloads the list
 // in the new order.
 func (m *Model) moveGroup(group string, position int) tea.Cmd {
-	if err := m.opts.Catalog.MoveGroup(group, position); err != nil {
+	if err := m.opts.Catalog.MoveGroup(m.st.Space(), group, position); err != nil {
 		return m.setStatus("move group "+group+": "+err.Error(), true)
 	}
 	return m.reload("", fmt.Sprintf("moved group %s to position %d", group, position))
@@ -648,7 +725,7 @@ func (m *Model) moveTo(alias, group string) tea.Cmd {
 		return nil
 	}
 	if group != "" && !m.st.HasGroup(group) {
-		m.askCreateGroup(group, func(m *Model) tea.Cmd {
+		m.askCreateGroup(m.st.Space(), group, func(m *Model) tea.Cmd {
 			if cmd := m.reload("", ""); m.statusErr {
 				return cmd
 			}
@@ -762,7 +839,11 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			return nil
 		}
 		c := row.Conn
-		m.drag = &drag{alias: c.Alias, fromY: mm.Y}
+		if !m.st.CrossSpace() {
+			// A match from another Space has another Space's Groups to drop on.
+			m.drag = &drag{alias: c.Alias, fromY: mm.Y}
+		}
+		saved := m.showSpaceOf(c)
 		if c.Open() {
 			m.st.Activate(c.Alias)
 			m.focus, m.scrolling = focusPane, false
@@ -770,6 +851,7 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			m.st.SetCursor(c.Alias)
 			m.focus = focusList
 		}
+		return saved
 	}
 	return nil
 }
@@ -851,11 +933,16 @@ func (m *Model) paneOffset() int {
 }
 
 // listRows returns the visible rows, the scroll offset into them, and the
-// screen row where they start (after the filter line, if shown).
+// screen row where they start (after the Space bar and the filter line,
+// when shown).
 func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
+	if m.spaceBar() != "" {
+		top++
+	}
+	top += len(m.spaceNoteLines(m.listWidth()))
 	if m.filtering || m.st.Filter() != "" {
-		top = 1
+		top++
 	}
 	height := m.h - 1 - top
 	cur := m.st.CursorIndex(rows)

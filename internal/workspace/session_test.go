@@ -139,7 +139,7 @@ func TestScrollback(t *testing.T) {
 	if strings.Contains(screen(m), "line 1 ") {
 		t.Fatal("line 1 should have scrolled off")
 	}
-	press(m, keyPrefix, text("[")[0])
+	press(m, keyPrefix, text("s")[0])
 	press(m, text("g")...)
 	if !m.scrolling || !strings.Contains(screen(m), "line 1 ") {
 		t.Fatalf("g in scroll mode should show the top of history:\n%s", screen(m))

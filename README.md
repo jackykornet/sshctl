@@ -18,17 +18,22 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 
 ```text
 sshctl
-sshctl list
+sshctl list [--space <name>]
 sshctl connect <alias> [--claude]
 sshctl add <alias>
 sshctl edit <alias>
 sshctl remove <alias>
-sshctl group list
-sshctl group add <name>
-sshctl group rename <old> <new>
-sshctl group delete <name> [--yes]
-sshctl group move <name> <position>
-sshctl group connect <group>
+sshctl space list
+sshctl space add <name>
+sshctl space rename <old> <new>
+sshctl space delete <name>
+sshctl space move <name> <position>
+sshctl group [--space <name>] list
+sshctl group [--space <name>] add <name>
+sshctl group [--space <name>] rename <group> <new>
+sshctl group [--space <name>] delete <group> [--yes]
+sshctl group [--space <name>] move <group> <position>
+sshctl group [--space <name>] connect <group>
 sshctl history
 sshctl key list
 sshctl key use <key-path|none>
@@ -48,7 +53,11 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 
 `known-hosts remove` asks before invoking `ssh-keygen -R`, which handles hashed entries. `known-hosts list` displays the host field as stored (hashed names remain hashed).
 
-Groups exist from `group add` until `group delete`, even with no Connections, and are listed in the order you set. `group list` shows each Group's number (its position, counting from 1, as in the Workspace headers), name, member count and dotfiles repo for Provision (`unset` when the global default applies). `group rename` moves every Connection with the Group and keeps its position and collapsed state; it refuses a name another Group has. A group name may not be only digits, since numbers stand for positions. `group delete` asks `Delete group X? N Connections become ungrouped.` first (`--yes` skips the question); it never deletes a Connection or a Host block. `group move <name> <position>` puts the Group at that position, shifting the others. The CLI takes Group names only, never numbers, so scripts keep working when Groups are reordered.
+Groups exist from `group add` until `group delete`, even with no Connections, and are listed in the order you set. `group list` shows each Group's number (its position, counting from 1, as in the Workspace headers), name, member count and dotfiles repo for Provision (`unset` when the global default applies). `group rename` moves every Connection with the Group and keeps its position and collapsed state; it refuses a name another Group has. A group name may not be only digits, since numbers stand for positions. `group delete` asks `Delete group X? N Connections become ungrouped.` first (`--yes` skips the question); it never deletes a Connection or a Host block. `group move <group> <position>` puts the Group at that position, shifting the others. Where a command takes a `<group>`, it can also be the Group's number, but a name keeps working in scripts when Groups are reordered.
+
+Spaces keep Connections apart, for example one per customer or project, and are listed in the order you set. Every Group and Connection belongs to one Space; the default Space holds everything not put elsewhere. `space list` shows each Space's number, name, Group count and Connection count, and marks the default Space. `space rename` keeps the Space's Groups, Connections and position; the default Space can be renamed and stays the default. `space delete` deletes only an empty Space, and refuses the default Space; otherwise it names the Groups and Connections left in it. `space move <name> <position>` sets the Space's position. A Space name may not be empty, only digits, or contain `/`. Spaces are sshctl metadata only: aliases stay one namespace, so `connect <alias>` needs no Space.
+
+`list --space <name>` lists only that Space's Connections. `group` commands take `--space <name>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number counts within a Space, so it works without `--space` only while there is one Space.
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
 
@@ -95,8 +104,9 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Enter`/`Space`, `←`/`→` | On a group header: collapse or expand the group (`←` on a member collapses its group) |
 | `Shift+↑`/`Shift+↓` (or `K`/`J`) | On a group header: move the group up / down; the new order is saved |
 | `/` | Filter the list by alias, description, or group |
-| `Alt+←`/`Alt+→` | Previous / next tab |
-| `Alt+↑`/`Alt+↓` | Previous / next open connection |
+| `Alt+←`/`Alt+→`, `[`/`]` (prefix `[`/`]` in the terminal) | Previous / next tab |
+| `Alt+↑`/`Alt+↓` | Previous / next open connection in the active Space |
+| `1`–`9` (prefix `1`–`9` in the terminal) | Switch to Space 1–9 |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`) |
@@ -104,11 +114,14 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
 | `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
-| prefix `←`/`→`, `1`–`9` | Switch tab |
 | prefix `Tab` | Move focus between the list and the terminal |
-| prefix `[` | Scroll back through the tab's history (`q` to leave) |
+| prefix `s` | Scroll back through the tab's history (`q` to leave; the mouse wheel also scrolls) |
 | prefix `b` / `r` | Hide the list / reload connections from disk |
 | prefix `?` / `q` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) / quit |
+
+### Spaces
+
+The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. With more than one Space, a Space bar above the list shows each Space by its number, `[1] [2] [3]`: the active Space in the accent colour, a Space with a live session in normal text, and an idle one dimmed, and the status bar starts with the active Space's name (`customer1 · web01 · …`). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it. Manage Spaces with `sshctl space`.
 
 ### Adding, editing and deleting connections
 

@@ -14,7 +14,9 @@ import (
 // What each modal lets through:
 //   - confirmation: every key answers it (y or Y is yes, anything else no).
 //   - helpScreen: ↑/↓ and PgUp/PgDn scroll it; every other key closes it.
-//   - connForm, moveInput and groupInput: they edit text, so the prefix key arms a
+//   - spacePicker: its own keys (see its status line); Esc, q or P close it.
+//     It opens spaceInput and confirmations, which return to it.
+//   - connForm, moveInput, groupInput, spaceInput and spacePicker: the prefix key arms a
 //     prefix of their own (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the
 //     modal on no). Every other prefix command is swallowed: it would act

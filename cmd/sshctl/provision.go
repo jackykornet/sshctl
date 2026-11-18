@@ -37,7 +37,7 @@ func (a *app) provision(alias string) error {
 		return err
 	}
 	ctx := context.Background()
-	key, err := a.identity()
+	key, err := a.identityFor(alias)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,8 @@ func (a *app) provision(alias string) error {
 
 // askDotfiles asks for the dotfiles repo when none applies to alias (noRepo
 // is the catalog's ErrNoDotfiles), then whether to save it as the global
-// setting, as the setting of alias's Group (offered only when it has one),
+// setting, as the setting of alias's Space (offered when there are several
+// Spaces), as the setting of alias's Group (offered only when it has one),
 // or not at all. It reads a plain terminal, so it works in a Workspace tab
 // too. Without an answer it returns noRepo with a hint and saves nothing.
 func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
@@ -62,9 +63,15 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	group := ""
-	if e, ok := snap.Entry(alias); ok && snap.HasGroup(e.Group) {
-		group = e.Group
+	space, spaceName, group := "", "", ""
+	if e, ok := snap.Entry(alias); ok {
+		space = e.Space
+		if snap.HasGroup(e.Space, e.Group) {
+			group = e.Group
+		}
+	}
+	if len(snap.Spaces) > 1 {
+		spaceName = snap.SpaceName(space)
 	}
 	unanswered := fmt.Errorf("%w; set one with: sshctl provision default <url>", noRepo)
 	in := bufio.NewReader(a.in)
@@ -74,10 +81,14 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 		fmt.Fprintln(a.out)
 		return "", unanswered
 	}
-	choices := "(g)lobal, (o)nce"
-	if group != "" {
-		choices = "(g)lobal, (r) group " + group + ", (o)nce"
+	choices := "(g)lobal, "
+	if spaceName != "" {
+		choices += "(s) space " + spaceName + ", "
 	}
+	if group != "" {
+		choices += "(r) group " + group + ", "
+	}
+	choices += "(o)nce"
 	for {
 		fmt.Fprintf(a.out, "Save for: %s: ", choices)
 		choice, ok := readAnswer(in)
@@ -91,8 +102,10 @@ func (a *app) askDotfiles(alias string, noRepo error) (string, error) {
 		switch {
 		case choice == "g":
 			err = cat.SetDotfiles(repo)
+		case choice == "s" && spaceName != "":
+			err = cat.SetSpaceDotfiles(spaceName, repo)
 		case choice == "r" && group != "":
-			err = cat.SetGroupDotfiles(group, repo)
+			err = cat.SetGroupDotfiles(space, group, repo)
 		case choice != "o":
 			continue
 		}
@@ -141,13 +154,14 @@ func (a *app) provisionDefault(args []string) error {
 		return errors.New(provisionDefaultUsage)
 	}
 	if grouped {
-		return a.catalog().SetGroupDotfiles(group, repo)
+		return a.catalog().SetGroupDotfiles("", group, repo)
 	}
 	return a.catalog().SetDotfiles(repo)
 }
 
-// listDotfiles prints the global dotfiles setting, then each Group's in
-// the user's order.
+// listDotfiles prints the global dotfiles setting, then, with several
+// Spaces, each Space's, then each Group's in the user's order; a Group of a
+// Space other than the default is named space/group.
 func (a *app) listDotfiles() error {
 	cat := a.catalog()
 	repo, err := cat.Dotfiles()
@@ -159,8 +173,17 @@ func (a *app) listDotfiles() error {
 		return err
 	}
 	fmt.Fprintln(a.out, "global:", describeDotfiles(repo))
+	if len(snap.Spaces) > 1 {
+		for _, s := range snap.Spaces {
+			fmt.Fprintf(a.out, "space %s: %s\n", s.Name, describeDotfiles(s.Dotfiles))
+		}
+	}
 	for _, g := range snap.Groups {
-		fmt.Fprintf(a.out, "group %s: %s\n", g.Name, describeDotfiles(g.Dotfiles))
+		name := g.Name
+		if g.Space != "" {
+			name = g.Space + "/" + g.Name
+		}
+		fmt.Fprintf(a.out, "group %s: %s\n", name, describeDotfiles(g.Dotfiles))
 	}
 	return nil
 }

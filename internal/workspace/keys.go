@@ -75,42 +75,47 @@ var bindings = []binding{
 	{
 		keys: merge(
 			each(inAny, on("alt+left", selectTab(-1)), on("alt+right", selectTab(1))),
-			each(inPrefix, on("left", selectTab(-1)), on("right", selectTab(1))),
+			each(inList, tabKeys...),
+			each(inPrefix, tabKeys...),
 		),
 		help: "previous / next tab",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			m.st.SelectTabIndex(int(msg.String()[0] - '1'))
-			m.scrolling = false
-			return nil
-		}, "1", "2", "3", "4", "5", "6", "7", "8", "9"),
-		help: "switch to tab 1-9",
+		// The picker and the note share the digits' line so the help
+		// screen fits 80x24.
+		keys: merge(
+			keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }, "P"),
+			keysIn(inList, spaceNote, "S"),
+			keysIn(inList, switchSpace, digits...),
+			keysIn(inPrefix, spaceNote, "S"),
+			keysIn(inPrefix, switchSpace, digits...),
+		),
+		help: "Space picker / Space names / switch to Space 1-9",
 	},
 	{
 		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
-		help: "previous / next open connection",
+		help: "previous / next open connection in the Space",
 	},
 	{
-		keys: each(inPrefix, on("n", newTab(false)), on("c", newTab(true))),
+		keys: each(inPrefix, on("n", followCursor(newTab(false))), on("c", followCursor(newTab(true)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.
-		keys: each(inPrefix, on("i", actionTab(ActionBootstrap)), on("p", provisionTab)),
+		keys: each(inPrefix, on("i", followCursor(actionTab(ActionBootstrap))), on("p", followCursor(provisionTab))),
 		help: "bootstrap / provision the connection in its own tab",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }, "g"),
+		keys: keysIn(inPrefix, followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openGroup() }), "g"),
 		help: "open the connection's group as tabs",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() }, "m"),
+		keys: keysIn(inPrefix, followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.startMove() }), "m"),
 		help: "move a connection to a group (or drag it)",
 	},
 	{
 		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
-		help: "add / edit / delete the connection or group under the cursor",
+		help: "add / edit / delete the cursor's connection or group",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.
@@ -136,7 +141,7 @@ var bindings = []binding{
 				m.focus = focusPane
 			}
 			return nil
-		}, "["),
+		}, "s"),
 		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
@@ -166,23 +171,27 @@ var bindings = []binding{
 	},
 }
 
+// tabKeys select the previous and next tab, bound alike in the list and
+// after the prefix.
+var tabKeys = []boundKey{on("[", selectTab(-1)), on("]", selectTab(1))}
+
 // crud is the add, edit and delete keys, bound alike in two contexts. They
 // act on the Group whose header is under the cursor, otherwise on a
 // Connection.
 var crud = []boundKey{
-	on("a", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	on("a", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.headerTarget(); ok {
 			m.openModal(&groupInput{})
 			return nil
 		}
 		return m.startAdd()
-	}),
-	on("e", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+	})),
+	on("e", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.startRenameGroup(g)
 		}
 		return m.startEdit()
-	}),
+	})),
 	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.deleteGroup(g)
@@ -190,6 +199,15 @@ var crud = []boundKey{
 		return m.deleteConnection()
 	}),
 }
+
+// digits are the keys 1 to 9, for Spaces 1 to 9.
+var digits = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
+func switchSpace(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	return m.switchSpace(int(msg.String()[0] - '0'))
+}
+
+func spaceNote(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.showSpaceNote() }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
 func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
@@ -278,6 +296,20 @@ func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// followCursor runs run in the Space of the Connection under the cursor,
+// switching to it first when the filter found that Connection in another
+// Space (see Model.showSpaceOf). It only looks at the cursor when the
+// action would: while the list has focus, or no Connection is active.
+func followCursor(run action) action {
+	return func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+		var saved tea.Cmd
+		if c := m.st.Cursor(); c != nil && (m.focus == focusList || m.st.Active() == nil) {
+			saved = m.showSpaceOf(c)
+		}
+		return tea.Batch(saved, run(m, msg))
+	}
+}
+
 func on(key string, run action) boundKey { return boundKey{key: key, run: run} }
 
 // keysIn binds keys in ctx, all to run.
@@ -294,11 +326,14 @@ func each(ctx keyContext, keys ...boundKey) (out [numContexts][]boundKey) {
 	return out
 }
 
-func merge(a, b [numContexts][]boundKey) [numContexts][]boundKey {
-	for i := range a {
-		a[i] = append(a[i], b[i]...)
+// merge binds every key of sets, in order.
+func merge(sets ...[numContexts][]boundKey) (out [numContexts][]boundKey) {
+	for _, set := range sets {
+		for i := range out {
+			out[i] = append(out[i], set[i]...)
+		}
 	}
-	return a
+	return out
 }
 
 // runBinding runs the binding for msg in ctx, reporting false when there is none.
@@ -337,11 +372,14 @@ func (m *Model) bindingLabel(b binding) string {
 	return strings.Join(parts, "  ")
 }
 
-// keyNames shows keys joined by "/", with a run of the digits 1 to 9 as
-// "1-9" and an Alt modifier they all share written once.
+// keyNames shows keys joined by "/", with the digits 1 to 9 ending them
+// as "1-9" and an Alt modifier they all share written once.
 func keyNames(keys []string, prefixKey string) string {
-	if slices.Equal(keys, []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}) {
-		return "1-9"
+	if rest, ok := cutDigits(keys); ok {
+		if len(rest) == 0 {
+			return "1-9"
+		}
+		return keyNames(rest, prefixKey) + "/1-9"
 	}
 	if !slices.ContainsFunc(keys, func(k string) bool { return !strings.HasPrefix(k, "alt+") }) {
 		bare := make([]string, len(keys))
@@ -362,6 +400,16 @@ func keyNames(keys []string, prefixKey string) string {
 		}
 	}
 	return strings.Join(names, "/")
+}
+
+// cutDigits returns keys without the digits 1 to 9 at their end, and
+// whether they ended so.
+func cutDigits(keys []string) ([]string, bool) {
+	n := len(keys) - len(digits)
+	if n < 0 || !slices.Equal(keys[n:], digits) {
+		return keys, false
+	}
+	return keys[:n], true
 }
 
 var keyNameReplacer = strings.NewReplacer(

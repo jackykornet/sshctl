@@ -50,10 +50,10 @@ func groupList(t *testing.T, a *app) []string {
 
 func TestGroupListShowsNumberNameMemberCountAndDotfiles(t *testing.T) {
 	a, out := groupTree(t, "")
-	if err := a.catalog().SetGroupDotfiles("prod", "https://example.com/dots.git"); err != nil {
+	if err := a.catalog().SetGroupDotfiles("", "prod", "https://example.com/dots.git"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.catalog().SetGroupDotfiles("data", config.DotfilesNone); err != nil {
+	if err := a.catalog().SetGroupDotfiles("", "data", config.DotfilesNone); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.execute([]string{"group", "list"}); err != nil {
@@ -178,6 +178,139 @@ func TestGroupDeleteRefusesAnUnknownGroup(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "Delete group") {
 		t.Errorf("asked about an unknown group: %q", out.String())
+	}
+}
+
+// groupsOf returns the Group names of the Space ref ("" for the default
+// Space) in a's config, in order.
+func groupsOf(t *testing.T, a *app, ref string) []string {
+	t.Helper()
+	var names []string
+	for _, g := range loadCLI(t, a).Groups {
+		if g.Space == ref {
+			names = append(names, g.Name)
+		}
+	}
+	return names
+}
+
+func TestGroupNameInOneSpaceNeedsNoSpaceOption(t *testing.T) {
+	a, _ := spaceTree(t, "")
+	if err := a.execute([]string{"group", "rename", "data", "stats"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groupsOf(t, a, "acme"), []string{"prod", "stats"}; !slices.Equal(got, want) {
+		t.Errorf("acme's groups = %v, want %v", got, want)
+	}
+}
+
+func TestGroupNameInSeveralSpacesNeedsTheSpaceOption(t *testing.T) {
+	a, _ := spaceTree(t, "")
+	err := a.execute([]string{"group", "rename", "prod", "live"})
+	if err == nil || !strings.Contains(err.Error(), "home, acme") || !strings.Contains(err.Error(), "--space") {
+		t.Errorf("err = %v, want it to name home, acme and --space", err)
+	}
+	if err := a.execute([]string{"group", "rename", "--space", "acme", "prod", "live"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groupsOf(t, a, "acme"), []string{"live", "data"}; !slices.Equal(got, want) {
+		t.Errorf("acme's groups = %v, want %v", got, want)
+	}
+	if got, want := groupsOf(t, a, ""), []string{"prod"}; !slices.Equal(got, want) {
+		t.Errorf("home's groups = %v, want %v", got, want)
+	}
+	for _, args := range [][]string{
+		{"group", "rename", "--space", "home", "data", "x"},
+		{"group", "rename", "nowhere", "x"},
+		{"group", "rename", "--space", "nowhere", "prod", "x"},
+	} {
+		if err := a.execute(args); err == nil {
+			t.Errorf("%v succeeded, want it refused", args)
+		}
+	}
+}
+
+func TestGroupNumberNeedsTheSpaceOptionOnlyWithSeveralSpaces(t *testing.T) {
+	one, _ := groupTree(t, "")
+	if err := one.execute([]string{"group", "move", "3", "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groupList(t, one), []string{"data", "prod", "empty"}; !slices.Equal(got, want) {
+		t.Errorf("one Space: groups = %v, want %v", got, want)
+	}
+
+	a, _ := spaceTree(t, "")
+	err := a.execute([]string{"group", "move", "2", "1"})
+	if err == nil || !strings.Contains(err.Error(), "--space") {
+		t.Errorf("several Spaces: err = %v, want it to ask for --space", err)
+	}
+	if err := a.execute([]string{"group", "move", "--space", "acme", "2", "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := groupsOf(t, a, "acme"), []string{"data", "prod"}; !slices.Equal(got, want) {
+		t.Errorf("acme's groups = %v, want %v", got, want)
+	}
+	for _, n := range []string{"0", "3"} {
+		if err := a.execute([]string{"group", "rename", "--space", "acme", n, "x"}); err == nil {
+			t.Errorf("group number %s succeeded, want it refused", n)
+		}
+	}
+}
+
+func TestGroupAddGoesToTheSpaceOptionOrTheDefaultSpace(t *testing.T) {
+	a, _ := spaceTree(t, "")
+	for _, args := range [][]string{{"--space", "acme", "stats"}, {"web"}, {"prod", "--space", "empty"}} {
+		if err := a.execute(append([]string{"group", "add"}, args...)); err != nil {
+			t.Fatalf("group add %v: %v", args, err)
+		}
+	}
+	for ref, want := range map[string][]string{"": {"prod", "web"}, "acme": {"prod", "data", "stats"}, "empty": {"prod"}} {
+		if got := groupsOf(t, a, ref); !slices.Equal(got, want) {
+			t.Errorf("space %q: groups = %v, want %v", ref, got, want)
+		}
+	}
+	if err := a.execute([]string{"group", "add", "--space", "nowhere", "x"}); err == nil {
+		t.Error("group add in an unknown space succeeded")
+	}
+}
+
+func TestGroupListShowsEverySpaceOrTheSpaceOption(t *testing.T) {
+	a, out := spaceTree(t, "")
+	if err := a.execute([]string{"group", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"home                 1  prod                 1  unset\n" +
+		"acme                 1  prod                 1  unset\n" +
+		"acme                 2  data                 0  unset\n"
+	if out.String() != want {
+		t.Errorf("group list:\n%s\nwant:\n%s", out.String(), want)
+	}
+	out.Reset()
+	if err := a.execute([]string{"group", "list", "--space", "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	want = "" +
+		"1  prod                 1  unset\n" +
+		"2  data                 0  unset\n"
+	if out.String() != want {
+		t.Errorf("group list --space acme:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestGroupDeleteCountsMembersInItsOwnSpace(t *testing.T) {
+	a, out := spaceTree(t, "y\n")
+	if err := a.execute([]string{"group", "delete", "--space", "acme", "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Delete group prod? 1 Connection becomes ungrouped. [y/N] "; out.String() != want {
+		t.Errorf("asked %q, want %q", out.String(), want)
+	}
+	if got, want := groupsOf(t, a, ""), []string{"prod"}; !slices.Equal(got, want) {
+		t.Errorf("home's groups = %v, want %v", got, want)
+	}
+	if db := loadCLI(t, a).Connections["db"]; db.Space != "acme" || db.Group != "" {
+		t.Errorf("db = %+v, want it ungrouped in acme", db)
 	}
 }
 

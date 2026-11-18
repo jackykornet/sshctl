@@ -61,7 +61,7 @@ func (a *app) bootstrap(alias string) error {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
 	}
 	ctx := context.Background()
-	key := snap.Identity
+	key := snap.SpaceIdentity(e.Space)
 	if key == "" {
 		if key, err = a.generateIdentity(ctx); err != nil {
 			return err
@@ -150,7 +150,8 @@ func (a *app) installAndCheck(ctx context.Context, e catalog.Entry, key, pub str
 }
 
 // generateIdentity creates a new ed25519 key in ~/.ssh, never overwriting
-// one, and makes it the Selected identity. ssh-keygen runs in the user's
+// one, and makes it the global Selected identity, the one every Space
+// without its own uses. ssh-keygen runs in the user's
 // terminal, so it asks for a passphrase there.
 func (a *app) generateIdentity(ctx context.Context) (string, error) {
 	fmt.Fprintln(a.out, "There is no Selected identity, so sshctl creates an ed25519 key; ssh-keygen asks for a passphrase (leave it empty for none).")
@@ -211,7 +212,7 @@ func (a *app) completeEndpoint(ctx context.Context, e catalog.Entry) (catalog.En
 // saveEndpoint writes e's Host block, keeping its description and group.
 // SaveHost writes an IdentityFile under the home directory as ~/ (ADR-0004).
 func (a *app) saveEndpoint(e catalog.Entry) error {
-	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Group: e.Group, Managed: true, Host: e.Host})
+	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: true, Host: e.Host})
 }
 
 // home is the user's home directory, as SaveHost sees it.

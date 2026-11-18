@@ -22,6 +22,9 @@ var (
 	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
 	unseenStyle = lipgloss.NewStyle().Bold(true)
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
+	// spaceActiveStyle is the accent colour of the active Space in the
+	// Space bar.
+	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
 )
 
 // unseenMarker flags tabs and Connections with activity the user hasn't seen.
@@ -93,7 +96,13 @@ func (m *Model) render() string {
 func (m *Model) renderList(w, h int) []string {
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
-	if top > 0 {
+	if bar := m.spaceBar(); bar != "" {
+		lines = append(lines, fit(bar, w))
+	}
+	for _, l := range m.spaceNoteLines(w) {
+		lines = append(lines, fit(dimStyle.Render(l), w))
+	}
+	if len(lines) < top {
 		f := "/" + m.st.Filter()
 		if m.filtering {
 			f = "/" + m.filter.withCursor()
@@ -117,7 +126,11 @@ func (m *Model) renderList(w, h int) []string {
 			line = pointer + m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
-			line = pointer + connLabel(r.Conn, grouped)
+			space := ""
+			if m.st.CrossSpace() {
+				space = m.st.SpaceName(r.Conn.Space)
+			}
+			line = pointer + connLabel(r.Conn, grouped && space == "", space)
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
@@ -143,6 +156,65 @@ func (m *Model) renderList(w, h int) []string {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
 	return lines
+}
+
+// spaceBar shows every Space by its number, [1] [2] [3]: the active Space
+// in the accent colour, one with a live Session in normal text, an idle one
+// dimmed. It is empty while there is only one Space.
+func (m *Model) spaceBar() string {
+	tabs := m.st.SpaceTabs()
+	if len(tabs) < 2 {
+		return ""
+	}
+	parts := make([]string, len(tabs))
+	for i, t := range tabs {
+		label := fmt.Sprintf("[%d]", i+1)
+		switch {
+		case t.Active:
+			label = spaceActiveStyle.Render(label)
+		case !t.Live:
+			label = dimStyle.Render(label)
+		}
+		parts[i] = label
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+// spaceNames is every Space as "number name", in order.
+func (m *Model) spaceNames() []string {
+	tabs := m.st.SpaceTabs()
+	names := make([]string, len(tabs))
+	for i, t := range tabs {
+		names[i] = fmt.Sprintf("%d %s", i+1, t.Name)
+	}
+	return names
+}
+
+// spaceNoteLines is the Space note, 1 homelab · 2 customer1 · 3 prive,
+// wrapped between Spaces to w columns; nil while it is hidden.
+func (m *Model) spaceNoteLines(w int) []string {
+	if !m.spaceNote || w <= 0 {
+		return nil
+	}
+	var lines []string
+	line := ""
+	names := m.spaceNames()
+	for i, name := range names {
+		next := line + " · " + name
+		if i < len(names)-1 {
+			next += " ·" // room for the separator should the line wrap after it
+		}
+		switch {
+		case line == "":
+			line = " " + name
+		case ansi.StringWidth(next) <= w:
+			line += " · " + name
+		default:
+			lines = append(lines, line+" ·")
+			line = " " + name
+		}
+	}
+	return append(lines, line)
 }
 
 // headerLabel is a group header: its fold marker, Group number (for a stored
@@ -183,8 +255,9 @@ func (m *Model) headerLabel(group string) string {
 }
 
 // connLabel is a Connection row after the cursor pointer, indented under its
-// group header when the list is grouped.
-func connLabel(c *Connection, grouped bool) string {
+// group header when the list is grouped. A space names the Connection's
+// Space, for a filter across every Space.
+func connLabel(c *Connection, grouped bool, space string) string {
 	marker, name := "  ", c.Alias
 	switch {
 	case c.AllEnded():
@@ -201,21 +274,32 @@ func connLabel(c *Connection, grouped bool) string {
 	if c.Unseen() {
 		line += " " + unseenStyle.Render(unseenMarker)
 	}
-	if extra := rowDetail(c, grouped); extra != "" {
+	if extra := rowDetail(c, grouped, space); extra != "" {
 		line += " " + dimStyle.Render(extra)
 	}
 	return line
 }
 
 // rowDetail is a Connection's description, or (missing) when it is orphaned.
-// The group is added only when the list has no group headers to show it.
-func rowDetail(c *Connection, grouped bool) string {
+// The group is added only when the list has no group headers to show it,
+// after the Connection's space when that is given: [space/group].
+func rowDetail(c *Connection, grouped bool, space string) string {
 	if c.Orphaned {
+		if space != "" {
+			return "(missing) [" + space + "]"
+		}
 		return "(missing)"
 	}
 	d := c.Description
-	if c.Group != "" && !grouped {
-		d = strings.TrimSpace(d + " [" + c.Group + "]")
+	where := c.Group
+	if grouped {
+		where = ""
+	}
+	if space != "" {
+		where = strings.TrimSuffix(space+"/"+where, "/")
+	}
+	if where != "" {
+		d = strings.TrimSpace(d + " [" + where + "]")
 	}
 	return d
 }
@@ -300,7 +384,10 @@ func tabState(s *Session) (marker string, style lipgloss.Style) {
 
 func (m *Model) renderPane(w, h int) []string {
 	if f := m.form(); f != nil {
-		return f.render(w, h, m.st.groups)
+		return f.render(w, h, m.spaceNames(), f.groups(m.st))
+	}
+	if p := m.picker(); p != nil {
+		return p.render(m, w, h)
 	}
 	bar, _ := m.tabBar(w)
 	lines := []string{bar}
@@ -363,6 +450,8 @@ func (m *Model) renderStatus(w int) string {
 	switch {
 	case ok:
 		left = modalStatus
+	case m.spaceNote && m.listWidth() == 0:
+		left = strings.Join(m.spaceNames(), " · ")
 	case m.drag != nil && m.drag.moving && m.drag.group != "":
 		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
 		if m.drag.ok {
@@ -408,19 +497,23 @@ func (m *Model) renderStatus(w int) string {
 
 func (m *Model) sessionStatus() string {
 	key := "OpenSSH default"
-	if m.identity != "" {
-		key = filepath.Base(m.identity)
+	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
+		key = filepath.Base(k)
+	}
+	space := ""
+	if m.spaceBar() != "" {
+		space = m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()
 	if c == nil {
-		return "no active connection · key: " + key
+		return space + "no active connection · key: " + key
 	}
 	s := c.CurrentSession()
 	state := "connected"
 	if s.Ended {
 		state = fmt.Sprintf("ended (exit %d)", s.ExitCode)
 	}
-	return fmt.Sprintf("%s · tab %d/%d · %s · key: %s", c.Alias, c.Current+1, len(c.Sessions), state, key)
+	return fmt.Sprintf("%s%s · tab %d/%d · %s · key: %s", space, c.Alias, c.Current+1, len(c.Sessions), state, key)
 }
 
 // fit truncates or pads s to exactly w columns.

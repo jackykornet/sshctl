@@ -78,9 +78,9 @@ func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 	var err error
 	status := "added group " + name
 	if in.old == "" {
-		err = m.opts.Catalog.AddGroup(name)
+		err = m.opts.Catalog.AddGroup(m.st.Space(), name)
 	} else {
-		err = m.opts.Catalog.RenameGroup(in.old, name)
+		err = m.opts.Catalog.RenameGroup(m.st.Space(), in.old, name)
 		status = fmt.Sprintf("renamed group %s to %s", in.old, name)
 	}
 	if err != nil {
@@ -98,12 +98,13 @@ func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 	return cmd
 }
 
-// askCreateGroup asks before creating the Group name, then runs then. When
-// the catalog refuses the name, the reason is the status, or the error of
-// the form the question was asked from.
-func (m *Model) askCreateGroup(name string, then func(*Model) tea.Cmd) {
+// askCreateGroup asks before creating the Group name in the Space space
+// ("" for the default Space), then runs then. When the catalog refuses the
+// name, the reason is the status, or the error of the form the question was
+// asked from.
+func (m *Model) askCreateGroup(space, name string, then func(*Model) tea.Cmd) {
 	m.ask(fmt.Sprintf("Create group %s? (y/n)", name), func(m *Model) tea.Cmd {
-		if err := m.opts.Catalog.AddGroup(name); err != nil {
+		if err := m.opts.Catalog.AddGroup(space, name); err != nil {
 			if f := m.form(); f != nil {
 				f.err = err.Error()
 				return nil
@@ -124,7 +125,7 @@ func (m *Model) deleteGroup(group string) tea.Cmd {
 	}
 	question := fmt.Sprintf("Delete group %s? %s %s ungrouped. (y/n)", group, countConnections(n), verb)
 	m.ask(question, func(m *Model) tea.Cmd {
-		if err := m.opts.Catalog.DeleteGroup(group); err != nil {
+		if err := m.opts.Catalog.DeleteGroup(m.st.Space(), group); err != nil {
 			return m.setStatus("delete group "+group+": "+err.Error(), true)
 		}
 		m.st.SetCollapsed(group, false) // the catalog no longer lists it as collapsed

@@ -282,3 +282,21 @@ func TestPrefixCommandsDoNothingBehindTheForm(t *testing.T) {
 		t.Fatal("Esc should still close the form")
 	}
 }
+
+func TestEditKeepsTheConnectionInItsSpace(t *testing.T) {
+	entries := storeEntries()
+	for i := range entries {
+		if entries[i].Alias == "mine" {
+			entries[i].Space = "acme"
+		}
+	}
+	f := &fakeCatalog{entries: entries, spaces: []Space{{Name: "acme"}}, activeSpace: "acme"}
+	m := newStoreModel(t, f)
+	m.st.SetCursor("mine")
+	press(m, text("e")...)
+	fill(m, "laptop")
+	press(m, keyCtrlS)
+	if len(f.specs) != 1 || f.specs[0].Space != "acme" {
+		t.Fatalf("saved %+v, want mine kept in acme", f.specs)
+	}
+}

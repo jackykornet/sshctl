@@ -1,0 +1,8 @@
+ [1] [2] [3]                │ Spaces                                            
+›▾ 1 data 1                 │   1 default                                       
+     db                     │   2 acme                                          
+                            │ › 3 idle                                          
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ Enter switch · a add · e rename · d delete · Shift+↑/↓ move · Esc close        
