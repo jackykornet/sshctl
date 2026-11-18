@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -54,6 +55,85 @@ type fakeCatalog struct {
 	groupErr     error    // returned by the next Group call, which then changes nothing
 	groupSpaces  []string // the Space of each Group call
 	activeSaves  []string // SetActiveSpace spaces
+	spaceOps     []string // "add x", "rename x→y", "delete x", "move x 2", one per Space call
+	spaceErr     error    // returned by the next Space call, which then changes nothing
+}
+
+// spaceOp records op and returns spaceErr, once.
+func (f *fakeCatalog) spaceOp(op string) error {
+	f.spaceOps = append(f.spaceOps, op)
+	err := f.spaceErr
+	f.spaceErr = nil
+	return err
+}
+
+// spaceIndex returns the index in spaces of the Space name, or -1 (also for
+// the default Space, which spaces does not hold).
+func (f *fakeCatalog) spaceIndex(name string) int {
+	return slices.IndexFunc(f.spaces, func(s Space) bool { return s.Name == name })
+}
+
+func (f *fakeCatalog) AddSpace(name string) error {
+	if err := f.spaceOp("add " + name); err != nil {
+		return err
+	}
+	f.spaces = append(f.spaces, Space{Name: name})
+	return nil
+}
+
+// RenameSpace renames a Space after the default Space, moving its Groups,
+// Connections and active state with it, as the catalog does.
+func (f *fakeCatalog) RenameSpace(old, name string) error {
+	if err := f.spaceOp("rename " + old + "→" + name); err != nil {
+		return err
+	}
+	i := f.spaceIndex(old)
+	if i < 0 {
+		return nil
+	}
+	f.spaces[i].Name = name
+	for j := range f.spaceGroups {
+		if f.spaceGroups[j].Space == old {
+			f.spaceGroups[j].Space = name
+		}
+	}
+	for j := range f.entries {
+		if f.entries[j].Space == old {
+			f.entries[j].Space = name
+		}
+	}
+	if f.activeSpace == old {
+		f.activeSpace = name
+	}
+	return nil
+}
+
+func (f *fakeCatalog) DeleteSpace(name string) error {
+	if err := f.spaceOp("delete " + name); err != nil {
+		return err
+	}
+	if i := f.spaceIndex(name); i >= 0 {
+		f.spaces = slices.Delete(f.spaces, i, i+1)
+	}
+	if f.activeSpace == name {
+		f.activeSpace = ""
+	}
+	return nil
+}
+
+// MoveSpace moves a Space after the default Space to position, counting
+// the default Space as 1.
+func (f *fakeCatalog) MoveSpace(name string, position int) error {
+	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, position)); err != nil {
+		return err
+	}
+	i := f.spaceIndex(name)
+	if i < 0 || position < 2 || position > len(f.spaces)+1 {
+		return errors.New("bad space move")
+	}
+	s := f.spaces[i]
+	f.spaces = slices.Insert(slices.Delete(f.spaces, i, i+1), position-2, s)
+	return nil
 }
 
 func (f *fakeCatalog) Snapshot() (Snapshot, error) {

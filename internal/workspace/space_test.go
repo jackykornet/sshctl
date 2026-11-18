@@ -8,9 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// spaced is a State with the default Space home (web-1 in Group web, and
-// loose) and Space acme (db in Group prod, its own Group web holding api,
-// and the empty Group spare), showing home.
 // spaceCatalog is a fakeCatalog with the default Space (web in Group prod,
 // and mine) and Spaces acme (db in Group data) and globex (empty), showing
 // the default Space.
