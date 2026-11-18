@@ -103,12 +103,22 @@ func (f *connForm) targetSpace(st *State) (ref string, ok bool) {
 	return st.ResolveSpace(strings.TrimSpace(fl.value.String()))
 }
 
-// edited clears the Group after the Space field's value changed from
-// before, so the Group is chosen from the new Space.
-func (f *connForm) edited(fl *formField, before string) {
+// clearGroupIfSpaceChanged clears the Group after the Space field's value
+// changed from before, so the Group is chosen from the new Space.
+func (f *connForm) clearGroupIfSpaceChanged(fl *formField, before string) {
 	if fl.id == fieldSpace && fl.value.String() != before {
 		f.field(fieldGroup).value = newLine("")
 	}
+}
+
+// groups returns the stored Groups of the Space the form saves into, for
+// the Group numbers under its Group field; none while the Space field names
+// no Space.
+func (f *connForm) groups(st *State) []string {
+	if ref, ok := f.targetSpace(st); ok {
+		return st.SpaceGroups(ref)
+	}
+	return nil
 }
 
 func managedFields(s Spec) []formField {
@@ -216,7 +226,7 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	default:
 		before := fl.value.String()
 		fl.value.key(msg)
-		f.edited(fl, before)
+		f.clearGroupIfSpaceChanged(fl, before)
 	}
 	return nil
 }
@@ -232,7 +242,7 @@ func (f *connForm) paste(text string) {
 	fl := &f.fields[f.focus]
 	before := fl.value.String()
 	fl.value.paste(text)
-	f.edited(fl, before)
+	f.clearGroupIfSpaceChanged(fl, before)
 }
 
 func (f *connForm) status() (string, bool) {
@@ -294,10 +304,16 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 		verb = "added"
 	}
 	status := fmt.Sprintf("%s %s", verb, s.Alias)
-	if space != m.st.Space() {
+	moved := space != m.st.Space()
+	if moved {
 		status += " in space " + m.st.SpaceName(space)
 	}
 	cmd := m.reload(s.Alias, status)
+	if moved {
+		// Show the Connection where it now is, with any tabs it has.
+		cmd = tea.Batch(cmd, m.showSpace(space))
+		m.st.SetCursor(s.Alias)
+	}
 	if bootstrap {
 		return tea.Batch(cmd, m.open(s.Alias, Launch{Action: ActionBootstrap}))
 	}

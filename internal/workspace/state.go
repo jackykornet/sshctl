@@ -312,13 +312,21 @@ func (s *State) SetSpace(space string) {
 }
 
 // Reload replaces the loaded entries while keeping every open Connection and its Sessions.
-// An open Connection that is no longer loaded becomes orphaned.
+// An open Connection that is no longer loaded becomes orphaned. The Active
+// connection of a Space that moved to another Space is Active there, unless
+// that Space has an Active connection of its own.
 func (s *State) Reload(entries []Entry) {
 	loaded := map[string]bool{}
 	s.loaded = loaded
 	for _, e := range entries {
 		loaded[e.Alias] = true
 		if c, ok := s.conns[e.Alias]; ok {
+			if c.Space != e.Space && s.active[c.Space] == e.Alias {
+				delete(s.active, c.Space)
+				if other := s.conns[s.active[e.Space]]; other == nil || other.Space != e.Space || !other.Open() {
+					s.active[e.Space] = e.Alias
+				}
+			}
 			c.Entry = e
 		} else {
 			s.conns[e.Alias] = &Connection{Entry: e}

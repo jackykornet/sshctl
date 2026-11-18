@@ -572,3 +572,23 @@ func TestGroupNumbersResolveWithinTheSpaceGiven(t *testing.T) {
 		t.Error("ResolveGroupIn(home, 3) resolved; home has one Group")
 	}
 }
+
+func TestAnActiveConnectionMovedToAnotherSpaceStaysActiveThere(t *testing.T) {
+	s := spaced() // home: web-1, loose; acme: db, api
+	if _, err := s.OpenSession("loose"); err != nil {
+		t.Fatal(err)
+	}
+	s.Reload([]Entry{
+		{Alias: "web-1", Group: "web"},
+		{Alias: "loose", Space: "acme"}, // moved, with its Session
+		{Alias: "db", Space: "acme", Group: "prod"},
+		{Alias: "api", Space: "acme", Group: "web"},
+	})
+	if c := s.Active(); c != nil {
+		t.Errorf("home's Active connection = %s, want none once loose left", c.Alias)
+	}
+	s.SetSpace("acme")
+	if c := s.Active(); c == nil || c.Alias != "loose" {
+		t.Errorf("acme's Active connection = %v, want loose", c)
+	}
+}

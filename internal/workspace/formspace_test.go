@@ -88,8 +88,8 @@ func TestEditingTheSpaceMovesOnlyTheMetadata(t *testing.T) {
 	if len(f.specs) != 1 || !reflect.DeepEqual(f.specs[0], want) {
 		t.Fatalf("saved %+v, want %+v", f.specs, want)
 	}
-	if got := aliases(m.st.Rows()); len(got) != 0 {
-		t.Errorf("acme still lists %v after db moved to globex", got)
+	if got := aliases(m.st.Rows()); m.st.Space() != "globex" || !reflect.DeepEqual(got, []string{"db"}) {
+		t.Errorf("after moving db: Space %q lists %v, want globex listing db", m.st.Space(), got)
 	}
 }
 
@@ -142,4 +142,43 @@ func TestFormSpaceGolden(t *testing.T) {
 	press(m, text("a")...)
 	focusFormSpace(m)
 	golden(t, "form-space", m)
+}
+
+func TestSavingIntoAnotherSpaceShowsThatSpace(t *testing.T) {
+	m, r := newRecordingModel(t, []Entry{{Alias: "web"}, {Alias: "db", Space: "acme"}})
+	r.spaces = []Space{{Name: "acme"}}
+	press(m, keyPrefix, text("r")[0]) // reload to see acme
+	m.st.SetCursor("web")
+	press(m, keyEnter) // web has a live tab
+	press(m, keyPrefix, text("e")[0])
+	focusFormSpace(m)
+	press(m, keyClear)
+	press(m, text("acme")...)
+	press(m, keyCtrlS)
+	if got := m.st.Space(); got != "acme" {
+		t.Fatalf("after moving web, active Space = %q, want acme", got)
+	}
+	if c := m.st.Active(); c == nil || c.Alias != "web" || m.focus != focusPane {
+		t.Errorf("Active connection %v, focus %v; want web with its tab, in the pane", c, m.focus)
+	}
+
+	// Ctrl+O into the default Space: the Bootstrap tab opens there, in view.
+	m.st.SetCursor("db")
+	m.focus = focusList
+	press(m, text("a")...)
+	fill(m, "new", "10.0.0.2")
+	focusFormSpace(m)
+	press(m, keyClear)
+	press(m, text("1")...)
+	press(m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if got := m.st.Space(); got != "" {
+		t.Fatalf("after Ctrl+O into the default Space, active Space = %q", got)
+	}
+	if c := m.st.Active(); c == nil || c.Alias != "new" || c.CurrentSession().Action != ActionBootstrap {
+		t.Errorf("Active connection %v, want new with its Bootstrap tab", c)
+	}
+	m.st.SetSpace("acme")
+	if c := m.st.Active(); c == nil || c.Alias != "web" {
+		t.Errorf("acme's Active connection = %v, want web kept", c)
+	}
 }
