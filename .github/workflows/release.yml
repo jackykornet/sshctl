@@ -99,5 +99,5 @@ jobs:
             # gh puts --notes above the generated notes.
             gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes \
               --notes '> [!WARNING]
-          > sshctl is in early development (0.x). Some features are new and not fully tested, so expect bugs and breaking changes, and do not use it in production. Back up `~/.ssh/config` and `~/.config/sshctl/` before you start. Bootstrap, Provision and the chezmoi sync setups are experimental: see the [feature status](https://github.com/jackykornet/sshctl#feature-status).'
+          > sshctl is in early development (0.x). Some features are new and not fully tested, so expect bugs and breaking changes between releases, and do not rely on it in production. Back up `~/.ssh/config` and `~/.config/sshctl/` before you start.'
           fi

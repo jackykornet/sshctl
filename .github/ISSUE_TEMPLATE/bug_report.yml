@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: sshctl version
-      description: The release you downloaded (for example, v0.3.0, from the file name `sshctl_<version>_<os>_<arch>`), or the commit you built from.
+      description: The release you downloaded (for example, v0.3.0, as in the downloaded file's name), or the commit you built from.
       placeholder: v0.3.0
     validations:
       required: true
@@ -37,7 +37,7 @@ body:
         - Workspace
         - Bootstrap (experimental)
         - Provision (experimental)
-        - Syncing with chezmoi (experimental)
+        - Syncing with chezmoi
         - Other
     validations:
       required: true

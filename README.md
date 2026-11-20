@@ -1,7 +1,7 @@
 # sshctl
 
 > [!WARNING]
-> sshctl is in early development (0.x). Some features are new and not fully tested, so expect bugs and breaking changes between releases, and don't rely on it in production. Back up `~/.ssh/config` and `~/.config/sshctl/` before you start.
+> sshctl is in early development (0.x). Some features are new and not fully tested, so expect bugs and breaking changes between releases, and do not rely on it in production. Back up `~/.ssh/config` and `~/.config/sshctl/` before you start.
 
 `sshctl` is a cross-platform Go CLI for managing connection metadata while delegating SSH work to your installed OpenSSH tools. It never stores private keys or passphrases.
 
@@ -12,9 +12,7 @@
 | Connections, Spaces, Groups, keys, known hosts, config, the Workspace | Stable |
 | [Bootstrap](#bootstrap) | Experimental, off until turned on ([Experimental features](#experimental-features)) |
 | [Provision](#provision) | Experimental, off until turned on ([Experimental features](#experimental-features)) |
-| [Syncing with chezmoi](#syncing-with-chezmoi) | Experimental: the setups below are not fully tested |
-
-Stable features can still change before 1.0; experimental ones are more likely to have bugs.
+| [Syncing with chezmoi](#syncing-with-chezmoi) | Not fully tested: sshctl has no sync command, so there is nothing to turn on, but the documented setups are new |
 
 ## Install
 
