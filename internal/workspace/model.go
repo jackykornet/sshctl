@@ -232,6 +232,8 @@ func (m *Model) closeAll() { m.sessions.closeAll() }
 func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Before msg acts on a scroll position, account for output that arrived.
+	m.keepViews()
 	cmd := m.update(msg)
 	m.syncSize()
 	return m, cmd
@@ -283,6 +285,23 @@ func (m *Model) takeActivity() {
 		}
 	}
 	m.sessions.takeActivity()
+}
+
+// keepViews keeps every scrolled-back view on the history lines it shows as
+// output arrives (see runner.keepView), and the selection on such a view
+// with it.
+func (m *Model) keepViews() {
+	var r *runner
+	before := 0
+	if m.sel != nil {
+		if r = m.sessions.runner(m.sel.sess); r != nil {
+			before = r.scroll
+		}
+	}
+	m.sessions.keepViews()
+	if r != nil {
+		m.sel.scroll += r.scroll - before
+	}
 }
 
 // paneSize is the size of the terminal area under the tab bar.
@@ -401,6 +420,7 @@ func (m *Model) scrollKey(r *runner, k string) {
 }
 
 func (m *Model) scrollBy(r *runner, n int) {
+	r.keepView() // count from the history as it is now
 	r.scroll = max(0, min(r.scroll+n, r.term.ScrollbackLen()))
 	m.scrolling = r.scroll > 0
 }

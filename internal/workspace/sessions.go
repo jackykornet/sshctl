@@ -108,6 +108,14 @@ func (s *sessions) resize(w, h int) {
 	}
 }
 
+// keepViews keeps every scrolled-back Session's view on the history lines it
+// shows; see runner.keepView.
+func (s *sessions) keepViews() {
+	for _, r := range s.runners {
+		r.keepView()
+	}
+}
+
 // takeActivity marks every Session whose process wrote output since the last call.
 func (s *sessions) takeActivity() {
 	for sess, r := range s.runners {

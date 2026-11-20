@@ -20,6 +20,8 @@ type runner struct {
 	term *vterm
 	// scroll is how many lines the pane is scrolled back into history.
 	scroll int
+	// histLen is the length of the history when keepView last looked.
+	histLen int
 	// activity is set when the program writes output (a bell is output too)
 	// and cleared when the Workspace takes it.
 	activity  atomic.Bool
@@ -141,6 +143,20 @@ func startRunner(argv []string, w, h, scrollback int, sess *Session, ev *events)
 		ev.ch <- sessionEndedMsg{sess: sess, r: r, code: code}
 	}()
 	return r, nil
+}
+
+// keepView keeps a scrolled-back view on the same history lines as output
+// arrives: when the history has grown since the last call, the view moves
+// back by as many lines. A view at the bottom keeps following the output.
+// Once the history is full its length stops growing, so the view then
+// drifts by the lines the history drops.
+func (r *runner) keepView() {
+	n := r.term.ScrollbackLen()
+	if r.scroll > 0 && n > r.histLen {
+		r.scroll += n - r.histLen
+	}
+	r.scroll = min(r.scroll, n)
+	r.histLen = n
 }
 
 func (r *runner) resize(w, h int) {
