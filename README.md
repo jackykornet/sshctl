@@ -1,6 +1,18 @@
 # sshctl
 
+> [!WARNING]
+> sshctl is in early development (0.x). Some features are new and not fully tested, so expect bugs and breaking changes between releases, and do not rely on it in production. Back up `~/.ssh/config` and `~/.config/sshctl/` before you start.
+
 `sshctl` is a cross-platform Go CLI for managing connection metadata while delegating SSH work to your installed OpenSSH tools. It never stores private keys or passphrases.
+
+## Feature status
+
+| Feature | Status |
+| --- | --- |
+| Connections, Spaces, Groups, keys, known hosts, config, the Workspace | Stable |
+| [Bootstrap](#bootstrap) | Experimental, off until turned on ([Experimental features](#experimental-features)) |
+| [Provision](#provision) | Experimental, off until turned on ([Experimental features](#experimental-features)) |
+| [Syncing with chezmoi](#syncing-with-chezmoi) | Not fully tested: sshctl has no sync command, so there is nothing to turn on, but the documented setups are new |
 
 ## Install
 
@@ -178,6 +190,9 @@ sshctl keeps two versioned JSON files in `~/.config/sshctl/` on Linux, macOS and
 The only SSH config sshctl writes is `~/.ssh/sshctl_config` (owner-only), plus the one `Include` line it asks before adding to `~/.ssh/config`. It checks every value so a field cannot add other directives. Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh-agent` handle key use and in-memory caching. `config show` displays config paths and alias count without printing credentials or key contents.
 
 ## Syncing with chezmoi
+
+> [!NOTE]
+> These setups are not fully tested. Try them on a copy of your config first, and [report](https://github.com/jackykornet/sshctl/issues/new?template=bug_report.yml) anything that does not work as described.
 
 sshctl has no sync command. To keep the same Connections and Groups on every machine, let [chezmoi](https://www.chezmoi.io/) carry two files:
 
