@@ -56,10 +56,16 @@ var (
 
 func golden(t *testing.T, name string, m *Model) {
 	t.Helper()
-	got := ansi.Strip(m.render())
+	compareGolden(t, name, ansi.Strip(m.render()), m.w)
+}
+
+// compareGolden checks got, a screen of w-column lines, against
+// testdata/name.golden, or rewrites it with -update.
+func compareGolden(t *testing.T, name, got string, w int) {
+	t.Helper()
 	for i, line := range strings.Split(got, "\n") {
-		if w := ansi.StringWidth(line); w != m.w {
-			t.Errorf("line %d is %d columns wide, want %d: %q", i, w, m.w, line)
+		if lw := ansi.StringWidth(line); lw != w {
+			t.Errorf("line %d is %d columns wide, want %d: %q", i, lw, w, line)
 		}
 	}
 	path := filepath.Join("testdata", name+".golden")

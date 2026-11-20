@@ -10,6 +10,7 @@ import (
 	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
+	"github.com/sshctl/sshctl/internal/platform"
 	"github.com/sshctl/sshctl/internal/workspace"
 )
 
@@ -32,6 +33,7 @@ func (a *app) runWorkspace() error {
 		ListWidth:       a.cfg.ListWidth,
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 		Notice:          strings.Join(a.cfg.Notices, "; "),
+		ReadClipboard:   platform.ReadClipboard,
 	})
 }
 

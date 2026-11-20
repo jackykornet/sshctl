@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -92,6 +93,10 @@ type Options struct {
 	// Notice is shown on the status line at startup, such as what loading
 	// the config migrated.
 	Notice string
+	// ReadClipboard reads the system clipboard for a right-click paste. When
+	// it is nil or returns no text, the Workspace asks the host terminal for
+	// the clipboard with OSC 52 instead.
+	ReadClipboard func() (string, error)
 }
 
 type focus int
@@ -102,6 +107,17 @@ const (
 )
 
 type clearStatusMsg struct{ id int }
+
+// doubleClickTime is the longest time between the two clicks of a double-click.
+var doubleClickTime = 500 * time.Millisecond
+
+// paneClick is a left click in a Session's pane, kept to recognize the
+// second click of a double-click.
+type paneClick struct {
+	sess *Session
+	at   pos
+	when time.Time
+}
 
 // hideSpaceNoteMsg hides the Space note shown with the same id.
 type hideSpaceNoteMsg struct{ id int }
@@ -142,9 +158,16 @@ type Model struct {
 	hideList  bool
 	modal     modal // gets input before anything else; see modal
 	drag      *drag
-	status    string
-	statusErr bool
-	statusID  int
+	// sel is the text selected with the mouse in a Session pane, if any.
+	sel *selection
+	// lastClick is the last left click in a Session pane, for double-clicks.
+	lastClick paneClick
+	// rightPaste is the right-click paste waiting for the clipboard, if any.
+	rightPaste *pendingPaste
+	pastes     int // right-click pastes started, for their ids
+	status     string
+	statusErr  bool
+	statusID   int
 	// spaceNote shows every Space's number and name under the Space bar
 	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
 	spaceNote   bool
@@ -215,6 +238,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) update(msg tea.Msg) tea.Cmd {
+	if cmd, ok := m.clipboardRead(msg); ok {
+		return cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -227,10 +253,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.spaceNote = false
 		}
 	case redrawMsg:
-		m.sessions.takeActivity()
+		m.takeActivity()
 		return m.ev.listen()
 	case sessionEndedMsg:
-		m.sessions.takeActivity() // its last output may not have been redrawn yet
+		m.takeActivity() // its last output may not have been redrawn yet
 		if m.sessions.ended(msg) && msg.sess.Action != "" && msg.code == 0 {
 			// An Action may have rewritten the Connection's Host block.
 			return tea.Batch(m.reload("", string(msg.sess.Action)+" finished; connection list refreshed"), m.ev.listen())
@@ -246,6 +272,17 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.mouse(msg)
 	}
 	return nil
+}
+
+// takeActivity marks the Sessions that wrote output since the last call, and
+// clears the selection when its Session's output changed under it.
+func (m *Model) takeActivity() {
+	if m.sel != nil {
+		if r := m.sessions.runner(m.sel.sess); r != nil && r.activity.Load() {
+			m.sel = nil
+		}
+	}
+	m.sessions.takeActivity()
 }
 
 // paneSize is the size of the terminal area under the tab bar.
@@ -297,6 +334,7 @@ func (m *Model) paste(text string) {
 // bindings for the context the Workspace is in (see bindings).
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	m.spaceNote = false
+	m.sel = nil
 	if m.modal != nil {
 		return m.modal.key(m, msg)
 	}
@@ -760,6 +798,18 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	mm := msg.Mouse()
+	if m.sel != nil && m.sel.dragging {
+		switch msg.(type) {
+		case tea.MouseMotionMsg:
+			m.sel.head = m.panePos(mm)
+			return nil
+		case tea.MouseReleaseMsg:
+			return m.copySelection(mm)
+		}
+	}
+	if _, ok := msg.(tea.MouseClickMsg); ok {
+		m.sel = nil
+	}
 	if m.drag != nil {
 		switch msg.(type) {
 		case tea.MouseMotionMsg:
@@ -807,15 +857,90 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		r.term.SendMouse(msg, paneX, mm.Y-1)
 		return nil
 	}
-	if _, ok := msg.(tea.MouseWheelMsg); ok {
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		m.sel = nil
 		switch mm.Button {
 		case tea.MouseWheelUp:
 			m.scrollBy(r, wheelLines)
 		case tea.MouseWheelDown:
 			m.scrollBy(r, -wheelLines)
 		}
+	case tea.MouseClickMsg:
+		switch {
+		case mm.Button == tea.MouseLeft:
+			// Output shown before the press must not clear the new selection.
+			m.sessions.takeActivity()
+			p := m.panePos(mm)
+			if m.doubleClick(s, p) {
+				return m.selectWord(s, r, p)
+			}
+			m.sel = &selection{sess: s, scroll: r.scroll, anchor: p, head: p, dragging: true}
+		case mm.Button == tea.MouseRight && !s.Ended:
+			return m.startPaste(s)
+		}
 	}
 	return nil
+}
+
+// panePos returns the pane body cell under the pointer, clamped to the pane.
+func (m *Model) panePos(mm tea.Mouse) pos {
+	w, h := m.paneSize()
+	return pos{
+		x: max(0, min(mm.X-m.paneOffset(), w-1)),
+		y: max(0, min(mm.Y-1, h-1)),
+	}
+}
+
+// copySelection ends a selection drag at the pointer and copies the selected
+// text to the system clipboard. A press and release on one cell selects nothing.
+func (m *Model) copySelection(mm tea.Mouse) tea.Cmd {
+	m.sel.head, m.sel.dragging = m.panePos(mm), false
+	return m.copySelected()
+}
+
+// doubleClick records a left click at p in sess's pane and reports whether
+// it is the second of a double-click: on the same cell as the click before,
+// within doubleClickTime.
+func (m *Model) doubleClick(sess *Session, p pos) bool {
+	now := time.Now()
+	prev := m.lastClick
+	m.lastClick = paneClick{sess: sess, at: p, when: now}
+	if prev.sess == sess && prev.at == p && now.Sub(prev.when) < doubleClickTime {
+		m.lastClick = paneClick{} // a third click starts over
+		return true
+	}
+	return false
+}
+
+// selectWord selects the word at p in sess's pane, whose runner is r, and
+// copies it. Off a word it selects nothing.
+func (m *Model) selectWord(sess *Session, r *runner, p pos) tea.Cmd {
+	from, to, ok := r.term.Word(r.scroll, p)
+	if !ok {
+		m.sel = nil
+		return nil
+	}
+	m.sel = &selection{sess: sess, scroll: r.scroll, anchor: from, head: to, word: true}
+	return m.copySelected()
+}
+
+// copySelected copies the selected text to the system clipboard and says how
+// much it copied. A selection with no text is dropped.
+func (m *Model) copySelected() tea.Cmd {
+	sel := m.sel
+	r := m.sessions.runner(sel.sess)
+	if sel.empty() || r == nil {
+		m.sel = nil
+		return nil
+	}
+	from, to := sel.bounds()
+	text := r.term.Text(sel.scroll, from, to)
+	if text == "" {
+		m.sel = nil
+		return nil
+	}
+	return tea.Batch(tea.SetClipboard(text), m.setStatus(fmt.Sprintf("copied %d characters", utf8.RuneCountInString(text)), false))
 }
 
 func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
