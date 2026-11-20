@@ -105,14 +105,7 @@ func (t *vterm) Cursor() (x, y int, visible bool) {
 // were wrapped, so a wrapped line is split too.
 func (t *vterm) Text(scroll int, from, to pos) string {
 	w, _ := t.Size()
-	n := t.em.ScrollbackLen()
-	scroll = max(0, min(scroll, n))
-	cell := func(x, y int) *uv.Cell {
-		if y < scroll {
-			return t.em.ScrollbackCellAt(x, n-scroll+y)
-		}
-		return t.em.CellAt(x, y-scroll)
-	}
+	cell := t.viewCells(scroll)
 	rows := make([]string, 0, to.y-from.y+1)
 	for y := from.y; y <= to.y; y++ {
 		x0, x1 := 0, w-1
@@ -137,6 +130,57 @@ func (t *vterm) Text(scroll int, from, to pos) string {
 		rows = append(rows, strings.TrimRight(b.String(), " "))
 	}
 	return strings.Join(rows, "\n")
+}
+
+// viewCells returns the cell at x, y of the view Lines(scroll) shows, or nil
+// past the end of a history line.
+func (t *vterm) viewCells(scroll int) func(x, y int) *uv.Cell {
+	n := t.em.ScrollbackLen()
+	scroll = max(0, min(scroll, n))
+	return func(x, y int) *uv.Cell {
+		if y < scroll {
+			return t.em.ScrollbackCellAt(x, n-scroll+y)
+		}
+		return t.em.CellAt(x, y-scroll)
+	}
+}
+
+// wordDelimiters end a word for Word, as blanks do. Characters common in
+// hosts, paths and URLs (@ : / . - ~) are part of a word.
+const wordDelimiters = "\"'`()[]{}<>,;|"
+
+// Word returns the first and last cell of the word at at, in the view
+// Lines(scroll) shows, and false when at is not on a word. A word is a run of
+// cells on one row that are neither blank nor in wordDelimiters.
+func (t *vterm) Word(scroll int, at pos) (from, to pos, ok bool) {
+	w, _ := t.Size()
+	cell := t.viewCells(scroll)
+	// inWord reports whether x is part of a word; the second column of a wide
+	// character goes with the first.
+	inWord := func(x int) bool {
+		for ; x >= 0; x-- {
+			c := cell(x, at.y)
+			switch {
+			case c == nil:
+				return false
+			case c.Content == "" && c.Width == 0:
+				continue
+			}
+			return c.Content != " " && !strings.ContainsAny(c.Content, wordDelimiters)
+		}
+		return false
+	}
+	if at.x < 0 || at.x >= w || !inWord(at.x) {
+		return pos{}, pos{}, false
+	}
+	from, to = at, at
+	for from.x > 0 && inWord(from.x-1) {
+		from.x--
+	}
+	for to.x < w-1 && inWord(to.x+1) {
+		to.x++
+	}
+	return from, to, true
 }
 
 // Lines renders the screen as styled lines. With scroll > 0 the view moves

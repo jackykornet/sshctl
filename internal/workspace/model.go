@@ -108,6 +108,17 @@ const (
 
 type clearStatusMsg struct{ id int }
 
+// doubleClickTime is the longest time between the two clicks of a double-click.
+var doubleClickTime = 500 * time.Millisecond
+
+// paneClick is a left click in a Session's pane, kept to recognize the
+// second click of a double-click.
+type paneClick struct {
+	sess *Session
+	at   pos
+	when time.Time
+}
+
 // hideSpaceNoteMsg hides the Space note shown with the same id.
 type hideSpaceNoteMsg struct{ id int }
 
@@ -149,6 +160,8 @@ type Model struct {
 	drag      *drag
 	// sel is the text selected with the mouse in a Session pane, if any.
 	sel *selection
+	// lastClick is the last left click in a Session pane, for double-clicks.
+	lastClick paneClick
 	// rightPaste is the right-click paste waiting for the clipboard, if any.
 	rightPaste *pendingPaste
 	pastes     int // right-click pastes started, for their ids
@@ -859,6 +872,9 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			// Output shown before the press must not clear the new selection.
 			m.sessions.takeActivity()
 			p := m.panePos(mm)
+			if m.doubleClick(s, p) {
+				return m.selectWord(s, r, p)
+			}
 			m.sel = &selection{sess: s, scroll: r.scroll, anchor: p, head: p, dragging: true}
 		case mm.Button == tea.MouseRight && !s.Ended:
 			return m.startPaste(s)
@@ -879,8 +895,40 @@ func (m *Model) panePos(mm tea.Mouse) pos {
 // copySelection ends a selection drag at the pointer and copies the selected
 // text to the system clipboard. A press and release on one cell selects nothing.
 func (m *Model) copySelection(mm tea.Mouse) tea.Cmd {
+	m.sel.head, m.sel.dragging = m.panePos(mm), false
+	return m.copySelected()
+}
+
+// doubleClick records a left click at p in sess's pane and reports whether
+// it is the second of a double-click: on the same cell as the click before,
+// within doubleClickTime.
+func (m *Model) doubleClick(sess *Session, p pos) bool {
+	now := time.Now()
+	prev := m.lastClick
+	m.lastClick = paneClick{sess: sess, at: p, when: now}
+	if prev.sess == sess && prev.at == p && now.Sub(prev.when) < doubleClickTime {
+		m.lastClick = paneClick{} // a third click starts over
+		return true
+	}
+	return false
+}
+
+// selectWord selects the word at p in sess's pane, whose runner is r, and
+// copies it. Off a word it selects nothing.
+func (m *Model) selectWord(sess *Session, r *runner, p pos) tea.Cmd {
+	from, to, ok := r.term.Word(r.scroll, p)
+	if !ok {
+		m.sel = nil
+		return nil
+	}
+	m.sel = &selection{sess: sess, scroll: r.scroll, anchor: from, head: to, word: true}
+	return m.copySelected()
+}
+
+// copySelected copies the selected text to the system clipboard and says how
+// much it copied. A selection with no text is dropped.
+func (m *Model) copySelected() tea.Cmd {
 	sel := m.sel
-	sel.head, sel.dragging = m.panePos(mm), false
 	r := m.sessions.runner(sel.sess)
 	if sel.empty() || r == nil {
 		m.sel = nil

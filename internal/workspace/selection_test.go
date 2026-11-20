@@ -282,3 +282,44 @@ func TestRightClickHintsAtOnceWhenTheClipboardHasNoText(t *testing.T) {
 		t.Fatalf("status = %q, want a hint naming Ctrl+Shift+V", m.status)
 	}
 }
+
+// doubleClick clicks the left button twice at x, y, as quickly as a user
+// would, and returns what the second click asks for.
+func doubleClick(m *Model, x, y int) tea.Cmd {
+	m.Update(click(x, y, tea.MouseLeft))
+	m.Update(release(x, y))
+	_, cmd := m.Update(click(x, y, tea.MouseLeft))
+	m.Update(release(x, y))
+	return cmd
+}
+
+func TestDoubleClickCopiesTheWord(t *testing.T) {
+	m, _ := newPaneModel(t, "ssh deploy@web01:/srv now")
+	cmd := doubleClick(m, 29+8, 1)
+	got, ok := clipboardSet(cmd)
+	if !ok || got != "deploy@web01:/srv" {
+		t.Fatalf("clipboard = %q, %v", got, ok)
+	}
+	if m.status != "copied 17 characters" {
+		t.Fatalf("status = %q", m.status)
+	}
+	if !strings.Contains(highlightMarks(m.render()), "^^^^^^^^^^^^^^^^^") {
+		t.Fatalf("the word should stay highlighted:\n%s", screen(m))
+	}
+}
+
+func TestSlowSecondClickIsNoDoubleClick(t *testing.T) {
+	defer func(d time.Duration) { doubleClickTime = d }(doubleClickTime)
+	doubleClickTime = 0
+	m, _ := newPaneModel(t, "ssh deploy@web01:/srv now")
+	if cmd := doubleClick(m, 29+8, 1); cmd != nil || m.sel != nil && !m.sel.empty() {
+		t.Fatal("two clicks further apart than doubleClickTime select nothing")
+	}
+}
+
+func TestDoubleClickOnABlankSelectsNothing(t *testing.T) {
+	m, _ := newPaneModel(t, "a    b")
+	if cmd := doubleClick(m, 29+3, 1); cmd != nil {
+		t.Fatal("a double-click on a blank copies nothing")
+	}
+}

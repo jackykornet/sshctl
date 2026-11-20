@@ -16,11 +16,14 @@ type selection struct {
 	head   pos
 	// dragging is set while the left button is held.
 	dragging bool
+	// word is set for a word selected with a double-click, which may be a
+	// single cell.
+	word bool
 }
 
-// empty reports whether the selection covers only the cell it started on,
-// which selects nothing.
-func (s *selection) empty() bool { return s.anchor == s.head }
+// empty reports whether a drag selection covers only the cell it started
+// on, which selects nothing.
+func (s *selection) empty() bool { return s.anchor == s.head && !s.word }
 
 // shownIn reports whether the selection is drawn over sess's pane, whose
 // runner is r: it must be that pane, scrolled as when it was made.

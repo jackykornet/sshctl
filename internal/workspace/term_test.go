@@ -70,3 +70,31 @@ func TestTermText(t *testing.T) {
 		})
 	}
 }
+
+func TestTermWord(t *testing.T) {
+	tests := []struct {
+		name     string
+		out      string
+		scroll   int
+		at       pos
+		from, to pos
+		ok       bool
+	}{
+		{name: "a plain word", out: "ls -la /tmp", at: pos{1, 0}, from: pos{0, 0}, to: pos{1, 0}, ok: true},
+		{name: "a path with @ and :", out: "u@h:/v/x y", at: pos{5, 0}, from: pos{0, 0}, to: pos{7, 0}, ok: true},
+		{name: "quotes and brackets end a word", out: `say "(hi)"`, at: pos{7, 0}, from: pos{6, 0}, to: pos{7, 0}, ok: true},
+		{name: "a blank is no word", out: "a  b", at: pos{1, 0}, ok: false},
+		{name: "past the end of a row is no word", out: "ab", at: pos{6, 0}, ok: false},
+		{name: "a wide character is part of a word", out: "x 界面 y", at: pos{3, 0}, from: pos{2, 0}, to: pos{5, 0}, ok: true},
+		{name: "scrolled back", out: "one\ntwo\nthree\nfour\nfive", scroll: 2, at: pos{1, 1}, from: pos{0, 1}, to: pos{2, 1}, ok: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			term := newTestTerm(t, tc.out)
+			from, to, ok := term.Word(tc.scroll, tc.at)
+			if ok != tc.ok || ok && (from != tc.from || to != tc.to) {
+				t.Errorf("Word = %v, %v, %v; want %v, %v, %v", from, to, ok, tc.from, tc.to, tc.ok)
+			}
+		})
+	}
+}
