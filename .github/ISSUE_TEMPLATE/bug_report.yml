@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in sshctl does not work as described.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        sshctl is in early development, so thanks for reporting. Leave out host names, user names, keys and anything else private.
+  - type: input
+    id: version
+    attributes:
+      label: sshctl version
+      description: The release you downloaded (for example, v0.3.0, from the file name `sshctl_<version>_<os>_<arch>`), or the commit you built from.
+      placeholder: v0.3.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS and version, and the terminal if the Workspace is involved.
+      placeholder: Windows 11 23H2, Windows Terminal
+    validations:
+      required: true
+  - type: dropdown
+    id: feature
+    attributes:
+      label: Feature
+      description: Which feature were you using?
+      options:
+        - Connections (list, add, edit, delete, connect)
+        - Spaces
+        - Groups
+        - Keys and agent
+        - Known hosts
+        - Config
+        - Workspace
+        - Bootstrap (experimental)
+        - Provision (experimental)
+        - Syncing with chezmoi (experimental)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran or the keys you pressed, in order.
+      placeholder: |
+        1. sshctl space add work
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+      description: Include any error message sshctl printed.
+    validations:
+      required: true
