@@ -232,6 +232,8 @@ func (m *Model) closeAll() { m.sessions.closeAll() }
 func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Before msg acts on a scroll position, account for output that arrived.
+	m.sessions.keepViews()
 	cmd := m.update(msg)
 	m.syncSize()
 	return m, cmd
