@@ -112,7 +112,8 @@ Commands:
   group rename <group> <new>   Rename a Group, moving its Connections
   group delete <group> [--yes] Delete a Group; its Connections become ungrouped
   group move <group> <pos>     Set a Group's position (its number)
-  group connect <group>        Open group connections in terminal windows
+  group connect <group>        Open one terminal window per Connection in the
+                               Group; for tabs, use prefix g in the Workspace
   history                      Show recent connections
   key list|use|add             List, select, or register keys;
                                key use --space <name> <key|none> selects a
@@ -170,6 +171,9 @@ func (a *app) execute(args []string) error {
 	}
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 		fmt.Fprintf(a.out, "Usage: sshctl %s\n", usage(args[0]))
+		if args[0] == "group" {
+			fmt.Fprintf(a.out, "\n%s\n", groupConnectNote)
+		}
 		return nil
 	}
 	switch args[0] {
