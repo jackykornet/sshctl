@@ -23,6 +23,8 @@ var (
 	endedBanner = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Yellow)
 	unseenStyle = lipgloss.NewStyle().Bold(true)
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
+	// selectionStyle draws text selected with the mouse in a Session pane.
+	selectionStyle = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
 	// spaceActiveStyle is the accent colour of the active Space in the
 	// Space bar.
 	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
@@ -400,12 +402,22 @@ func (m *Model) renderPane(w, h int) []string {
 	case r != nil:
 		body = r.term.Lines(r.scroll)
 	}
-	for _, l := range body {
+	sel := m.sel
+	if sel != nil && (sel.sess != s || r == nil || sel.scroll != r.scroll || sel.anchor == sel.head) {
+		sel = nil
+	}
+	for y, l := range body {
 		if len(lines) == h {
 			break
 		}
+		l = fit(l, w)
+		if sel != nil {
+			if x0, x1, ok := sel.span(y, w); ok {
+				l = highlight(l, x0, x1, w)
+			}
+		}
 		// Reset after each line so remote styles never bleed into the separator.
-		lines = append(lines, fit(l, w)+"\x1b[m")
+		lines = append(lines, l+"\x1b[m")
 	}
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
@@ -415,6 +427,12 @@ func (m *Model) renderPane(w, h int) []string {
 		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
+}
+
+// highlight draws columns [x0, x1) of line, which is w columns wide, in
+// selectionStyle, dropping the Session's own styles there.
+func highlight(line string, x0, x1, w int) string {
+	return ansi.Cut(line, 0, x0) + selectionStyle.Render(ansi.Strip(ansi.Cut(line, x0, x1))) + ansi.Cut(line, x1, w)
 }
 
 // helpRows is how many rows the help screen has for bindings, below its

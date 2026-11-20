@@ -99,6 +99,46 @@ func (t *vterm) Cursor() (x, y int, visible bool) {
 	return p.X, p.Y, !t.em.CursorHidden()
 }
 
+// Text returns the plain text of every cell from from to to (inclusive, in
+// reading order) as Lines(scroll) shows them. Each row's trailing blanks are
+// trimmed and rows are joined with newlines. vt does not record which rows
+// were wrapped, so a wrapped line is split too.
+func (t *vterm) Text(scroll int, from, to pos) string {
+	w, _ := t.Size()
+	n := t.em.ScrollbackLen()
+	scroll = max(0, min(scroll, n))
+	cell := func(x, y int) *uv.Cell {
+		if y < scroll {
+			return t.em.ScrollbackCellAt(x, n-scroll+y)
+		}
+		return t.em.CellAt(x, y-scroll)
+	}
+	rows := make([]string, 0, to.y-from.y+1)
+	for y := from.y; y <= to.y; y++ {
+		x0, x1 := 0, w-1
+		if y == from.y {
+			x0 = from.x
+		}
+		if y == to.y {
+			x1 = min(to.x, w-1)
+		}
+		var b strings.Builder
+		for x := x0; x <= x1; x++ {
+			c := cell(x, y)
+			switch {
+			case c == nil:
+				b.WriteByte(' ') // past the end of a history line
+			case c.Content == "" && c.Width == 0:
+				// the second column of a wide character
+			default:
+				b.WriteString(c.Content)
+			}
+		}
+		rows = append(rows, strings.TrimRight(b.String(), " "))
+	}
+	return strings.Join(rows, "\n")
+}
+
 // Lines renders the screen as styled lines. With scroll > 0 the view moves
 // that many lines back into the scrollback.
 func (t *vterm) Lines(scroll int) []string {

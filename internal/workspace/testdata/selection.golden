@@ -1,0 +1,15 @@
+ ● alpha                    │ alpha 1                                           
+   beta                     │first line                                         
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                            │second line                                        
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                            │third                                              
+                             ^^^^^                                              
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+ copied 22 characters                     ^B ? help · ^B n new tab · ^B w close 
