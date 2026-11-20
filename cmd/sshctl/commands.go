@@ -31,7 +31,7 @@ type app struct {
 func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	startWorkspace := len(args) == 0 && interactive(in, out)
 	if !startWorkspace && (len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		help(out)
+		help(out, helpFeatures())
 		return nil
 	}
 	p, legacy, err := config.Paths()
@@ -62,7 +62,31 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	}
 	return a.execute(args)
 }
-func help(w io.Writer) {
+
+// helpFeatures returns which Experimental features are on, for help, and
+// none when the config cannot be read: help must work anyway.
+func helpFeatures() config.Experimental {
+	p, legacy, err := config.Paths()
+	if err != nil {
+		return config.Experimental{}
+	}
+	c, err := config.Load(p, legacy)
+	if err != nil {
+		return config.Experimental{}
+	}
+	return c.Experimental
+}
+
+// help prints the command overview; exp marks the Experimental features
+// that are off.
+func help(w io.Writer, exp config.Experimental) {
+	off := func(feature string) string {
+		if exp.On(feature) {
+			return ""
+		}
+		return " (experimental, off)"
+	}
+	bootstrap, provision := off(config.FeatureBootstrap), off(config.FeatureProvision)
 	fmt.Fprint(w, `sshctl manages OpenSSH connections and local connection metadata.
 
 Usage: sshctl                 Open the Workspace (in a terminal)
@@ -80,7 +104,7 @@ Commands:
   space delete <name>          Delete an empty Space
   space move <name> <position> Set a Space's position (its number)
   space dotfiles <name> [<url|none>|--unset]
-                               Show or set a Space's dotfiles repo
+                               Show or set a Space's dotfiles repo`+provision+`
   group [--space <name>] ...   Pick the Space for a group command;
                                <group> is a Group name or number
   group list                   List Groups: number, name, members, dotfiles
@@ -95,10 +119,14 @@ Commands:
                                Space's key; none falls back to the global one
   agent ensure                 Inspect SSH agent and optionally add the Selected identity
   known-hosts list|remove      Show or remove known hosts
-  bootstrap <alias>            Install your key on the host and use it
-  provision <alias>            Apply your dotfiles to the host with chezmoi
+  bootstrap <alias>            Install your key on the host and use it`+bootstrap+`
+  provision <alias>            Apply your dotfiles to the host with chezmoi`+provision+`
   provision default [<url|none>|--unset] [--group <name>]
-                               Show or set the global or a Group's dotfiles repo
+                               Show or set the global or a Group's dotfiles repo`+provision+`
+  experimental list            Show which Experimental features are on
+  experimental enable|disable <feature>
+                               Turn bootstrap or provision on or off; they are
+                               not fully tested yet and start off
   config show                  Show paths and relevant SSH settings
 
 Use sshctl <command> --help for command usage where available.
@@ -126,6 +154,8 @@ func usage(command string) string {
 		return provisionUsage
 	case "bootstrap":
 		return bootstrapUsage
+	case "experimental":
+		return experimentalUsage
 	case "config":
 		return "config show"
 	default:
@@ -135,7 +165,7 @@ func usage(command string) string {
 
 func (a *app) execute(args []string) error {
 	if args[0] == "--help" || args[0] == "-h" {
-		help(a.out)
+		help(a.out, a.cfg.Experimental)
 		return nil
 	}
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
@@ -174,6 +204,8 @@ func (a *app) execute(args []string) error {
 		return a.provisionCommand(args[1:])
 	case "bootstrap":
 		return a.bootstrapCommand(args[1:])
+	case "experimental":
+		return a.experimentalCommand(args[1:])
 	case "config":
 		if len(args) > 1 && args[1] == "show" {
 			return a.showConfig()

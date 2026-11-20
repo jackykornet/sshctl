@@ -127,12 +127,15 @@ type Model struct {
 	// identities holds the Snapshot's Selected identities, global and per
 	// Space, for the status line's key (see selectedIdentities).
 	identities Snapshot
-	ev         *events
-	sessions   *sessions
-	w, h       int
-	focus      focus
-	prefix     bool // armed outside modals; a modal keeps its own
-	filtering  bool
+	// features says which Experimental features are on, as of the last
+	// Snapshot.
+	features  catalog.Experimental
+	ev        *events
+	sessions  *sessions
+	w, h      int
+	focus     focus
+	prefix    bool // armed outside modals; a modal keeps its own
+	filtering bool
 	// filter is the filter being typed, with its cursor; State holds its text.
 	filter    line
 	scrolling bool
@@ -171,7 +174,7 @@ func New(opts Options) (*Model, error) {
 	st.SetGroups(snap.Groups)
 	st.SetSpace(snap.ActiveSpace)
 	st.RestoreCollapsed(snap.Collapsed)
-	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), ev: newEvents()}
+	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), features: snap.Experimental, ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
 		ev:         m.ev,
@@ -603,6 +606,7 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
 	m.st.SetGroups(snap.Groups)
 	m.identities = selectedIdentities(snap)
+	m.features = snap.Experimental
 	if alias != "" {
 		m.st.SetCursor(alias)
 	}

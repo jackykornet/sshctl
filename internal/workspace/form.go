@@ -221,6 +221,12 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 		return m.saveForm(f, false)
 	case "ctrl+o":
 		if f.old == "" {
+			// While Bootstrap is off, nothing is saved and the form
+			// stays open, saying why.
+			if err := m.features.Check(catalog.FeatureBootstrap); err != nil {
+				f.err = err.Error()
+				return nil
+			}
 			return m.saveForm(f, true)
 		}
 	default:
@@ -369,7 +375,7 @@ func (m *Model) deleteConnection() tea.Cmd {
 // lists spaces, the Spaces by number; under the group field the stored
 // groups of the form's Space by Group number, since the form covers their
 // headers.
-func (f *connForm) render(w, h int, spaces, groups []string) []string {
+func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -401,7 +407,11 @@ func (f *connForm) render(w, h int, spaces, groups []string) []string {
 	}
 	lines = append(lines, "  "+dimStyle.Render("Tab/↑↓ move · Ctrl+S save · Esc cancel"))
 	if f.old == "" {
-		lines = append(lines, "  "+dimStyle.Render("Ctrl+O save and Bootstrap"))
+		hint := "Ctrl+O save and Bootstrap"
+		if !bootstrapOn {
+			hint += " (experimental, off)"
+		}
+		lines = append(lines, "  "+dimStyle.Render(hint))
 	}
 	out := make([]string, 0, h)
 	for _, l := range lines {

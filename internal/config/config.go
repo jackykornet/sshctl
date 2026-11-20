@@ -58,6 +58,10 @@ type Config struct {
 	Connections map[string]Connection `json:"connections"`
 	Workspace   Workspace             `json:"workspace,omitzero"`
 	Provision   Provision             `json:"provision,omitzero"`
+	// Experimental says which Experimental features are on. It is synced
+	// with the rest of config.json, so turning one on holds on every
+	// machine.
+	Experimental Experimental `json:"experimental,omitzero"`
 	// State is what belongs to this machine. Save writes it to state.json
 	// next to config.json, so a config.json synced from another machine
 	// leaves it alone (ADR-0004).
@@ -76,6 +80,80 @@ type Provision struct {
 	// Dotfiles is the global dotfiles repo URL, DotfilesNone to refuse
 	// Provision, or "" when unset.
 	Dotfiles string `json:"dotfiles,omitempty"`
+}
+
+// The Experimental features, by the name the config and
+// "sshctl experimental" use.
+const (
+	FeatureBootstrap = "bootstrap"
+	FeatureProvision = "provision"
+)
+
+// Features lists every Experimental feature's name, in the order
+// "sshctl experimental list" shows them.
+var Features = []string{FeatureBootstrap, FeatureProvision}
+
+// ErrUnknownFeature is returned for a name Features does not list.
+var ErrUnknownFeature = errors.New("unknown experimental feature")
+
+// ErrFeatureOff is wrapped by Experimental.Check for a feature that is off.
+var ErrFeatureOff = errors.New("experimental feature is off")
+
+// Experimental says which Experimental features are on: features that are
+// not fully tested yet, off until the user turns them on. A missing field is
+// off, so a config from before they existed has them all off.
+type Experimental struct {
+	Bootstrap bool `json:"bootstrap,omitempty"`
+	Provision bool `json:"provision,omitempty"`
+}
+
+// On reports whether feature is on; an unknown feature is off.
+func (e Experimental) On(feature string) bool {
+	switch feature {
+	case FeatureBootstrap:
+		return e.Bootstrap
+	case FeatureProvision:
+		return e.Provision
+	}
+	return false
+}
+
+// Set turns feature on or off, and refuses one Features does not list.
+func (e *Experimental) Set(feature string, on bool) error {
+	switch feature {
+	case FeatureBootstrap:
+		e.Bootstrap = on
+	case FeatureProvision:
+		e.Provision = on
+	default:
+		return fmt.Errorf("%w %q; the experimental features are %s", ErrUnknownFeature, feature, strings.Join(Features, ", "))
+	}
+	return nil
+}
+
+// Check returns nil when feature is on, and otherwise an error wrapping
+// ErrFeatureOff that says how to turn it on.
+func (e Experimental) Check(feature string) error {
+	if e.On(feature) {
+		return nil
+	}
+	return &featureOffError{feature}
+}
+
+type featureOffError struct{ feature string }
+
+func (e *featureOffError) Error() string {
+	return fmt.Sprintf("%s is experimental and off. Turn it on with: sshctl experimental enable %s", FeatureTitle(e.feature), e.feature)
+}
+
+func (e *featureOffError) Unwrap() error { return ErrFeatureOff }
+
+// FeatureTitle is how messages name feature: "Bootstrap", "Provision".
+func FeatureTitle(feature string) string {
+	if feature == "" {
+		return ""
+	}
+	return strings.ToUpper(feature[:1]) + feature[1:]
 }
 
 // Workspace holds optional settings for the full-screen Workspace that are

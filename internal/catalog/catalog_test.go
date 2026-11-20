@@ -733,3 +733,32 @@ func TestSnapshotFindsAnEntryAndAGroup(t *testing.T) {
 		t.Errorf("HasGroup: prod %v, dev %v, empty %v; want only prod", snap.HasGroup("", "prod"), snap.HasGroup("", "dev"), snap.HasGroup("", ""))
 	}
 }
+
+func TestSetFeatureTurnsAnExperimentalFeatureOnAndOff(t *testing.T) {
+	tr := newTree(t, true, "Host web\n")
+	if err := tr.cat.CheckFeature(FeatureBootstrap); !errors.Is(err, config.ErrFeatureOff) {
+		t.Fatalf("CheckFeature before SetFeature = %v, want ErrFeatureOff", err)
+	}
+	if err := tr.cat.SetFeature(FeatureBootstrap, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.CheckFeature(FeatureBootstrap); err != nil {
+		t.Errorf("CheckFeature after enable = %v", err)
+	}
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Experimental.On(FeatureBootstrap) || snap.Experimental.On(FeatureProvision) {
+		t.Errorf("Snapshot.Experimental = %+v, want only bootstrap on", snap.Experimental)
+	}
+	if err := tr.cat.SetFeature(FeatureBootstrap, false); err != nil {
+		t.Fatal(err)
+	}
+	if tr.config(t).Experimental.On(FeatureBootstrap) {
+		t.Error("bootstrap still on after disable")
+	}
+	if err := tr.cat.SetFeature("sync", true); !errors.Is(err, config.ErrUnknownFeature) {
+		t.Errorf("SetFeature(sync) = %v, want ErrUnknownFeature", err)
+	}
+}
