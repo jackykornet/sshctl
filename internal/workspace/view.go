@@ -52,6 +52,9 @@ func (m *Model) render() string {
 	if m.w <= 0 || m.h <= 0 {
 		return ""
 	}
+	// Output may have arrived since the last Update; draw scrolled-back views
+	// where they were.
+	m.keepViews()
 	mainH := m.h - 1
 	if h, ok := m.modal.(*helpScreen); ok {
 		// Help covers the whole Workspace without resizing the Sessions
