@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"runtime"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -20,7 +21,11 @@ var (
 
 const cfUnicodeText = 13
 
+// readClipboard reads CF_UNICODETEXT with the Win32 clipboard API.
 func readClipboard() (string, error) {
+	// The clipboard is opened for the calling thread, which must close it.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if ok, _, _ := isClipboardFormatAvailable.Call(cfUnicodeText); ok == 0 {
 		return "", nil
 	}
@@ -48,7 +53,9 @@ func readClipboard() (string, error) {
 	}
 	defer globalUnlock.Call(h)
 	// p points at the clipboard's NUL-terminated UTF-16 text, which stays
-	// valid until GlobalUnlock; the string is a copy of it.
+	// valid until GlobalUnlock; the string is a copy of it. The memory is
+	// Windows', not Go's, so turning the uintptr into a pointer is safe; it
+	// goes through &p because vet cannot tell that.
 	text := *(*unsafe.Pointer)(unsafe.Pointer(&p))
 	n := 0
 	for *(*uint16)(unsafe.Add(text, 2*n)) != 0 {

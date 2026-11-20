@@ -403,7 +403,7 @@ func (m *Model) renderPane(w, h int) []string {
 		body = r.term.Lines(r.scroll)
 	}
 	sel := m.sel
-	if sel != nil && (sel.sess != s || r == nil || sel.scroll != r.scroll || sel.anchor == sel.head) {
+	if sel != nil && !sel.shownIn(s, r) {
 		sel = nil
 	}
 	for y, l := range body {
@@ -432,7 +432,7 @@ func (m *Model) renderPane(w, h int) []string {
 // highlight draws columns [x0, x1) of line, which is w columns wide, in
 // selectionStyle, dropping the Session's own styles there.
 func highlight(line string, x0, x1, w int) string {
-	return ansi.Cut(line, 0, x0) + selectionStyle.Render(ansi.Strip(ansi.Cut(line, x0, x1))) + ansi.Cut(line, x1, w)
+	return ansi.Cut(line, 0, x0) + "\x1b[m" + selectionStyle.Render(ansi.Strip(ansi.Cut(line, x0, x1))) + ansi.Cut(line, x1, w)
 }
 
 // helpRows is how many rows the help screen has for bindings, below its

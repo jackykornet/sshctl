@@ -18,6 +18,16 @@ type selection struct {
 	dragging bool
 }
 
+// empty reports whether the selection covers only the cell it started on,
+// which selects nothing.
+func (s *selection) empty() bool { return s.anchor == s.head }
+
+// shownIn reports whether the selection is drawn over sess's pane, whose
+// runner is r: it must be that pane, scrolled as when it was made.
+func (s *selection) shownIn(sess *Session, r *runner) bool {
+	return s.sess == sess && r != nil && s.scroll == r.scroll && !s.empty()
+}
+
 // bounds returns the selection's first and last cell in reading order.
 func (s *selection) bounds() (from, to pos) {
 	if s.head.before(s.anchor) {

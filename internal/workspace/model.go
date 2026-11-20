@@ -108,26 +108,6 @@ const (
 
 type clearStatusMsg struct{ id int }
 
-// Messages of a right-click paste, for the paste with the same id.
-type (
-	// clipboardReadMsg carries the text Options.ReadClipboard read.
-	clipboardReadMsg struct {
-		id   int
-		text string
-	}
-	// clipboardMissMsg says Options.ReadClipboard gave no text.
-	clipboardMissMsg struct{ id int }
-	// clipboardTimeoutMsg says the host terminal did not answer in time.
-	clipboardTimeoutMsg struct{ id int }
-)
-
-// clipboardWait is how long a right-click paste waits for the host terminal
-// to answer an OSC 52 clipboard read. Many terminals never do.
-var clipboardWait = time.Second
-
-// clipboardHint is shown when a right-click paste finds no text to paste.
-const clipboardHint = "could not read the clipboard; paste with Ctrl+Shift+V"
-
 // hideSpaceNoteMsg hides the Space note shown with the same id.
 type hideSpaceNoteMsg struct{ id int }
 
@@ -169,13 +149,12 @@ type Model struct {
 	drag      *drag
 	// sel is the text selected with the mouse in a Session pane, if any.
 	sel *selection
-	// pasteTo is the Session a right-click paste is reading the clipboard
-	// for, and pasteID that paste's number.
-	pasteTo   *Session
-	pasteID   int
-	status    string
-	statusErr bool
-	statusID  int
+	// rightPaste is the right-click paste waiting for the clipboard, if any.
+	rightPaste *pendingPaste
+	pastes     int // right-click pastes started, for their ids
+	status     string
+	statusErr  bool
+	statusID   int
 	// spaceNote shows every Space's number and name under the Space bar
 	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
 	spaceNote   bool
@@ -246,6 +225,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) update(msg tea.Msg) tea.Cmd {
+	if cmd, ok := m.clipboardRead(msg); ok {
+		return cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -271,23 +253,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
 	case tea.PasteMsg:
 		m.paste(msg.Content)
-	case clipboardReadMsg:
-		if msg.id == m.pasteID && m.pasteTo != nil {
-			return m.pasteClipboard(msg.text)
-		}
-	case clipboardMissMsg:
-		if msg.id == m.pasteID && m.pasteTo != nil {
-			id := m.pasteID
-			return tea.Batch(tea.ReadClipboard, tea.Tick(clipboardWait, func(time.Time) tea.Msg { return clipboardTimeoutMsg{id} }))
-		}
-	case tea.ClipboardMsg:
-		if m.pasteTo != nil {
-			return m.pasteClipboard(msg.Content)
-		}
-	case clipboardTimeoutMsg:
-		if msg.id == m.pasteID && m.pasteTo != nil {
-			return m.pasteClipboard("")
-		}
 	case tea.KeyPressMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
@@ -891,41 +856,13 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	case tea.MouseClickMsg:
 		switch {
 		case mm.Button == tea.MouseLeft:
+			// Output shown before the press must not clear the new selection.
+			m.sessions.takeActivity()
 			p := m.panePos(mm)
 			m.sel = &selection{sess: s, scroll: r.scroll, anchor: p, head: p, dragging: true}
 		case mm.Button == tea.MouseRight && !s.Ended:
-			return m.readClipboard(s)
+			return m.startPaste(s)
 		}
-	}
-	return nil
-}
-
-// readClipboard starts a right-click paste into sess: it reads the clipboard
-// with Options.ReadClipboard, or else asks the host terminal (see update).
-func (m *Model) readClipboard(sess *Session) tea.Cmd {
-	m.pasteID++
-	m.pasteTo = sess
-	id, read := m.pasteID, m.opts.ReadClipboard
-	return func() tea.Msg {
-		if read != nil {
-			if text, err := read(); err == nil && text != "" {
-				return clipboardReadMsg{id, text}
-			}
-		}
-		return clipboardMissMsg{id}
-	}
-}
-
-// pasteClipboard ends a right-click paste: it pastes text into its Session
-// if that is still live, or shows a hint when there is no text.
-func (m *Model) pasteClipboard(text string) tea.Cmd {
-	sess := m.pasteTo
-	m.pasteTo = nil
-	if text == "" {
-		return m.setStatus(clipboardHint, true)
-	}
-	if r := m.sessions.runner(sess); r != nil && !sess.Ended {
-		r.term.Paste(text)
 	}
 	return nil
 }
@@ -945,7 +882,7 @@ func (m *Model) copySelection(mm tea.Mouse) tea.Cmd {
 	sel := m.sel
 	sel.head, sel.dragging = m.panePos(mm), false
 	r := m.sessions.runner(sel.sess)
-	if sel.head == sel.anchor || r == nil {
+	if sel.empty() || r == nil {
 		m.sel = nil
 		return nil
 	}

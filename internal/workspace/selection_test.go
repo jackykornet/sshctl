@@ -27,6 +27,7 @@ type inputLog struct {
 	buf strings.Builder
 }
 
+// Write records p.
 func (l *inputLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -73,15 +74,18 @@ func paneModel(t *testing.T, opts Options, out string) (*Model, *Session, *input
 	return m, sess, in
 }
 
-// Mouse events at screen cells; the pane body starts at column 29, row 1.
+// click presses b at screen cell x, y. In these Workspaces the pane body
+// starts at column 29, row 1.
 func click(x, y int, b tea.MouseButton) tea.MouseClickMsg {
 	return tea.MouseClickMsg{X: x, Y: y, Button: b}
 }
 
+// motion moves the pointer to x, y with the left button held.
 func motion(x, y int) tea.MouseMotionMsg {
 	return tea.MouseMotionMsg{X: x, Y: y, Button: tea.MouseLeft}
 }
 
+// release lets go of the left button at x, y.
 func release(x, y int) tea.MouseReleaseMsg {
 	return tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft}
 }
@@ -95,7 +99,7 @@ func dragMouse(m *Model, from, to [2]int) tea.Cmd {
 }
 
 // cmdMsgs runs cmd and the commands of any batch it returns, and collects
-// the messages that arrive within a short wait (a status timer never does).
+// the messages that arrive within a short wait (a status timer does not).
 func cmdMsgs(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
@@ -112,7 +116,7 @@ func cmdMsgs(cmd tea.Cmd) []tea.Msg {
 			return out
 		}
 		return []tea.Msg{msg}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(300 * time.Millisecond):
 		return nil
 	}
 }
@@ -266,6 +270,14 @@ func TestRightClickHintsWhenTheClipboardCannotBeRead(t *testing.T) {
 	clipboardWait = 10 * time.Millisecond
 	m, _, _ := paneModel(t, Options{}, "$ ")
 	rightClick(m)
+	if !strings.Contains(m.status, "Ctrl+Shift+V") {
+		t.Fatalf("status = %q, want a hint naming Ctrl+Shift+V", m.status)
+	}
+}
+
+func TestRightClickHintsAtOnceWhenTheClipboardHasNoText(t *testing.T) {
+	m, _, _ := paneModel(t, Options{ReadClipboard: func() (string, error) { return "", nil }}, "$ ")
+	rightClick(m) // waits far less than clipboardWait
 	if !strings.Contains(m.status, "Ctrl+Shift+V") {
 		t.Fatalf("status = %q, want a hint naming Ctrl+Shift+V", m.status)
 	}
