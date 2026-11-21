@@ -38,6 +38,26 @@ func TestPOpensThePickerAndEnterSwitchesToAnySpace(t *testing.T) {
 	}
 }
 
+// A cursor past the last row (the rows shrank under it) names no Space, so
+// Enter neither switches nor reports a Space 0.
+func TestEnterPastTheLastPickerRowDoesNothing(t *testing.T) {
+	f := spaceCatalog()
+	m := newStoreModel(t, f)
+	press(m, text("P")...)
+	p := m.picker()
+	p.cursor = 99
+	press(m, keyEnter)
+	if m.modal != p {
+		t.Fatalf("Enter past the last row: modal %T, want the picker still open", m.modal)
+	}
+	if status, _ := p.status(); strings.Contains(status, "Space 0") {
+		t.Errorf("Enter past the last row said %q", status)
+	}
+	if len(f.activeSaves) != 0 {
+		t.Errorf("Enter past the last row saved active Spaces %q", f.activeSaves)
+	}
+}
+
 func TestThePickerOpensOnTheActiveSpaceAndEscClosesIt(t *testing.T) {
 	f := spaceCatalog()
 	f.activeSpace = "globex"

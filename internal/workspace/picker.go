@@ -79,7 +79,10 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 		return m.shiftSpace(p, 1)
 	case "enter", "space":
 		t, ok := p.target(m)
-		if !ok || t.Free() {
+		if !ok {
+			break
+		}
+		if t.Free() {
 			p.say(fmt.Sprintf("no Space %d", t.Number), true)
 			return nil
 		}

@@ -28,8 +28,8 @@ var (
 	// spaceActiveStyle is the accent colour of the active Space in the
 	// Space bar.
 	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
-	// spaceFreeStyle is a free Space number in the Space bar and picker,
-	// fainter than an idle Space.
+	// spaceFreeStyle is a free Space number in the Space bar, fainter than
+	// an idle Space. The picker draws its free rows in dimStyle.
 	spaceFreeStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Faint(true)
 )
 
