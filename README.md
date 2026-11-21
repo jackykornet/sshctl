@@ -49,17 +49,17 @@ sshctl group [--space <space>] move <group> <position>
 sshctl group [--space <space>] connect <group>
 sshctl history
 sshctl key list
-sshctl key use <key-path|none>
+sshctl key use [--space <space>] <key-path|none>
 sshctl key add <private-key-path>
 sshctl agent ensure
 sshctl known-hosts list
 sshctl known-hosts remove <host>
-sshctl bootstrap [--] <alias>
-sshctl provision [--] <alias>
+sshctl bootstrap <alias>
+sshctl provision <alias>
 sshctl provision default [<url|none> | --unset] [--group <name>]
-sshctl config show
 sshctl experimental list
-sshctl experimental enable|disable <bootstrap|provision>
+sshctl experimental enable|disable <feature>
+sshctl config show
 ```
 
 Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(orphaned)`. `add` and `edit` prompt for a description and group; an empty answer keeps the current value, and a Connection with neither keeps no metadata. The group must already exist: `add` and `edit` refuse an unknown one and tell you to run `sshctl group add`. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.

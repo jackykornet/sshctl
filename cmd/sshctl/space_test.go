@@ -463,7 +463,7 @@ func TestHelpDescribesSpaceNumbers(t *testing.T) {
 	if err := a.execute([]string{"space", "--help"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := "Usage: sshctl " + spaceUsage + "\n"; help.String() != want || strings.Contains(spaceUsage, "position") {
+	if want := "Usage: sshctl " + usage("space") + "\n"; help.String() != want || strings.Contains(usage("space"), "position") {
 		t.Errorf("space --help = %q", help.String())
 	}
 }

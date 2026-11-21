@@ -111,6 +111,91 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	}
 }
 
+// Every way to call a command that the table declares is dispatched to it
+// and listed in --help and in its own --help.
+func TestEveryCommandIsReachableAndInHelp(t *testing.T) {
+	var help bytes.Buffer
+	if err := run([]string{"--help"}, strings.NewReader(""), &help, &help); err != nil {
+		t.Fatal(err)
+	}
+	a, out := cliTree(t, "", config.New(), "")
+	for i := range commands {
+		c := &commands[i]
+		out.Reset()
+		if err := a.execute([]string{c.name, "--help"}); err != nil {
+			t.Fatal(err)
+		}
+		for j := range c.forms {
+			f := &c.forms[j]
+			calls := [][]string{{c.name}}
+			if c.inSpace {
+				calls = append(calls, []string{c.name, "--space", "x"})
+			}
+			for _, call := range calls {
+				if f.sub != "" {
+					call = append(call, f.sub)
+				}
+				gotC, gotF, _ := lookup(call)
+				if gotC != c || gotF != f {
+					t.Errorf("sshctl %s does not reach its form", strings.Join(call, " "))
+				}
+			}
+			name := strings.TrimSpace(c.name + " " + f.sub)
+			if !strings.Contains(help.String(), "\n  "+name) {
+				t.Errorf("--help does not list %q:\n%s", name, help.String())
+			}
+			if !strings.Contains(out.String(), f.args) {
+				t.Errorf("sshctl %s --help = %q, lacks %q", c.name, out.String(), f.args)
+			}
+		}
+	}
+	if gotC, _, _ := lookup([]string{"not-a-command"}); gotC != nil {
+		t.Errorf("an unknown command reached %q", gotC.name)
+	}
+}
+
+// A command called with no subcommand, an unknown one, or arguments that do
+// not fit gets its usage.
+func TestWrongCallsGetTheCommandsUsage(t *testing.T) {
+	a, _ := cliTree(t, "", config.New(), "")
+	for _, args := range [][]string{
+		{"agent"}, {"key"}, {"key", "bogus"}, {"config", "bogus"},
+		{"group", "--space", "default"}, {"group", "add"}, {"space", "rename", "default"},
+		{"list", "extra"}, {"bootstrap"},
+	} {
+		err := a.execute(args)
+		if want := "usage: sshctl " + usage(args[0]); err == nil || err.Error() != want {
+			t.Errorf("sshctl %s: err = %v, want %q", strings.Join(args, " "), err, want)
+		}
+	}
+}
+
+// The README's Commands block lists every form --help does, in its order.
+func TestReadmeListsTheCommands(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows checks README.md out with CRLF line endings (.gitattributes).
+	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
+	_, block, ok := strings.Cut(text, "## Commands\n\n```text\n")
+	if ok {
+		block, _, ok = strings.Cut(block, "```")
+	}
+	if !ok {
+		t.Fatal("README has no Commands block")
+	}
+	want := "sshctl\n"
+	for _, c := range commands {
+		for _, f := range c.forms {
+			want += "sshctl " + c.synopsis(f) + "\n"
+		}
+	}
+	if block != want {
+		t.Errorf("README Commands block:\n%s\nwant, from the command table:\n%s", block, want)
+	}
+}
+
 // cliTree is an app over a temporary sshctl config and ssh_config, reading in.
 func cliTree(t *testing.T, sshConfig string, cfg *config.Config, in string) (*app, *bytes.Buffer) {
 	t.Helper()
@@ -258,6 +343,21 @@ func TestConnectRecordsHistoryOnTheCurrentConfig(t *testing.T) {
 	}
 	if got := load(t, a).History; !slices.Equal(got, []string{"web", "db"}) {
 		t.Errorf("History = %v, want [web db]", got)
+	}
+}
+
+// history reads History through the Connection catalog, so an open recorded
+// elsewhere since sshctl started is listed.
+func TestHistoryReadsTheCurrentConfig(t *testing.T) {
+	cfg := config.New()
+	cfg.History = []string{"web", "db"}
+	a, out := cliTree(t, "Host web\n", cfg, "")
+	stale(a)
+	if err := a.execute([]string{"history"}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "web\ndb\n" {
+		t.Errorf("history = %q, want web then db", out.String())
 	}
 }
 
