@@ -1,4 +1,4 @@
- [1] [2] [3]                │                                                   
+ [1][2][3][4][5][6][7][8][9]│                                                   
  ▾ 1 web 2                  │  Add connection                                   
      prod-web public site   │                                                   
 ›    staging                │    Alias          name used with ssh              
@@ -8,7 +8,7 @@
                             │    Identity file  OpenSSH default                 
                             │    Description                                    
                             │  › Space          default█                        
-                            │                   1 default · 2 acme · 3 idle     
+                            │                   1 default · 2 acme · 5 idle     
                             │    Group          web                             
                             │                   0 none · 1 web                  
                             │                                                   

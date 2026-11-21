@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,10 +40,28 @@ func TestDigitsSwitchAndSaveTheActiveSpace(t *testing.T) {
 		t.Error("a Space with no Active connection should give the list focus")
 	}
 	press(m, text("9")...)
-	if got := m.st.Space(); got != "" || !m.statusErr || !strings.Contains(m.status, "no space 9") {
+	if got := m.st.Space(); got != "" || !m.statusErr || !strings.Contains(m.status, "no Space 9") {
 		t.Errorf("9 with 3 Spaces: Space %q, status %q; want it refused", got, m.status)
 	}
 	if want := []string{"acme", ""}; !reflect.DeepEqual(f.activeSaves, want) {
+		t.Errorf("saved active Spaces %q, want %q", f.activeSaves, want)
+	}
+}
+
+func TestADigitSwitchesByTheSpacesOwnNumber(t *testing.T) {
+	f := spaceCatalog()
+	f.spaces = []Space{{Name: "acme", Number: 2}, {Name: "globex", Number: 4}} // 3 is free
+	m := newStoreModel(t, f)
+	press(m, text("3")...)
+	if got := m.st.Space(); got != "" || !m.statusErr || !strings.Contains(m.status, "no Space 3") {
+		t.Errorf("3 on a free number: Space %q, status %q; want it refused", got, m.status)
+	}
+	m.focus = focusPane
+	press(m, keyPrefix, text("4")[0])
+	if got := m.st.Space(); got != "globex" {
+		t.Errorf("prefix 4: active Space %q, want globex", got)
+	}
+	if want := []string{"globex"}; !reflect.DeepEqual(f.activeSaves, want) {
 		t.Errorf("saved active Spaces %q, want %q", f.activeSaves, want)
 	}
 }
@@ -89,8 +108,8 @@ func TestNewConnectionsAndGroupsGoIntoTheActiveSpace(t *testing.T) {
 	}
 }
 
-// newSpaceModel is newTestModel's Workspace with Spaces acme (db in Group
-// data) and idle as well, w by h.
+// newSpaceModel is newTestModel's Workspace with Spaces 2 acme (db in Group
+// data) and 5 idle as well, w by h; 3, 4 and 6-9 are free.
 func newSpaceModel(t *testing.T, w, h int) *Model {
 	t.Helper()
 	m, err := New(Options{Catalog: &fakeCatalog{
@@ -100,7 +119,7 @@ func newSpaceModel(t *testing.T, w, h int) *Model {
 			{Alias: "db", Space: "acme", Group: "data"},
 		},
 		groups:      []string{"web"},
-		spaces:      []Space{{Name: "acme"}, {Name: "idle"}},
+		spaces:      []Space{{Name: "acme"}, {Name: "idle", Number: 5}},
 		spaceGroups: []Group{{Name: "data", Space: "acme"}},
 		identity:    "/home/me/.ssh/id_ed25519",
 	}})
@@ -128,9 +147,14 @@ func TestSpaceBarStylesActiveLiveAndIdleSpaces(t *testing.T) {
 	m.st.SetCursor("staging")
 	press(m, keyEnter)
 	press(m, keyPrefix, text("2")[0])
-	want := " [1]" + " " + spaceActiveStyle.Render("[2]") + " " + dimStyle.Render("[3]")
-	if got := m.spaceBar(); !strings.HasPrefix(got, want) {
-		t.Errorf("space bar = %q, want it to start %q", got, want)
+	free := func(n int) string { return spaceFreeStyle.Render(fmt.Sprintf("[%d]", n)) }
+	parts := []string{"[1]", spaceActiveStyle.Render("[2]"), free(3), free(4), dimStyle.Render("[5]"), free(6), free(7), free(8), free(9)}
+	if got, want := m.spaceBar(80), " "+strings.Join(parts, " "); got != want {
+		t.Errorf("space bar = %q, want %q", got, want)
+	}
+	// Too narrow for the gaps, the numbers close up, all nine still shown.
+	if got, want := m.spaceBar(28), " "+strings.Join(parts, ""); got != want {
+		t.Errorf("space bar in 28 columns = %q, want %q", got, want)
 	}
 }
 

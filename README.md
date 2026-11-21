@@ -139,6 +139,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `Alt+←`/`Alt+→`, `[`/`]` (prefix `[`/`]` in the terminal) | Previous / next tab |
 | `Alt+↑`/`Alt+↓` | Previous / next open connection in the active Space |
 | `1`–`9` (prefix `1`–`9` in the terminal) | Switch to Space 1–9 |
+| `P` (in the list) / `S` (prefix `S` in the terminal) | Open the Space picker / show every Space's number and name under the Space bar |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`); both refuse while the [Experimental feature](#experimental-features) is off |
@@ -153,7 +154,9 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 
 ### Spaces
 
-The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. With more than one Space, a Space bar above the list shows each Space by its number, `[1] [2] [3]`: the active Space in the accent colour, a Space with a live session in normal text, and an idle one dimmed, and the status bar starts with the active Space's name (`customer1 · web01 · …`). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it. Manage Spaces with `sshctl space`.
+The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. Each Space has a fixed number from 1 to 9, which it keeps until you change it: deleting a Space leaves its number free, and no other Space is renumbered. With more than one Space, a Space bar above the list shows all nine numbers, `[1] [2] [3] … [9]`: the active Space in the accent colour, a Space with a live session in normal text, an idle one dimmed, and a free number fainter still (the gaps close up, `[1][2][3]`, when the list is too narrow). The status bar starts with the active Space's name (`customer1 · web01 · …`). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. A free number switches nothing, and the status line says so (`no Space 3`). The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it.
+
+`P` in the list opens the Space picker in the right-hand pane: one row per number, `[2] customer1`, with a free number shown dimmed as `[3] empty`. Spaces without a number, from an older config with ten or more, are listed below the nine rows. `Enter` switches to the Space under the cursor. `a` adds a Space: on a free row it takes that row's number, on a row in use the lowest free number. `e` renames the Space, and `d` deletes it (only an empty Space other than the default Space, asking first) and leaves its row empty. `Shift+↑`/`Shift+↓` (or `K`/`J`) moves the Space to the next number up or down, swapping with the Space there if the number is taken. Manage Spaces from the command line with `sshctl space`.
 
 ### Adding, editing and deleting connections
 
