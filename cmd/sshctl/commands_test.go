@@ -253,9 +253,9 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	want := "" +
 		"web                      front end [prod]\n" +
 		"db\n" +
-		"mid                      moved (orphaned)\n" +
-		"old                      [prod] (orphaned)\n" +
-		"zz-gone                  retired (orphaned)\n"
+		"mid                      moved (missing)\n" +
+		"old                      [prod] (missing)\n" +
+		"zz-gone                  retired (missing)\n"
 	if out.String() != want {
 		t.Errorf("list output:\n%s\nwant:\n%s", out.String(), want)
 	}

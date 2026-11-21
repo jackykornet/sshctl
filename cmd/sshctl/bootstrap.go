@@ -56,8 +56,11 @@ func (a *app) bootstrap(alias string) error {
 		return err
 	}
 	e, ok := snap.Entry(alias)
-	if !ok || e.Orphaned {
+	if !ok {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
+	}
+	if e.Orphaned {
+		return fmt.Errorf("%s is missing from ssh_config", alias)
 	}
 	ctx := context.Background()
 	key := snap.SpaceIdentity(e.Space)

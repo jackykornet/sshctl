@@ -62,7 +62,7 @@ sshctl experimental enable|disable <feature>
 sshctl config show
 ```
 
-Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(orphaned)`. `add` and `edit` set the same fields as the Workspace's add/edit form, and save them the same way: the Host block (HostName, User, Port, Identity file) goes to `~/.ssh/sshctl_config`, and the description, Space and group are sshctl metadata.
+Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(missing)`. `add` and `edit` set the same fields as the Workspace's add/edit form, and save them the same way: the Host block (HostName, User, Port, Identity file) goes to `~/.ssh/sshctl_config`, and the description, Space and group are sshctl metadata.
 
 ```sh
 sshctl add web01 --host 203.0.113.10 --user deploy --port 2222 --identity ~/.ssh/id_ed25519 \
