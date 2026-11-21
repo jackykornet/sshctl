@@ -323,3 +323,50 @@ func loadCLI(t *testing.T, a *app) *config.Config {
 	}
 	return c
 }
+
+// recordTerminals makes a's group connect record the aliases it would open
+// a terminal for, instead of opening one.
+func recordTerminals(a *app) *[]string {
+	var opened []string
+	a.openTerminal = func(alias, key string) error {
+		opened = append(opened, alias)
+		return nil
+	}
+	return &opened
+}
+
+func TestGroupConnectTakesZeroForTheUngroupedConnections(t *testing.T) {
+	a, _ := groupTree(t, "")
+	opened := recordTerminals(a)
+	if err := a.execute([]string{"group", "connect", "0"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"loose"}; !slices.Equal(*opened, want) {
+		t.Errorf("group connect 0 opened %v, want %v", *opened, want)
+	}
+
+	s, _ := spaceTree(t, "")
+	opened = recordTerminals(s)
+	if err := s.execute([]string{"group", "connect", "--space", "home", "0"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"other", "solo"}; !slices.Equal(*opened, want) {
+		t.Errorf("group connect --space home 0 opened %v, want %v", *opened, want)
+	}
+	if err := s.execute([]string{"group", "connect", "0"}); err == nil || !strings.Contains(err.Error(), "--space") {
+		t.Errorf("group connect 0 with several Spaces: err = %v, want it to ask for --space", err)
+	}
+}
+
+func TestGroupCommandsThatNeedAGroupRefuseZero(t *testing.T) {
+	for _, args := range [][]string{{"rename", "0", "x"}, {"move", "0", "1"}, {"delete", "0", "--yes"}} {
+		a, _ := groupTree(t, "")
+		err := a.execute(append([]string{"group"}, args...))
+		if err == nil || !strings.Contains(err.Error(), "ungrouped") {
+			t.Errorf("group %v: err = %v, want it refused, saying ungrouped is not a Group", args, err)
+		}
+		if got, want := groupList(t, a), []string{"prod", "empty", "data"}; !slices.Equal(got, want) {
+			t.Errorf("group %v: groups = %v, want %v", args, got, want)
+		}
+	}
+}

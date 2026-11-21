@@ -76,22 +76,19 @@ func spaceNumberArg(arg string) (int, error) {
 	return n, nil
 }
 
-// spaceName returns the name of the Space arg names: a Space name, returned
-// as is, or, since a Space name is never only digits, a Space number. It
-// refuses a number no Space has.
+// spaceName returns the name of the Space arg names, a Space name or
+// number (catalog.Snapshot.ResolveSpace). It refuses a name or number no
+// Space has, naming the Spaces there are.
 func (a *app) spaceName(arg string) (string, error) {
-	n, err := spaceNumberArg(arg)
-	if err != nil {
-		return arg, nil
-	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return "", err
 	}
-	if s, ok := snap.SpaceNumbered(n); ok {
-		return s.Name, nil
+	ref, err := snap.ResolveSpace(arg)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("no Space %d", n)
+	return snap.SpaceName(ref), nil
 }
 
 // spaceDotfiles shows the dotfiles setting of the Space args[0], a
@@ -166,16 +163,17 @@ func (a *app) spaceList(args []string) error {
 	return nil
 }
 
-// spaceOption is a --space option: the Space's name, and whether it was
+// spaceOption is a --space option: the Space, as Groups and Connections
+// refer to it ("" for the default Space) and by name, and whether it was
 // given at all.
 type spaceOption struct {
-	name string
-	set  bool
+	ref, name string
+	set       bool
 }
 
 // cutSpaceOption takes "--space <space>" out of args, wherever it is, and
 // returns the rest. The Space is a name or a Space number (see spaceName).
-// It refuses --space twice, without a Space, or with a number no Space has.
+// It refuses --space twice, without a Space, or naming no Space.
 func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
 	var opt spaceOption
 	var rest []string
@@ -188,11 +186,15 @@ func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
 			return opt, nil, errors.New("--space needs a Space name or number, given once")
 		}
 		i++
-		name, err := a.spaceName(args[i])
+		snap, err := a.catalog().Snapshot()
 		if err != nil {
 			return opt, nil, err
 		}
-		opt = spaceOption{name: name, set: true}
+		ref, err := snap.ResolveSpace(args[i])
+		if err != nil {
+			return opt, nil, err
+		}
+		opt = spaceOption{ref: ref, name: snap.SpaceName(ref), set: true}
 	}
 	return opt, rest, nil
 }
@@ -202,22 +204,15 @@ func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
 type spaceIn struct{ ref, name string }
 
 // spaces returns the Space opt names or, without --space, every Space, in
-// order. It refuses an unknown Space, naming the Spaces there are.
-func (opt spaceOption) spaces(snap catalog.Snapshot) ([]spaceIn, error) {
+// order.
+func (opt spaceOption) spaces(snap catalog.Snapshot) []spaceIn {
+	if opt.set {
+		return []spaceIn{{opt.ref, opt.name}}
+	}
 	var all []spaceIn
-	var names []string
 	for _, s := range snap.Spaces {
 		ref, _ := snap.SpaceRef(s.Name)
 		all = append(all, spaceIn{ref, s.Name})
-		names = append(names, s.Name)
 	}
-	if !opt.set {
-		return all, nil
-	}
-	for _, s := range all {
-		if s.name == opt.name {
-			return []spaceIn{s}, nil
-		}
-	}
-	return nil, fmt.Errorf("no space %q; the spaces are %s", opt.name, strings.Join(names, ", "))
+	return all
 }
