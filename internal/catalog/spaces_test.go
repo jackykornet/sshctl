@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -23,7 +25,72 @@ func spaceNames(t *testing.T, tr *tree) []string {
 	return names
 }
 
-func TestAddSpaceAppendsAnEmptySpace(t *testing.T) {
+// spaceNumbers lists the Snapshot's Spaces as name:number, in order.
+func spaceNumbers(t *testing.T, tr *tree) []string {
+	t.Helper()
+	snap, err := tr.cat.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range snap.Spaces {
+		got = append(got, fmt.Sprintf("%s:%d", s.Name, s.Number))
+	}
+	return got
+}
+
+func TestDeletingASpaceLeavesItsNumberFree(t *testing.T) {
+	tr := newTree(t, true, "")
+	for _, name := range []string{"acme", "globex", "initech"} {
+		if err := tr.cat.AddSpace(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tr.cat.DeleteSpace("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, tr), []string{"default:1", "globex:3", "initech:4"}; !slices.Equal(got, want) {
+		t.Errorf("after deleting acme, spaces = %v, want %v", got, want)
+	}
+	if err := tr.cat.AddSpace("hooli"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, tr), []string{"default:1", "hooli:2", "globex:3", "initech:4"}; !slices.Equal(got, want) {
+		t.Errorf("a new Space takes the lowest free number: spaces = %v, want %v", got, want)
+	}
+}
+
+func TestAddSpaceAtPutsTheSpaceAtAFreeNumber(t *testing.T) {
+	tr := newTree(t, true, "")
+	if err := tr.cat.AddSpaceAt("acme", 4); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, tr), []string{"default:1", "acme:4"}; !slices.Equal(got, want) {
+		t.Errorf("spaces = %v, want %v", got, want)
+	}
+	for number, want := range map[int]error{1: ErrSpaceNumberTaken, 4: ErrSpaceNumberTaken, 0: ErrSpaceNumber, 10: ErrSpaceNumber} {
+		if err := tr.cat.AddSpaceAt("globex", number); !errors.Is(err, want) {
+			t.Errorf("AddSpaceAt(globex, %d) = %v, want %v", number, err, want)
+		}
+	}
+}
+
+func TestAddSpaceRefusesATenthSpace(t *testing.T) {
+	tr := newTree(t, true, "")
+	for i := 2; i <= 9; i++ {
+		if err := tr.cat.AddSpace(fmt.Sprintf("s%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tr.cat.AddSpace("s10"); !errors.Is(err, ErrSpacesFull) {
+		t.Errorf("AddSpace(s10) = %v, want ErrSpacesFull", err)
+	}
+	if got := spaceNumbers(t, tr); len(got) != 9 || got[8] != "s9:9" {
+		t.Errorf("spaces = %v, want default and s2 to s9 numbered 1 to 9", got)
+	}
+}
+
+func TestAddSpaceAddsAnEmptySpaceAndRefusesABadName(t *testing.T) {
 	tr := newTree(t, true, "")
 	for _, name := range []string{"acme", "globex"} {
 		if err := tr.cat.AddSpace(name); err != nil {
@@ -198,7 +265,7 @@ func TestRenameSpaceKeepsItsGroupsConnectionsAndActiveState(t *testing.T) {
 	}
 }
 
-func TestMoveSpaceReorders(t *testing.T) {
+func TestMoveSpaceSwapsWithATakenNumberAndMovesToAFreeOne(t *testing.T) {
 	tr := newTree(t, true, "")
 	for _, name := range []string{"acme", "globex"} {
 		if err := tr.cat.AddSpace(name); err != nil {
@@ -208,13 +275,45 @@ func TestMoveSpaceReorders(t *testing.T) {
 	if err := tr.cat.MoveSpace("globex", 1); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := spaceNames(t, tr), []string{"globex", config.DefaultSpaceName, "acme"}; !slices.Equal(got, want) {
-		t.Errorf("spaces = %v, want %v", got, want)
+	if got, want := spaceNumbers(t, tr), []string{"globex:1", "acme:2", "default:3"}; !slices.Equal(got, want) {
+		t.Errorf("after moving globex to 1, spaces = %v, want %v", got, want)
 	}
-	for _, pos := range []int{0, 4} {
-		if err := tr.cat.MoveSpace("acme", pos); !errors.Is(err, ErrSpacePosition) {
-			t.Errorf("MoveSpace(acme, %d) = %v, want ErrSpacePosition", pos, err)
+	if err := tr.cat.MoveSpace("acme", 7); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, tr), []string{"globex:1", "default:3", "acme:7"}; !slices.Equal(got, want) {
+		t.Errorf("after moving acme to 7, spaces = %v, want %v", got, want)
+	}
+	for _, n := range []int{0, 10} {
+		if err := tr.cat.MoveSpace("acme", n); !errors.Is(err, ErrSpaceNumber) {
+			t.Errorf("MoveSpace(acme, %d) = %v, want ErrSpaceNumber", n, err)
 		}
+	}
+}
+
+// A Space without a number (one past the ninth in an older config) can be
+// given a free number, but not one another Space has, which would leave
+// that Space without one.
+func TestMoveSpaceNumbersASpaceThatHasNone(t *testing.T) {
+	spaces := `{"name":"default","default":true}`
+	for i := 2; i <= 10; i++ {
+		spaces += fmt.Sprintf(`,{"name":"s%d"}`, i)
+	}
+	tr := newTree(t, true, "")
+	if err := os.WriteFile(tr.cfg, []byte(`{"version":4,"spaces":[`+spaces+`],"connections":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.MoveSpace("s10", 2); !errors.Is(err, ErrSpaceNumberTaken) {
+		t.Errorf("MoveSpace(s10, 2) = %v, want ErrSpaceNumberTaken", err)
+	}
+	if err := tr.cat.DeleteSpace("s5"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.MoveSpace("s10", 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := spaceNumbers(t, tr); len(got) < 5 || got[4] != "s10:5" {
+		t.Errorf("spaces = %v, want s10 at 5", got)
 	}
 }
 

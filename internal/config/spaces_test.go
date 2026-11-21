@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -13,7 +15,7 @@ func TestLoadPutsAnOlderConfigInTheDefaultSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Space{{Name: DefaultSpaceName, Default: true}}; !reflect.DeepEqual(c.Spaces, want) {
+	if want := []Space{{Name: DefaultSpaceName, Number: 1, Default: true}}; !reflect.DeepEqual(c.Spaces, want) {
 		t.Errorf("Spaces = %+v, want %+v", c.Spaces, want)
 	}
 	if c.Version != Version || c.Groups[0].Space != "" || c.Connections["web"].Space != "" {
@@ -29,21 +31,21 @@ func TestLoadPutsAnOlderConfigInTheDefaultSpace(t *testing.T) {
 }
 
 func TestLoadGivesASpaceNamedOnlyByAGroupOrConnectionARecord(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"home","default":true}],
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"home","default":true,"number":1}],
 		"groups":[{"name":"prod","space":"acme"}],
 		"connections":{"pi":{"alias":"pi","space":"lab"}}}`)
 	c, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Space{{Name: "home", Default: true}, {Name: "acme"}, {Name: "lab"}}
+	want := []Space{{Name: "home", Number: 1, Default: true}, {Name: "acme", Number: 2}, {Name: "lab", Number: 3}}
 	if !reflect.DeepEqual(c.Spaces, want) {
 		t.Errorf("Spaces = %+v, want %+v", c.Spaces, want)
 	}
 }
 
 func TestGroupsWithOneNameInTwoSpacesStayApart(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"default","default":true},{"name":"acme"}],
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"default","default":true,"number":1},{"name":"acme","number":2}],
 		"connections":{"web":{"alias":"web","group":"prod"},"api":{"alias":"api","group":"prod","space":"acme"}}}`)
 	c, err := Load(path, nil)
 	if err != nil {
@@ -111,7 +113,7 @@ func TestMetadataWithOnlyASpaceIsKept(t *testing.T) {
 }
 
 func TestLoadForgetsAnActiveSpaceThatIsGone(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"default","default":true}],"connections":{}}`)
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"default","default":true,"number":1}],"connections":{}}`)
 	c, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -138,5 +140,58 @@ func TestCheckSpaceName(t *testing.T) {
 		if err := CheckSpaceName(name); err != nil {
 			t.Errorf("CheckSpaceName(%q) = %v", name, err)
 		}
+	}
+}
+
+// spaceNumbers lists c's Spaces as name:number, in order.
+func spaceNumbers(c *Config) []string {
+	var got []string
+	for _, s := range c.Spaces {
+		got = append(got, fmt.Sprintf("%s:%d", s.Name, s.Number))
+	}
+	return got
+}
+
+func TestLoadGivesEverySpaceAFixedNumber(t *testing.T) {
+	for _, tc := range []struct {
+		name, spaces string
+		want         []string
+	}{
+		{"numbers 1 to N in their order",
+			`[{"name":"home","default":true},{"name":"acme"},{"name":"lab"}]`,
+			[]string{"home:1", "acme:2", "lab:3"}},
+		{"keeps numbers and gaps, sorted by number",
+			`[{"name":"home","default":true,"number":4},{"name":"acme","number":1},{"name":"lab","number":9}]`,
+			[]string{"acme:1", "home:4", "lab:9"}},
+		{"a repeated or out-of-range number takes the lowest free one",
+			`[{"name":"home","default":true,"number":1},{"name":"acme","number":1},{"name":"lab","number":12}]`,
+			[]string{"home:1", "acme:2", "lab:3"}},
+		{"past nine Spaces the rest have no number",
+			`[{"name":"s1","default":true},{"name":"s2"},{"name":"s3"},{"name":"s4"},{"name":"s5"},
+			{"name":"s6"},{"name":"s7"},{"name":"s8"},{"name":"s9"},{"name":"s10"},{"name":"s11"}]`,
+			[]string{"s1:1", "s2:2", "s3:3", "s4:4", "s5:5", "s6:6", "s7:7", "s8:8", "s9:9", "s10:0", "s11:0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, `{"version":4,"spaces":`+tc.spaces+`,"connections":{}}`)
+			c, err := Load(path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := spaceNumbers(c); !slices.Equal(got, tc.want) {
+				t.Errorf("Spaces = %v, want %v", got, tc.want)
+			}
+			again, err := Load(path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := spaceNumbers(again); !slices.Equal(got, tc.want) {
+				t.Errorf("reloaded Spaces = %v, want them saved as %v", got, tc.want)
+			}
+			// Version 5 makes an older sshctl refuse the file rather
+			// than save it without the numbers.
+			if again.Version != 5 {
+				t.Errorf("saved version %d, want 5", again.Version)
+			}
+		})
 	}
 }

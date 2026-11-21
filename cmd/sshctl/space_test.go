@@ -112,15 +112,16 @@ func TestSpaceDeleteRefusesTheDefaultAndANonEmptySpace(t *testing.T) {
 	}
 }
 
-func TestSpaceMoveSetsThePosition(t *testing.T) {
+// space move gives a Space a number, swapping with the Space that had it.
+func TestSpaceMoveSetsTheNumber(t *testing.T) {
 	a, _ := spaceTree(t, "")
 	if err := a.execute([]string{"space", "move", "empty", "1"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := spaceList(t, a), []string{"empty", "home", "acme"}; !slices.Equal(got, want) {
+	if got, want := spaceList(t, a), []string{"empty", "acme", "home"}; !slices.Equal(got, want) {
 		t.Errorf("spaces = %v, want %v", got, want)
 	}
-	for _, args := range [][]string{{"acme", "4"}, {"acme", "0"}, {"acme", "first"}, {"nowhere", "1"}} {
+	for _, args := range [][]string{{"acme", "10"}, {"acme", "0"}, {"acme", "first"}, {"nowhere", "1"}} {
 		if err := a.execute(append([]string{"space", "move"}, args...)); err == nil {
 			t.Errorf("space move %v succeeded, want it refused", args)
 		}
