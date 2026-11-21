@@ -93,8 +93,8 @@ func TestSwallowedPrefixCommandSaysHowToLeaveTheModal(t *testing.T) {
 		name, hint string
 		open       func(m *Model)
 	}{
-		{"form", "form open: Esc to cancel", modals[0].open},
-		{"move prompt", "move prompt open: Esc to cancel", modals[1].open},
+		{"form", "form open  Esc cancel", modals[0].open},
+		{"move prompt", "█  Esc cancel", modals[1].open},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m, _ := newModalModel(t)

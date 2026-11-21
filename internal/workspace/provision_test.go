@@ -15,7 +15,7 @@ func TestPrefixPProvisionsCursorConnectionAfterConfirming(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}, {Alias: "beta"}})
 	press(m, keyDown)
 	press(m, keyPrefix, text("p")[0])
-	if c := m.confirm(); c == nil || c.question != "Provision beta with your dotfiles? y/n" {
+	if c := m.confirm(); c == nil || c.question != "Provision beta with your dotfiles?" {
 		t.Fatalf("confirm = %+v, want the Provision question for beta", c)
 	}
 	if len(r.calls) != 0 {

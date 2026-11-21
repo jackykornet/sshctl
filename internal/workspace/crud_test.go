@@ -238,7 +238,7 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 	m.st.SetCursor("mine")
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
-	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "Ctrl+S save"} {
+	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "^S save"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("screen missing %q:\n%s", want, screen)
 		}

@@ -132,7 +132,7 @@ var bindings = []binding{
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.
-		keys: merge(each(inPrefix, on("w", closeTab).as("close tab")), each(inEnded,
+		keys: merge(each(inPrefix, on("w", closeTab).as("close")), each(inEnded,
 			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }).as("reconnect"),
 			on("x", closeTab).as("close"))),
 		help: "close tab (on an ended tab: r reconnect, x close)",
@@ -346,7 +346,7 @@ func provisionTab(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 	if _, err := m.opts.Catalog.ProvisionRepo(alias); err != nil && !errors.Is(err, catalog.ErrNoDotfiles) {
 		return m.setStatus(alias+": "+err.Error(), true)
 	}
-	m.ask(fmt.Sprintf("Provision %s with your dotfiles? y/n", alias), func(m *Model) tea.Cmd {
+	m.ask(fmt.Sprintf("Provision %s with your dotfiles?", alias), func(m *Model) tea.Cmd {
 		return m.open(alias, Launch{Action: ActionProvision})
 	})
 	return nil
@@ -470,6 +470,7 @@ func cutDigits(keys []string) ([]string, bool) {
 
 var keyNameReplacer = strings.NewReplacer(
 	"left", "←", "right", "→", "up", "↑", "down", "↓",
+	"pgup", "PgUp", "pgdown", "PgDn", "home", "Home", "end", "End",
 	"alt+", "Alt+", "shift+", "Shift+", "enter", "Enter", "space", "Space", "esc", "Esc", "tab", "Tab",
 )
 

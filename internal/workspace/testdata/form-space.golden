@@ -12,7 +12,7 @@
                             │    Group          web                             
                             │                   0 none · 1 web                  
                             │                                                   
-                            │  Tab/↑↓ move · Ctrl+S save · Esc cancel           
-                            │  Ctrl+O save and Bootstrap                        
+                            │  ^S save · Tab/Shift+Tab move · Esc cancel        
+                            │  ^O save and Bootstrap                            
                             │                                                   
  default · no active connection · key: id_ed25519                     ^B ? help 

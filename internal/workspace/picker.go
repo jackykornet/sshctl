@@ -51,46 +51,67 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	p.note, p.noteErr = "", false
-	n := len(m.st.SpaceSlots())
-	switch msg.String() {
-	case "esc", "ctrl+c", "q", "P":
-		m.showModal(nil)
-	case "up", "k":
-		p.cursor--
-	case "down", "j":
-		p.cursor++
-	case "a":
-		in := &spaceInput{back: p}
-		if t, ok := p.target(m); ok && t.Free() {
-			in.number = t.Number
+	if bk, ok := findKey(p.keys(), msg.String()); ok {
+		return bk.run(m, msg)
+	}
+	return nil
+}
+
+func (p *spacePicker) keys() []boundKey {
+	move := func(delta int) action {
+		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+			p.cursor = max(0, min(p.cursor+delta, len(m.st.SpaceSlots())-1))
+			return nil
 		}
-		m.openModal(in)
-		return nil
-	case "e":
-		if t, ok := p.target(m); ok && !t.Free() {
-			m.openModal(&spaceInput{back: p, old: t.Name, name: newLine(t.Name)})
-		}
-		return nil
-	case "d":
-		return m.deleteSpace(p)
-	case "shift+up", "K":
-		return m.shiftSpace(p, -1)
-	case "shift+down", "J":
-		return m.shiftSpace(p, 1)
-	case "enter", "space":
+	}
+	shift := func(delta int) action {
+		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.shiftSpace(p, delta) }
+	}
+	enter := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		t, ok := p.target(m)
-		if !ok {
-			break
-		}
-		if t.Free() {
+		switch {
+		case !ok:
+			return nil
+		case t.Free():
 			p.say(fmt.Sprintf("no Space %d", t.Number), true)
 			return nil
 		}
 		m.showModal(nil)
 		return m.showSpace(t.Ref)
 	}
-	p.cursor = max(0, min(p.cursor, n-1))
-	return nil
+	add := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		in := &spaceInput{back: p}
+		if t, ok := p.target(m); ok && t.Free() {
+			in.number = t.Number
+		}
+		m.openModal(in)
+		return nil
+	}
+	rename := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if t, ok := p.target(m); ok && !t.Free() {
+			m.openModal(&spaceInput{back: p, old: t.Name, name: newLine(t.Name)})
+		}
+		return nil
+	}
+	closePicker := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
+	return []boundKey{
+		on("enter", enter).as("switch"), on("space", enter),
+		on("a", add).as("add"),
+		on("e", rename).as("rename"),
+		on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteSpace(p) }).as("delete"),
+		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)),
+		on("shift+down", shift(1)).as("move"), on("J", shift(1)),
+		on("up", move(-1)), on("k", move(-1)),
+		on("down", move(1)), on("j", move(1)),
+		on("esc", closePicker).as("close"), on("ctrl+c", closePicker), on("q", closePicker), on("P", closePicker),
+	}
+}
+
+func (p *spacePicker) hints() []hintLine {
+	if p.swallowed {
+		return []hintLine{hintsFor(p.keys(), "esc")}
+	}
+	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "shift+up", "shift+down", "esc")}
 }
 
 // target is the row under the cursor: a Space, or a free Space number.
@@ -107,13 +128,13 @@ func (p *spacePicker) paste(string) {}
 func (p *spacePicker) status() (string, bool) {
 	switch {
 	case p.swallowed:
-		return "space picker open: Esc to close", true
+		return "space picker open  " + p.hints()[0].String(), true
 	case p.noteErr:
 		return errStyle.Render(p.note), true
 	case p.note != "":
 		return p.note, true
 	}
-	return "Enter switch · a add · e rename · d delete · Shift+↑/↓ move · Esc close", true
+	return p.hints()[0].String(), true
 }
 
 // shiftSpace moves the Space under the picker's cursor to the next Space
@@ -160,7 +181,7 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 	if t.Ref == "" || !m.st.SpaceEmpty(t.Ref) {
 		return del(m)
 	}
-	m.ask(fmt.Sprintf("Delete space %s? (y/n)", t.Name), del)
+	m.ask(fmt.Sprintf("Delete space %s?", t.Name), del)
 	return nil
 }
 
@@ -214,34 +235,31 @@ type spaceInput struct {
 }
 
 func (in *spaceInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-	if cmd, ok := in.intercept(m, msg); ok {
-		return cmd
-	}
-	switch msg.String() {
-	case "esc", "ctrl+c":
-		m.showModal(in.back)
-	case "enter":
-		return m.saveSpace(in)
-	default:
-		in.name.key(msg)
-	}
-	return nil
+	return in.promptKey(m, msg, in.keys(), &in.name)
 }
+
+func (in *spaceInput) keys() []boundKey {
+	done := "add"
+	if in.old != "" {
+		done = "rename"
+	}
+	return promptKeys(done, func(m *Model) tea.Cmd { return m.saveSpace(in) }, in.back)
+}
+
+func (in *spaceInput) hints() []hintLine { return []hintLine{in.promptHints(in.keys())} }
 
 func (in *spaceInput) paste(text string) { in.name.paste(text) }
 
 func (in *spaceInput) status() (string, bool) {
-	prompt, help := "new space: ", "Enter add · Esc cancel"
+	prompt := "new space: "
 	if in.number > 0 {
 		prompt = fmt.Sprintf("new space %d: ", in.number)
 	}
 	if in.old != "" {
-		prompt, help = "rename space "+in.old+" to: ", "Enter rename · Esc cancel"
+		prompt = "rename space " + in.old + " to: "
 	}
-	switch {
-	case in.swallowed:
-		help = "space prompt open: Esc to cancel"
-	case in.err != "":
+	help := in.promptHints(in.keys()).String()
+	if in.err != "" && !in.swallowed {
 		help = in.err
 	}
 	return prompt + in.name.withCursor() + "  " + help, true
