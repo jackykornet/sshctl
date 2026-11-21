@@ -31,7 +31,7 @@ func TestLoadPutsAnOlderConfigInTheDefaultSpace(t *testing.T) {
 }
 
 func TestLoadGivesASpaceNamedOnlyByAGroupOrConnectionARecord(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"home","default":true,"number":1}],
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"home","default":true,"number":1}],
 		"groups":[{"name":"prod","space":"acme"}],
 		"connections":{"pi":{"alias":"pi","space":"lab"}}}`)
 	c, err := Load(path, nil)
@@ -45,7 +45,7 @@ func TestLoadGivesASpaceNamedOnlyByAGroupOrConnectionARecord(t *testing.T) {
 }
 
 func TestGroupsWithOneNameInTwoSpacesStayApart(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"default","default":true,"number":1},{"name":"acme","number":2}],
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"default","default":true,"number":1},{"name":"acme","number":2}],
 		"connections":{"web":{"alias":"web","group":"prod"},"api":{"alias":"api","group":"prod","space":"acme"}}}`)
 	c, err := Load(path, nil)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestMetadataWithOnlyASpaceIsKept(t *testing.T) {
 }
 
 func TestLoadForgetsAnActiveSpaceThatIsGone(t *testing.T) {
-	path := writeConfig(t, `{"version":4,"spaces":[{"name":"default","default":true,"number":1}],"connections":{}}`)
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"default","default":true,"number":1}],"connections":{}}`)
 	c, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -186,6 +186,11 @@ func TestLoadGivesEverySpaceAFixedNumber(t *testing.T) {
 			}
 			if got := spaceNumbers(again); !slices.Equal(got, tc.want) {
 				t.Errorf("reloaded Spaces = %v, want them saved as %v", got, tc.want)
+			}
+			// Version 5 makes an older sshctl refuse the file rather
+			// than save it without the numbers.
+			if again.Version != 5 {
+				t.Errorf("saved version %d, want 5", again.Version)
 			}
 		})
 	}
