@@ -385,7 +385,7 @@ func (a *app) list(args []string) error {
 			label = append(label, "["+e.Group+"]")
 		}
 		if e.Orphaned {
-			label = append(label, "(orphaned)")
+			label = append(label, "(missing)")
 		}
 		if len(label) == 0 {
 			fmt.Fprintln(a.out, e.Alias)

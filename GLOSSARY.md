@@ -13,7 +13,7 @@ A Connection whose Host block is in sshctl's own file, `~/.ssh/sshctl_config`, w
 _Avoid_: sshctl host, owned connection
 
 **Orphaned connection**:
-A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened.
+A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened. The CLI and the Workspace show it as `(missing)`, and their messages say it is missing from ssh_config.
 _Avoid_: Stale, missing, saved-only connection
 
 **Session**:
