@@ -11,9 +11,10 @@ import (
 
 const groupUsage = "group [--space <name>] list | add <name> | rename <group> <new> | delete <group> [--yes] | move <group> <position> | connect <group>"
 
-// groupConnectNote says that group connect opens OS terminal windows
-// (internal/platform), unlike prefix g in the Workspace, which opens tabs.
-const groupConnectNote = "group connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments)."
+// groupHelp is groupUsage with a note that group connect opens OS terminal
+// windows (internal/platform), unlike prefix g in the Workspace, which opens
+// tabs. Both `sshctl group --help` and a wrong group call print it.
+const groupHelp = groupUsage + "\n\ngroup connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments)."
 
 // groupCommand runs `sshctl group ...`. --space picks the Space; without
 // it, a Group is looked up in every Space (see findGroup). A Group is given
@@ -25,7 +26,7 @@ func (a *app) groupCommand(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return errors.New("usage: sshctl " + groupUsage)
+		return errors.New("usage: sshctl " + groupHelp)
 	}
 	cat := a.catalog()
 	switch args[0] {
@@ -69,7 +70,7 @@ func (a *app) groupCommand(args []string) error {
 	case "connect":
 		return a.groupConnect(space, args[1:])
 	}
-	return errors.New("usage: sshctl " + groupUsage)
+	return errors.New("usage: sshctl " + groupHelp)
 }
 
 // withGroup finds the Group arg (see findGroup) and runs do with its Space,

@@ -142,7 +142,7 @@ func usage(command string) string {
 	case "add", "edit", "remove":
 		return command + " <alias>"
 	case "group":
-		return groupUsage
+		return groupHelp
 	case "space":
 		return spaceUsage
 	case "key":
@@ -171,9 +171,6 @@ func (a *app) execute(args []string) error {
 	}
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 		fmt.Fprintf(a.out, "Usage: sshctl %s\n", usage(args[0]))
-		if args[0] == "group" {
-			fmt.Fprintf(a.out, "\n%s\n", groupConnectNote)
-		}
 		return nil
 	}
 	switch args[0] {

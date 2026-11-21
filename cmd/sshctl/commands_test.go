@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -124,6 +125,13 @@ func TestHelpSaysGroupConnectOpensTerminalWindows(t *testing.T) {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("sshctl %s does not say %q:\n%s", strings.Join(args, " "), want, out.String())
 			}
+		}
+	}
+	// A wrong group call prints the group usage, note included.
+	for _, args := range [][]string{{"group"}, {"group", "bogus"}} {
+		err := run(args, strings.NewReader(""), io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "one terminal window per Connection") {
+			t.Errorf("sshctl %s: error %v does not carry the group connect note", strings.Join(args, " "), err)
 		}
 	}
 }
