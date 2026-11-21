@@ -12,7 +12,7 @@ import (
 type Space struct {
 	Name string `json:"name"`
 	// Number is the Space number, 1 to MaxSpaces, which the Space keeps
-	// until the user changes it (ADR-0007), or 0 for a Space that has none
+	// until the user changes it (ADR-0010), or 0 for a Space that has none
 	// because every number was taken when Load numbered it; Load leaves it
 	// without one until the user gives it a number.
 	Number int `json:"number,omitempty"`
@@ -114,7 +114,7 @@ func (c *Config) addMissingSpaces() []string {
 // every Space whose number is out of range or one an earlier Space has, to
 // every Space named in added, and, when all is set (migrating from before
 // Version 5), to every Space without a number. Any other Space without a
-// number keeps none (ADR-0007). Once all MaxSpaces numbers are taken, the
+// number keeps none (ADR-0010). Once all MaxSpaces numbers are taken, the
 // rest keep 0. It then sorts Spaces by number, unnumbered last, and
 // reports whether it changed c.
 func (c *Config) numberSpaces(all bool, added []string) bool {

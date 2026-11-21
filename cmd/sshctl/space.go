@@ -14,7 +14,7 @@ import (
 const spaceUsage = "space list | add <name> [<number>] | rename <space> <new> | delete <space> | move <space> <number> | dotfiles <space> [<url|none> | --unset]"
 
 // spaceCommand runs `sshctl space ...`. A Space is given by name or by its
-// Space number, which it keeps until it is moved (ADR-0007).
+// Space number, which it keeps until it is moved (ADR-0010).
 func (a *app) spaceCommand(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: sshctl " + spaceUsage)

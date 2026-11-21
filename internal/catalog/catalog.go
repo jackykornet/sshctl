@@ -22,7 +22,7 @@ type Host = openssh.Endpoint
 type Group = config.Group
 
 // Space is a stored Space record (ADR-0005). Its Number is its fixed Space
-// number (ADR-0007); Snapshot.Spaces lists Spaces in number order.
+// number (ADR-0010); Snapshot.Spaces lists Spaces in number order.
 type Space = config.Space
 
 // ErrUnknownGroup is returned when a Connection is moved into a Group that

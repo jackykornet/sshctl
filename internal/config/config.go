@@ -17,7 +17,7 @@ import (
 // Version is the config format written by Save. Version 2 stores Groups
 // as records (ADR-0003); version 3 moves the machine-local values to
 // state.json (ADR-0004); version 4 adds Spaces (ADR-0005); version 5
-// gives each Space a fixed number (ADR-0007), so an older sshctl refuses
+// gives each Space a fixed number (ADR-0010), so an older sshctl refuses
 // the file rather than save it without them. Older configs are migrated
 // by Load.
 const Version = 5
