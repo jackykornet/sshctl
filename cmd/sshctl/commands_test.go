@@ -176,8 +176,13 @@ func TestReadmeListsTheCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, block, ok := strings.Cut(string(readme), "## Commands\n\n```text\n")
-	if block, _, ok = strings.Cut(block, "```"); !ok {
+	// Windows checks README.md out with CRLF line endings (.gitattributes).
+	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
+	_, block, ok := strings.Cut(text, "## Commands\n\n```text\n")
+	if ok {
+		block, _, ok = strings.Cut(block, "```")
+	}
+	if !ok {
 		t.Fatal("README has no Commands block")
 	}
 	want := "sshctl\n"
