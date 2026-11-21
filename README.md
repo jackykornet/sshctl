@@ -30,22 +30,23 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 
 ```text
 sshctl
-sshctl list [--space <name>]
+sshctl list [--space <space>]
 sshctl connect <alias> [--claude]
 sshctl add <alias>
 sshctl edit <alias>
 sshctl remove <alias>
 sshctl space list
-sshctl space add <name>
-sshctl space rename <old> <new>
-sshctl space delete <name>
-sshctl space move <name> <position>
-sshctl group [--space <name>] list
-sshctl group [--space <name>] add <name>
-sshctl group [--space <name>] rename <group> <new>
-sshctl group [--space <name>] delete <group> [--yes]
-sshctl group [--space <name>] move <group> <position>
-sshctl group [--space <name>] connect <group>
+sshctl space add <name> [<number>]
+sshctl space rename <space> <new>
+sshctl space delete <space>
+sshctl space move <space> <number>
+sshctl space dotfiles <space> [<url|none> | --unset]
+sshctl group [--space <space>] list
+sshctl group [--space <space>] add <name>
+sshctl group [--space <space>] rename <group> <new>
+sshctl group [--space <space>] delete <group> [--yes]
+sshctl group [--space <space>] move <group> <position>
+sshctl group [--space <space>] connect <group>
 sshctl history
 sshctl key list
 sshctl key use <key-path|none>
@@ -69,9 +70,9 @@ Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wild
 
 Groups exist from `group add` until `group delete`, even with no Connections, and are listed in the order you set. `group list` shows each Group's number (its position, counting from 1, as in the Workspace headers), name, member count and dotfiles repo for Provision (`unset` when the global default applies). `group rename` moves every Connection with the Group and keeps its position and collapsed state; it refuses a name another Group has. A group name may not be only digits, since numbers stand for positions. `group delete` asks `Delete group X? N Connections become ungrouped.` first (`--yes` skips the question); it never deletes a Connection or a Host block. `group move <group> <position>` puts the Group at that position, shifting the others. Where a command takes a `<group>`, it can also be the Group's number, but a name keeps working in scripts when Groups are reordered.
 
-Spaces keep Connections apart, for example one per customer or project, and are listed in the order you set. Every Group and Connection belongs to one Space; the default Space holds everything not put elsewhere. `space list` shows each Space's number, name, Group count and Connection count, and marks the default Space. `space rename` keeps the Space's Groups, Connections and position; the default Space can be renamed and stays the default. `space delete` deletes only an empty Space, and refuses the default Space; otherwise it names the Groups and Connections left in it. `space move <name> <position>` sets the Space's position. A Space name may not be empty, only digits, or contain `/`. Spaces are sshctl metadata only: aliases stay one namespace, so `connect <alias>` needs no Space.
+Spaces keep Connections apart, for example one per customer or project. Every Group and Connection belongs to one Space; the default Space holds everything not put elsewhere. Each Space has a Space number from 1 to 9, which it keeps until you move it, so there are at most nine Spaces. `space add <name>` gives the new Space the lowest free number, and `space add <name> <number>` that number; a taken number, or a tenth Space, is refused. `space list` shows each Space's number, name, Group count and Connection count in number order, and marks the default Space; free numbers leave gaps (`1`, `2`, `4`), and a Space without a number (beyond the ninth in an older config) comes last, shown as `-`. `space rename` keeps the Space's Groups, Connections and number; the default Space can be renamed and stays the default. `space delete` deletes only an empty Space, and refuses the default Space; otherwise it names the Groups and Connections left in it. Its number becomes free, and no other Space renumbers. `space move <space> <number>` gives the Space that number, swapping with the Space that has it. Where a command takes a `<space>`, it is a Space name or number (`space rename 4 acme`); a number no Space has is refused (`no Space 3`). A Space name may not be empty, only digits, or contain `/`. Spaces are sshctl metadata only: aliases stay one namespace, so `connect <alias>` needs no Space.
 
-`list --space <name>` lists only that Space's Connections. `group` commands take `--space <name>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number counts within a Space, so it works without `--space` only while there is one Space.
+`list --space <space>` lists only that Space's Connections; like every `--space`, it takes a Space name or number (`--space 4`). `group` commands take `--space <space>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number counts within a Space, so it works without `--space` only while there is one Space.
 
 Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
 
