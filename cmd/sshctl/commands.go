@@ -22,6 +22,10 @@ type app struct {
 	ssh      *openssh.Client
 	// runSSH runs ssh and ssh-keygen; tests replace it.
 	runSSH openssh.Runner
+	// openTerminal opens a terminal window running ssh to alias, with key
+	// when set, for group connect; nil means platform.OpenSSH. Tests
+	// replace it.
+	openTerminal func(alias, key string) error
 }
 
 func run(args []string, in io.Reader, out, errOut io.Writer) error {
@@ -354,12 +358,8 @@ func (a *app) list(args []string) error {
 	if err != nil {
 		return err
 	}
-	spaces, err := space.spaces(snap)
-	if err != nil {
-		return err
-	}
 	for _, e := range snap.Entries {
-		if space.set && e.Space != spaces[0].ref {
+		if space.set && e.Space != space.ref {
 			continue
 		}
 		var label []string
