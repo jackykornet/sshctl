@@ -14,17 +14,19 @@ import (
 const spaceUsage = "space list | add <name> [<number>] | rename <space> <new> | delete <space> | move <space> <number> | dotfiles <space> [<url|none> | --unset]"
 
 // spaceCommand runs `sshctl space ...`. A Space is given by name or by its
-// Space number, which it keeps until it is moved (ADR-0007).
+// Space number, which it keeps until it is moved (ADR-0010).
 func (a *app) spaceCommand(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: sshctl " + spaceUsage)
 	}
+	// space is the Space args[1] names, by name or number, for every
+	// subcommand that takes an existing Space.
+	var space string
 	if len(args) > 1 && args[0] != "list" && args[0] != "add" {
-		name, err := a.spaceName(args[1])
-		if err != nil {
+		var err error
+		if space, err = a.spaceName(args[1]); err != nil {
 			return err
 		}
-		args[1] = name
 	}
 	switch args[0] {
 	case "list":
@@ -36,7 +38,7 @@ func (a *app) spaceCommand(args []string) error {
 		case 2:
 			return a.catalog().AddSpace(args[1])
 		case 3:
-			n, err := parseSpaceNumber(args[2])
+			n, err := spaceNumberArg(args[2])
 			if err != nil {
 				return err
 			}
@@ -44,88 +46,82 @@ func (a *app) spaceCommand(args []string) error {
 		}
 	case "rename":
 		if len(args) == 3 {
-			return a.catalog().RenameSpace(args[1], args[2])
+			return a.catalog().RenameSpace(space, args[2])
 		}
 	case "delete":
 		// Only an empty Space can be deleted, so nothing is lost and
 		// there is nothing to confirm.
 		if len(args) == 2 {
-			return a.catalog().DeleteSpace(args[1])
+			return a.catalog().DeleteSpace(space)
 		}
 	case "move":
 		if len(args) == 3 {
-			n, err := parseSpaceNumber(args[2])
+			n, err := spaceNumberArg(args[2])
 			if err != nil {
 				return err
 			}
-			return a.catalog().MoveSpace(args[1], n)
+			return a.catalog().MoveSpace(space, n)
 		}
 	case "dotfiles":
 		// A Space's dotfiles repo is a Provision setting.
 		if err := a.checkFeature(config.FeatureProvision); err != nil {
 			return err
 		}
-		return a.spaceDotfiles(args[1:])
+		if len(args) > 1 {
+			return a.spaceDotfiles(space, args[2:])
+		}
 	}
 	return errors.New("usage: sshctl " + spaceUsage)
 }
 
-// parseSpaceNumber reads a Space number given on the command line; the
-// catalog refuses one outside 1..config.MaxSpaces.
-func parseSpaceNumber(arg string) (int, error) {
-	n, ok := number(arg)
-	if !ok {
-		return 0, fmt.Errorf("%q is not a space number", arg)
+// spaceNumberArg reads a Space number given on the command line, which is
+// only digits; the catalog refuses one outside 1..catalog.MaxSpaces.
+func spaceNumberArg(arg string) (int, error) {
+	n, err := strconv.Atoi(arg)
+	if err != nil || strings.Trim(arg, "0123456789") != "" {
+		return 0, fmt.Errorf("%q is not a Space number", arg)
 	}
 	return n, nil
-}
-
-// number reads arg as a number when it is only digits.
-func number(arg string) (int, bool) {
-	n, err := strconv.Atoi(arg)
-	return n, err == nil && strings.Trim(arg, "0123456789") == ""
 }
 
 // spaceName returns the name of the Space arg names: a Space name, returned
 // as is, or, since a Space name is never only digits, a Space number. It
 // refuses a number no Space has.
 func (a *app) spaceName(arg string) (string, error) {
-	n, ok := number(arg)
-	if !ok {
+	n, err := spaceNumberArg(arg)
+	if err != nil {
 		return arg, nil
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return "", err
 	}
-	for _, s := range snap.Spaces {
-		if s.Number == n {
-			return s.Name, nil
-		}
+	if s, ok := snap.SpaceNumbered(n); ok {
+		return s.Name, nil
 	}
 	return "", fmt.Errorf("no Space %d", n)
 }
 
-// spaceDotfiles shows the dotfiles setting of the Space args[0], or sets it
-// to args[1] (a repo URL or none) or, with --unset, unsets it so the global
-// one applies.
-func (a *app) spaceDotfiles(args []string) error {
+// spaceDotfiles shows the dotfiles setting of space, or, given args, sets
+// it to args[0] (a repo URL or none) or, with --unset, unsets it so the
+// global one applies.
+func (a *app) spaceDotfiles(space string, args []string) error {
 	switch {
-	case len(args) == 1:
+	case len(args) == 0:
 		snap, err := a.catalog().Snapshot()
 		if err != nil {
 			return err
 		}
-		s, ok := snap.Space(args[0])
+		s, ok := snap.Space(space)
 		if !ok {
-			return fmt.Errorf("%q: %w", args[0], catalog.ErrUnknownSpace)
+			return fmt.Errorf("%q: %w", space, catalog.ErrUnknownSpace)
 		}
 		fmt.Fprintln(a.out, describeDotfiles(s.Dotfiles))
 		return nil
-	case len(args) == 2 && args[1] == "--unset":
-		return a.catalog().SetSpaceDotfiles(args[0], "")
-	case len(args) == 2 && args[1] != "" && !strings.HasPrefix(args[1], "-"):
-		return a.catalog().SetSpaceDotfiles(args[0], args[1])
+	case len(args) == 1 && args[0] == "--unset":
+		return a.catalog().SetSpaceDotfiles(space, "")
+	case len(args) == 1 && args[0] != "" && !strings.HasPrefix(args[0], "-"):
+		return a.catalog().SetSpaceDotfiles(space, args[0])
 	}
 	return errors.New("usage: sshctl space dotfiles <space> [<url|none> | --unset]")
 }
@@ -187,7 +183,7 @@ func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
 			continue
 		}
 		if opt.set || i+1 == len(args) || args[i+1] == "" {
-			return opt, nil, errors.New("--space needs a space name or number, given once")
+			return opt, nil, errors.New("--space needs a Space name or number, given once")
 		}
 		i++
 		name, err := a.spaceName(args[i])

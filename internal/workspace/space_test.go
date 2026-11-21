@@ -112,7 +112,14 @@ func TestNewConnectionsAndGroupsGoIntoTheActiveSpace(t *testing.T) {
 // data) and 5 idle as well, w by h; 3, 4 and 6-9 are free.
 func newSpaceModel(t *testing.T, w, h int) *Model {
 	t.Helper()
-	m, err := New(Options{Catalog: &fakeCatalog{
+	return newSpaceModelWide(t, w, h, 0)
+}
+
+// newSpaceModelWide is newSpaceModel with a list listWidth columns wide
+// (0 for the default).
+func newSpaceModelWide(t *testing.T, w, h, listWidth int) *Model {
+	t.Helper()
+	m, err := New(Options{ListWidth: listWidth, Catalog: &fakeCatalog{
 		entries: []Entry{
 			{Alias: "staging", Group: "web"},
 			{Alias: "prod-web", Description: "public site", Group: "web"},
@@ -140,6 +147,12 @@ func TestSpaceBarGolden(t *testing.T) {
 	m.st.SetCursor("db")
 	press(m, keyEnter)
 	golden(t, "spaces-open", m)
+}
+
+// A list wide enough for [1] [2] … [9] spaces the numbers out.
+func TestSpaceBarWideGolden(t *testing.T) {
+	m := newSpaceModelWide(t, 100, 8, 40)
+	golden(t, "spaces-wide", m)
 }
 
 func TestSpaceBarStylesActiveLiveAndIdleSpaces(t *testing.T) {

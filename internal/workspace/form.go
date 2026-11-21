@@ -183,7 +183,7 @@ func (m *Model) startAdd() tea.Cmd {
 // withSpaceField gives f a Space field, holding its Space's name, when
 // there is more than the default Space.
 func (m *Model) withSpaceField(f *connForm) {
-	if len(m.st.SpaceTabs()) > 1 {
+	if m.st.SeveralSpaces() {
 		f.addSpaceField(m.st.SpaceName(f.space))
 	}
 }

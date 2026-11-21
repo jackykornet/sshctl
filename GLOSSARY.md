@@ -41,7 +41,7 @@ A named set of Groups and Connections kept apart from the rest, such as one per 
 _Avoid_: Workspace, project, tenant, customer
 
 **Space number**:
-A number from 1 to 9 that a Space keeps until the user changes it (ADR-0007); the Workspace switches to Spaces by their number. A new Space takes the lowest free number unless the user picks one, so there are at most nine Spaces. Deleting a Space leaves its number free, and moving a Space to a taken number swaps the two. Only a Space beyond the ninth in an older config has none. A Space name may not be only digits, nor contain `/`.
+A number from 1 to 9 that a Space keeps until the user changes it (ADR-0010); the Workspace switches to Spaces by their number. A new Space takes the lowest free number unless the user picks one, so there are at most nine Spaces. Deleting a Space leaves its number free, and moving a Space to a taken number swaps the two. Only a Space beyond the ninth in an older config has none. A Space name may not be only digits, nor contain `/`.
 _Avoid_: Space ID, index
 
 **History**:

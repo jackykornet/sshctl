@@ -195,3 +195,19 @@ func TestLoadGivesEverySpaceAFixedNumber(t *testing.T) {
 		})
 	}
 }
+
+// From Version 5 on, only a broken number and a newly added record are
+// numbered: a Space the user left without a number keeps none.
+func TestLoadVersion5NumbersOnlyBrokenAndNewSpaces(t *testing.T) {
+	path := writeConfig(t, `{"version":5,"spaces":[{"name":"home","default":true,"number":1},
+		{"name":"acme","number":1},{"name":"lab","number":12},{"name":"spare"}],
+		"groups":[{"name":"web","space":"new"}],"connections":{}}`)
+	c, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"home:1", "acme:2", "lab:3", "new:4", "spare:0"}
+	if got := spaceNumbers(c); !slices.Equal(got, want) {
+		t.Errorf("Spaces = %v, want %v", got, want)
+	}
+}

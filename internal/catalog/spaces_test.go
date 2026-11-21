@@ -317,6 +317,30 @@ func TestMoveSpaceNumbersASpaceThatHasNone(t *testing.T) {
 	}
 }
 
+// A Version 5 config keeps a Space without a number unnumbered across
+// loads: a number freed by a delete stays free until the user gives it.
+func TestDeletingASpaceDoesNotNumberAnUnnumberedOne(t *testing.T) {
+	spaces := `{"name":"default","number":1,"default":true}`
+	for i := 2; i <= 9; i++ {
+		spaces += fmt.Sprintf(`,{"name":"s%d","number":%d}`, i, i)
+	}
+	spaces += `,{"name":"s10"}`
+	tr := newTree(t, true, "")
+	if err := os.WriteFile(tr.cfg, []byte(`{"version":5,"spaces":[`+spaces+`],"connections":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.DeleteSpace("s5"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"default:1", "s2:2", "s3:3", "s4:4", "s6:6", "s7:7", "s8:8", "s9:9", "s10:0"}
+	if got := spaceNumbers(t, tr); !slices.Equal(got, want) {
+		t.Errorf("after deleting s5, spaces = %v, want %v", got, want)
+	}
+	if got := spaceNumbers(t, tr); !slices.Equal(got, want) {
+		t.Errorf("after reloading, spaces = %v, want %v", got, want)
+	}
+}
+
 func TestMoveGroupCountsWithinItsSpace(t *testing.T) {
 	tr := newTree(t, true, "")
 	if err := tr.cat.AddSpace("acme"); err != nil {
