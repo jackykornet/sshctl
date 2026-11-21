@@ -7,71 +7,63 @@ import (
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
-	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
-const spaceUsage = "space list | add <name> [<number>] | rename <space> <new> | delete <space> | move <space> <number> | dotfiles <space> [<url|none> | --unset]"
+// A Space is given by name or by its Space number, which it keeps until it
+// is moved (ADR-0010); see spaceName.
 
-// spaceCommand runs `sshctl space ...`. A Space is given by name or by its
-// Space number, which it keeps until it is moved (ADR-0010).
-func (a *app) spaceCommand(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: sshctl " + spaceUsage)
-	}
-	// space is the Space args[1] names, by name or number, for every
-	// subcommand that takes an existing Space.
-	var space string
-	if len(args) > 1 && args[0] != "list" && args[0] != "add" {
-		var err error
-		if space, err = a.spaceName(args[1]); err != nil {
+func (a *app) spaceAdd(args []string) error {
+	switch len(args) {
+	case 1:
+		return a.catalog().AddSpace(args[0])
+	case 2:
+		n, err := spaceNumberArg(args[1])
+		if err != nil {
 			return err
 		}
+		return a.catalog().AddSpaceAt(args[0], n)
 	}
-	switch args[0] {
-	case "list":
-		if len(args) == 1 {
-			return a.spaceList()
-		}
-	case "add":
-		switch len(args) {
-		case 2:
-			return a.catalog().AddSpace(args[1])
-		case 3:
-			n, err := spaceNumberArg(args[2])
-			if err != nil {
-				return err
-			}
-			return a.catalog().AddSpaceAt(args[1], n)
-		}
-	case "rename":
-		if len(args) == 3 {
-			return a.catalog().RenameSpace(space, args[2])
-		}
-	case "delete":
-		// Only an empty Space can be deleted, so nothing is lost and
-		// there is nothing to confirm.
-		if len(args) == 2 {
-			return a.catalog().DeleteSpace(space)
-		}
-	case "move":
-		if len(args) == 3 {
-			n, err := spaceNumberArg(args[2])
-			if err != nil {
-				return err
-			}
-			return a.catalog().MoveSpace(space, n)
-		}
-	case "dotfiles":
-		// A Space's dotfiles repo is a Provision setting.
-		if err := a.checkFeature(config.FeatureProvision); err != nil {
-			return err
-		}
-		if len(args) > 1 {
-			return a.spaceDotfiles(space, args[2:])
-		}
+	return errUsage
+}
+
+func (a *app) spaceRename(args []string) error {
+	if len(args) != 2 {
+		return errUsage
 	}
-	return errors.New("usage: sshctl " + spaceUsage)
+	space, err := a.spaceName(args[0])
+	if err != nil {
+		return err
+	}
+	return a.catalog().RenameSpace(space, args[1])
+}
+
+// spaceDelete deletes an empty Space. Only an empty Space can be deleted,
+// so nothing is lost and there is nothing to confirm.
+func (a *app) spaceDelete(args []string) error {
+	if len(args) != 1 {
+		return errUsage
+	}
+	space, err := a.spaceName(args[0])
+	if err != nil {
+		return err
+	}
+	return a.catalog().DeleteSpace(space)
+}
+
+func (a *app) spaceMove(args []string) error {
+	if len(args) != 2 {
+		return errUsage
+	}
+	space, err := a.spaceName(args[0])
+	if err != nil {
+		return err
+	}
+	n, err := spaceNumberArg(args[1])
+	if err != nil {
+		return err
+	}
+	return a.catalog().MoveSpace(space, n)
 }
 
 // spaceNumberArg reads a Space number given on the command line, which is
@@ -102,11 +94,18 @@ func (a *app) spaceName(arg string) (string, error) {
 	return "", fmt.Errorf("no Space %d", n)
 }
 
-// spaceDotfiles shows the dotfiles setting of space, or, given args, sets
-// it to args[0] (a repo URL or none) or, with --unset, unsets it so the
-// global one applies.
-func (a *app) spaceDotfiles(space string, args []string) error {
-	switch {
+// spaceDotfiles shows the dotfiles setting of the Space args[0], a
+// Provision setting, or sets it to args[1] (a repo URL or none) or, with
+// --unset, unsets it so the global one applies.
+func (a *app) spaceDotfiles(args []string) error {
+	if len(args) == 0 {
+		return errUsage
+	}
+	space, err := a.spaceName(args[0])
+	if err != nil {
+		return err
+	}
+	switch args = args[1:]; {
 	case len(args) == 0:
 		snap, err := a.catalog().Snapshot()
 		if err != nil {
@@ -131,7 +130,10 @@ func (a *app) spaceDotfiles(space string, args []string) error {
 // dotfiles repo and Selected identity it sets, if any. Spaces come in number
 // order, so free numbers leave gaps; a Space without a number (beyond the
 // ninth in an older config) comes last, shown as -.
-func (a *app) spaceList() error {
+func (a *app) spaceList(args []string) error {
+	if len(args) != 0 {
+		return errUsage
+	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err

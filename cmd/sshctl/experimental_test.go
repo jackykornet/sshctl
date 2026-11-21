@@ -56,9 +56,9 @@ func TestExperimentalRefusesBadArguments(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"experimental"}, "usage: sshctl " + experimentalUsage},
-		{[]string{"experimental", "enable"}, "usage: sshctl " + experimentalUsage},
-		{[]string{"experimental", "on", "bootstrap"}, "usage: sshctl " + experimentalUsage},
+		{[]string{"experimental"}, "usage: sshctl " + usage("experimental")},
+		{[]string{"experimental", "enable"}, "usage: sshctl " + usage("experimental")},
+		{[]string{"experimental", "on", "bootstrap"}, "usage: sshctl " + usage("experimental")},
 		{[]string{"experimental", "enable", "sync"}, `unknown experimental feature "sync"; the experimental features are bootstrap, provision`},
 	} {
 		if err := a.execute(tt.args); err == nil || err.Error() != tt.want {
@@ -99,7 +99,7 @@ func TestCommandUsageStillShowsWhileItsFeatureIsOff(t *testing.T) {
 	if err := a.execute([]string{"bootstrap", "--help"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := "Usage: sshctl " + bootstrapUsage + "\n"; out.String() != want {
+	if want := "Usage: sshctl " + usage("bootstrap") + "\n"; out.String() != want {
 		t.Errorf("printed %q, want %q", out.String(), want)
 	}
 }
