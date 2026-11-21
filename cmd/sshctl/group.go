@@ -9,14 +9,14 @@ import (
 	"github.com/sshctl/sshctl/internal/catalog"
 )
 
-const groupUsage = "group [--space <name>] list | add <name> | rename <group> <new> | delete <group> [--yes] | move <group> <position> | connect <group>"
+const groupUsage = "group [--space <space>] list | add <name> | rename <group> <new> | delete <group> [--yes] | move <group> <position> | connect <group>"
 
 // groupCommand runs `sshctl group ...`. --space picks the Space; without
 // it, a Group is looked up in every Space (see findGroup). A Group is given
 // by name or Group number; a name keeps scripts working when Groups are
 // reordered.
 func (a *app) groupCommand(args []string) error {
-	space, args, err := cutSpaceOption(args)
+	space, args, err := a.cutSpaceOption(args)
 	if err != nil {
 		return err
 	}

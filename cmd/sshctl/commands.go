@@ -93,19 +93,21 @@ Usage: sshctl                 Open the Workspace (in a terminal)
        sshctl <command> [arguments]
 
 Commands:
-  list [--space <name>]        List Connections, or one Space's
+  list [--space <space>]       List Connections, or one Space's
   connect <alias> [--claude]   Connect using OpenSSH
   add <alias>                  Add or update connection metadata
   edit <alias>                 Edit connection metadata
   remove <alias>               Remove sshctl metadata
   space list                   List Spaces: number, name, groups, connections
-  space add <name>             Create a Space
-  space rename <old> <new>     Rename a Space, keeping its contents
-  space delete <name>          Delete an empty Space
-  space move <name> <position> Set a Space's position (its number)
-  space dotfiles <name> [<url|none>|--unset]
+  space add <name> [<number>]  Create a Space, with the lowest free number
+                               (1-9) or the one given
+  space rename <space> <new>   Rename a Space, keeping its contents and number
+  space delete <space>         Delete an empty Space, leaving its number free
+  space move <space> <number>  Give a Space a number, swapping with the Space
+                               that has it; <space> is a Space name or number
+  space dotfiles <space> [<url|none>|--unset]
                                Show or set a Space's dotfiles repo`+provision+`
-  group [--space <name>] ...   Pick the Space for a group command;
+  group [--space <space>] ...  Pick the Space for a group command;
                                <group> is a Group name or number
   group list                   List Groups: number, name, members, dotfiles
   group add <name>             Create a Group
@@ -115,7 +117,7 @@ Commands:
   group connect <group>        Open group connections in terminal windows
   history                      Show recent connections
   key list|use|add             List, select, or register keys;
-                               key use --space <name> <key|none> selects a
+                               key use --space <space> <key|none> selects a
                                Space's key; none falls back to the global one
   agent ensure                 Inspect SSH agent and optionally add the Selected identity
   known-hosts list|remove      Show or remove known hosts
@@ -135,7 +137,7 @@ Use sshctl <command> --help for command usage where available.
 func usage(command string) string {
 	switch command {
 	case "list":
-		return "list [--space <name>]"
+		return "list [--space <space>]"
 	case "connect":
 		return "connect <alias> [--claude]"
 	case "add", "edit", "remove":
@@ -145,7 +147,7 @@ func usage(command string) string {
 	case "space":
 		return spaceUsage
 	case "key":
-		return "key list | use [--space <name>] <key-path|none> | add <private-key-path>"
+		return "key list | use [--space <space>] <key-path|none> | add <private-key-path>"
 	case "agent":
 		return "agent ensure"
 	case "known-hosts":
@@ -234,8 +236,11 @@ func (a *app) identityFor(alias string) (string, error) { return a.catalog().Ide
 // sshctl's hosts file is not Included in ssh_config it adds a one-line hint
 // on stderr.
 func (a *app) list(args []string) error {
-	space, rest, err := cutSpaceOption(args)
-	if err != nil || len(rest) > 0 {
+	space, rest, err := a.cutSpaceOption(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
 		return errors.New("usage: sshctl " + usage("list"))
 	}
 	snap, err := a.catalog().Snapshot()
@@ -351,7 +356,7 @@ func (a *app) remove(args []string) error {
 }
 func (a *app) groupConnect(space spaceOption, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: sshctl group [--space <name>] connect <group>")
+		return errors.New("usage: sshctl group [--space <space>] connect <group>")
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -447,9 +452,12 @@ func (a *app) keys(args []string) error {
 		a.cfg.Keys = append(a.cfg.Keys, abs)
 		return a.save()
 	case "use":
-		space, rest, err := cutSpaceOption(args[1:])
-		if err != nil || len(rest) != 1 {
-			return errors.New("usage: sshctl key use [--space <name>] <key-path|none>")
+		space, rest, err := a.cutSpaceOption(args[1:])
+		if err != nil {
+			return err
+		}
+		if len(rest) != 1 {
+			return errors.New("usage: sshctl key use [--space <space>] <key-path|none>")
 		}
 		k := rest[0]
 		if k != "none" {
