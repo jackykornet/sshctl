@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -402,70 +401,40 @@ func (s *State) GroupPosition(group string) int {
 // ResolveGroup turns what the user typed for a Group of the active Space
 // into its name; see ResolveGroupIn.
 func (s *State) ResolveGroup(input string) (group string, ok bool) {
-	return resolveGroup(s.groups, input)
+	return s.ResolveGroupIn(s.space, input)
 }
 
 // ResolveGroupIn turns what the user typed for a Group of the Space ref
-// ("" for the default Space) into its name. All digits is a Group number
-// within that Space: 0 means ungrouped, and n the stored Group at position
-// n (ok is false when there is none). Anything else is a name, as typed;
-// Group names are never all digits.
+// ("" for the default Space) into its name, by catalog.Snapshot.ResolveGroup:
+// a Group number within that Space (0 for ungrouped; ok is false when no
+// Group has it) or a name. A name no Group has is returned as typed, so
+// the caller can offer to create it.
 func (s *State) ResolveGroupIn(ref, input string) (group string, ok bool) {
-	return resolveGroup(s.SpaceGroups(ref), input)
-}
-
-func resolveGroup(groups []string, input string) (string, bool) {
-	if !isDigits(input) {
+	group, err := s.catalogData().ResolveGroup(ref, input)
+	if errors.Is(err, catalog.ErrUnknownGroup) {
 		return input, true
 	}
-	n, err := strconv.Atoi(input)
-	if err == nil && n == 0 {
-		return "", true
-	}
-	if err != nil || n > len(groups) {
-		return "", false
-	}
-	return groups[n-1], true
+	return group, err == nil
+}
+
+// catalogData is the Spaces and Groups the State was given, as the
+// catalog's lookups read them.
+func (s *State) catalogData() catalog.Snapshot {
+	return catalog.Snapshot{Spaces: s.spaces, Groups: s.allGroups}
 }
 
 // SpaceGroups returns the stored Groups of the Space ref ("" for the
 // default Space) in the user's order.
 func (s *State) SpaceGroups(ref string) []string {
-	var out []string
-	for _, g := range s.allGroups {
-		if g.Space == ref {
-			out = append(out, g.Name)
-		}
-	}
-	return out
+	return s.catalogData().GroupNames(ref)
 }
 
-// ResolveSpace turns what the user typed for a Space into how Connections
-// refer to it ("" for the default Space): all digits is a Space number,
-// anything else a Space's name. ok is false when there is no such Space.
+// ResolveSpace turns what the user typed for a Space, its Space number or
+// name, into how Connections refer to it ("" for the default Space), by
+// catalog.Snapshot.ResolveSpace. ok is false when there is no such Space.
 func (s *State) ResolveSpace(input string) (ref string, ok bool) {
-	if isDigits(input) {
-		n, err := strconv.Atoi(input)
-		if err != nil {
-			return "", false
-		}
-		return s.SpaceRef(n)
-	}
-	for _, sp := range s.spaces {
-		if sp.Name == input {
-			return spaceRef(sp), true
-		}
-	}
-	return "", false
-}
-
-func isDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != ""
+	ref, err := s.catalogData().ResolveSpace(input)
+	return ref, err == nil
 }
 
 // HasGroup reports whether group is a Group the list shows.
