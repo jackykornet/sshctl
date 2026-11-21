@@ -15,12 +15,12 @@ var (
 	// ErrSpaceExists is returned when a Space would take a name another Space has.
 	ErrSpaceExists = errors.New("a space with that name already exists")
 	// ErrSpaceNumber is returned for a Space number outside 1..MaxSpaces.
-	ErrSpaceNumber = fmt.Errorf("space numbers run from 1 to %d", config.MaxSpaces)
+	ErrSpaceNumber = fmt.Errorf("Space numbers run from 1 to %d", config.MaxSpaces)
 	// ErrSpaceNumberTaken is returned by AddSpaceAt for a number another
 	// Space has.
-	ErrSpaceNumberTaken = errors.New("another space has that number")
+	ErrSpaceNumberTaken = errors.New("another Space has that number")
 	// ErrSpacesFull is returned by AddSpace when every Space number is taken.
-	ErrSpacesFull = fmt.Errorf("all %d space numbers are taken", config.MaxSpaces)
+	ErrSpacesFull = fmt.Errorf("all %d Space numbers are taken", config.MaxSpaces)
 	// ErrSpaceNotEmpty is returned by DeleteSpace while the Space still
 	// holds Groups or Connections.
 	ErrSpaceNotEmpty = errors.New("the space is not empty")

@@ -75,7 +75,7 @@ func (a *app) spaceCommand(args []string) error {
 func parseSpaceNumber(arg string) (int, error) {
 	n, ok := number(arg)
 	if !ok {
-		return 0, fmt.Errorf("%q is not a space number", arg)
+		return 0, fmt.Errorf("%q is not a Space number", arg)
 	}
 	return n, nil
 }
@@ -187,7 +187,7 @@ func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
 			continue
 		}
 		if opt.set || i+1 == len(args) || args[i+1] == "" {
-			return opt, nil, errors.New("--space needs a space name or number, given once")
+			return opt, nil, errors.New("--space needs a Space name or number, given once")
 		}
 		i++
 		name, err := a.spaceName(args[i])
