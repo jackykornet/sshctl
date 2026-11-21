@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/config"
 )
 
 type commandCall struct {
@@ -31,7 +32,9 @@ type fakeCatalog struct {
 	groups         []string // the default Space's stored Group names, in order
 	spaces         []Space  // the Spaces other than the default Space, in order
 	defaultName    string   // the default Space's name; "" reads as "default"
-	defaultAt      int      // the default Space's index among all Spaces
+	defaultAt      int      // the default Space's index among all Spaces, which numbers it
+	defaultNumber  int      // the default Space's number, once numbered
+	numbered       bool     // whether the Spaces have their numbers
 	spaceGroups    []Group  // the other Spaces' Groups
 	activeSpace    string
 	identity       string
@@ -62,7 +65,7 @@ type fakeCatalog struct {
 	groupErr     error    // returned by the next Group call, which then changes nothing
 	groupSpaces  []string // the Space of each Group call
 	activeSaves  []string // SetActiveSpace spaces
-	spaceOps     []string // "add x", "rename x→y", "delete x", "move x 2", one per Space call
+	spaceOps     []string // "add x", "add x at 3", "rename x→y", "delete x", "move x 2", one per Space call
 	spaceErr     error    // returned by the next Space call, which then changes nothing
 }
 
@@ -74,25 +77,43 @@ func (f *fakeCatalog) spaceOp(op string) error {
 	return err
 }
 
-// allSpaces returns every Space in order, the default Space among them.
-func (f *fakeCatalog) allSpaces() []Space {
-	name := f.defaultName
-	if name == "" {
-		name = "default"
+// number gives the Spaces their numbers the first time, as Load migrates
+// a Version 4 config: the default Space sits at defaultAt among spaces,
+// and each Space without a number takes the lowest free one, in that order,
+// while there is one.
+func (f *fakeCatalog) number() {
+	if f.numbered {
+		return
 	}
-	return slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Name: name, Default: true})
-}
-
-// setSpaces stores all, every Space in order, as spaces and defaultAt.
-func (f *fakeCatalog) setSpaces(all []Space) {
+	f.numbered = true
+	all := slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Default: true, Number: f.defaultNumber})
+	cfg := &config.Config{Spaces: all}
+	for i := range all {
+		if all[i].Number == 0 {
+			all[i].Number = cfg.FreeSpaceNumber()
+		}
+	}
 	f.spaces = nil
-	for i, s := range all {
+	for _, s := range all {
 		if s.Default {
-			f.defaultName, f.defaultAt = s.Name, i
+			f.defaultNumber = s.Number
 		} else {
 			f.spaces = append(f.spaces, s)
 		}
 	}
+}
+
+// allSpaces returns every Space, the default Space among them, in number
+// order, any without a number last.
+func (f *fakeCatalog) allSpaces() []Space {
+	f.number()
+	name := f.defaultName
+	if name == "" {
+		name = "default"
+	}
+	cfg := &config.Config{Spaces: append([]Space{{Name: name, Number: f.defaultNumber, Default: true}}, f.spaces...)}
+	cfg.SortSpaces()
+	return cfg.Spaces
 }
 
 // spaceIndex returns the index in spaces of the Space name, or -1 (also for
@@ -101,11 +122,51 @@ func (f *fakeCatalog) spaceIndex(name string) int {
 	return slices.IndexFunc(f.spaces, func(s Space) bool { return s.Name == name })
 }
 
+// numberOf points at the number of the Space name, the default Space too,
+// or is nil when there is no such Space.
+func (f *fakeCatalog) numberOf(name string) *int {
+	f.number()
+	if i := f.spaceIndex(name); i >= 0 {
+		return &f.spaces[i].Number
+	}
+	if s := f.allSpaces(); slices.ContainsFunc(s, func(s Space) bool { return s.Default && s.Name == name }) {
+		return &f.defaultNumber
+	}
+	return nil
+}
+
+// numbered returns the number pointer of the Space with number n, or nil.
+func (f *fakeCatalog) numberedSpace(n int) *int {
+	for _, s := range f.allSpaces() {
+		if s.Number == n {
+			return f.numberOf(s.Name)
+		}
+	}
+	return nil
+}
+
+// AddSpace adds name with the lowest free number.
 func (f *fakeCatalog) AddSpace(name string) error {
 	if err := f.spaceOp("add " + name); err != nil {
 		return err
 	}
-	f.spaces = append(f.spaces, Space{Name: name})
+	n := (&config.Config{Spaces: f.allSpaces()}).FreeSpaceNumber()
+	if n == 0 {
+		return catalog.ErrSpacesFull
+	}
+	f.spaces = append(f.spaces, Space{Name: name, Number: n})
+	return nil
+}
+
+// AddSpaceAt adds name with the number n, refusing a taken one.
+func (f *fakeCatalog) AddSpaceAt(name string, n int) error {
+	if err := f.spaceOp(fmt.Sprintf("add %s at %d", name, n)); err != nil {
+		return err
+	}
+	if f.numberedSpace(n) != nil {
+		return catalog.ErrSpaceNumberTaken
+	}
+	f.spaces = append(f.spaces, Space{Name: name, Number: n})
 	return nil
 }
 
@@ -150,19 +211,23 @@ func (f *fakeCatalog) DeleteSpace(name string) error {
 	return nil
 }
 
-// MoveSpace puts the Space name, the default Space too, at position,
-// counting from 1.
-func (f *fakeCatalog) MoveSpace(name string, position int) error {
-	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, position)); err != nil {
+// MoveSpace gives the Space name, the default Space too, the number n,
+// swapping with the Space that has it.
+func (f *fakeCatalog) MoveSpace(name string, n int) error {
+	if err := f.spaceOp(fmt.Sprintf("move %s %d", name, n)); err != nil {
 		return err
 	}
-	all := f.allSpaces()
-	i := slices.IndexFunc(all, func(s Space) bool { return s.Name == name })
-	if i < 0 || position < 1 || position > len(all) {
+	num := f.numberOf(name)
+	if num == nil || n < 1 || n > config.MaxSpaces {
 		return errors.New("bad space move")
 	}
-	s := all[i]
-	f.setSpaces(slices.Insert(slices.Delete(all, i, i+1), position-1, s))
+	if other := f.numberedSpace(n); other != nil {
+		if *num == 0 {
+			return catalog.ErrSpaceNumberTaken
+		}
+		*other = *num
+	}
+	*num = n
 	return nil
 }
 

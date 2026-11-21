@@ -61,15 +61,18 @@ type Catalog interface {
 	// SetActiveSpace saves the Space the Workspace shows, by name ("" for
 	// the default Space).
 	SetActiveSpace(space string) error
-	// AddSpace creates an empty Space after the others.
+	// AddSpace creates an empty Space with the lowest free Space number.
 	AddSpace(name string) error
+	// AddSpaceAt creates an empty Space with the free Space number n.
+	AddSpaceAt(name string, n int) error
 	// RenameSpace renames a Space; its Groups and Connections, collapsed
 	// Groups and whether it is active move with it.
 	RenameSpace(old, name string) error
 	// DeleteSpace deletes an empty Space other than the default Space.
 	DeleteSpace(name string) error
-	// MoveSpace puts a Space at position, counting from 1.
-	MoveSpace(name string, position int) error
+	// MoveSpace gives a Space the Space number n, swapping numbers with
+	// the Space that has it.
+	MoveSpace(name string, n int) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
@@ -677,12 +680,12 @@ func selectedIdentities(snap Snapshot) Snapshot {
 	return Snapshot{Identity: snap.Identity, SpaceIdentities: snap.SpaceIdentities}
 }
 
-// switchSpace makes Space number n (counting from 1) the active Space; see
-// showSpace.
+// switchSpace makes the Space with Space number n the active Space; see
+// showSpace. A free number switches nothing.
 func (m *Model) switchSpace(n int) tea.Cmd {
 	ref, ok := m.st.SpaceRef(n)
 	if !ok {
-		return m.setStatus(fmt.Sprintf("no space %d", n), true)
+		return m.setStatus(fmt.Sprintf("no Space %d", n), true)
 	}
 	return m.showSpace(ref)
 }
@@ -1086,7 +1089,7 @@ func (m *Model) paneOffset() int {
 // when shown).
 func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
-	if m.spaceBar() != "" {
+	if len(m.st.SpaceTabs()) > 1 { // the Space bar
 		top++
 	}
 	top += len(m.spaceNoteLines(m.listWidth()))

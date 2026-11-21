@@ -19,10 +19,10 @@ func listText(m *Model) []string {
 }
 
 func TestSShowsTheSpaceNamesUntilTheNextKey(t *testing.T) {
-	m := newSpaceModel(t, 100, 10) // default, acme, idle
+	m := newSpaceModel(t, 100, 10) // 1 default, 2 acme, 5 idle
 	press(m, text("S")...)
 	lines := listText(m)
-	if want := " 1 default · 2 acme · 3 idle"; len(lines) < 2 || lines[1] != want {
+	if want := " 1 default · 2 acme · 5 idle"; len(lines) < 2 || lines[1] != want {
 		t.Fatalf("list after S:\n%s\nwant line 2 %q", strings.Join(lines, "\n"), want)
 	}
 	press(m, keyDown)
@@ -57,7 +57,7 @@ func TestTheSpaceNoteWrapsBetweenSpacesInANarrowList(t *testing.T) {
 	m.opts.ListWidth = 16
 	press(m, text("S")...)
 	lines := listText(m)
-	if want := []string{" 1 default ·", " 2 acme · 3 idle"}; len(lines) < 3 || lines[1] != want[0] || lines[2] != want[1] {
+	if want := []string{" 1 default ·", " 2 acme · 5 idle"}; len(lines) < 3 || lines[1] != want[0] || lines[2] != want[1] {
 		t.Fatalf("list after S:\n%s\nwant lines 2-3 %q", strings.Join(lines, "\n"), want)
 	}
 	golden(t, "space-note", m)
@@ -67,7 +67,7 @@ func TestTheSpaceNoteGoesOnTheStatusLineWhileTheListIsHidden(t *testing.T) {
 	m := newSpaceModel(t, 100, 10)
 	press(m, keyPrefix, text("b")[0]) // hide the list
 	press(m, keyPrefix, text("S")[0])
-	if want := "1 default · 2 acme · 3 idle"; !strings.Contains(m.renderStatus(m.w), want) {
+	if want := "1 default · 2 acme · 5 idle"; !strings.Contains(m.renderStatus(m.w), want) {
 		t.Fatalf("status line %q, want it to show %q", ansi.Strip(m.renderStatus(m.w)), want)
 	}
 	press(m, keyDown)
