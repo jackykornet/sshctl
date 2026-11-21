@@ -129,29 +129,31 @@ Run `sshctl` with no arguments in a terminal to open the Workspace: the connecti
 
 Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Open connections are marked green and keep their place in the list. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
 
-Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session):
+Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session). One rule ([ADR-0007](docs/adr/0007-one-rule-for-workspace-keys.md)) decides where a key works: list actions work bare while the list has focus and after the prefix from anywhere (the table writes these as `/`, prefix `/`); the terminal takes only prefixed commands, except the `r` and `x` of an ended tab; and a key means the same thing everywhere. Hint lines name keys as `key action · key action`, with the prefix shown as `^B`.
 
 | Keys | Action |
 | --- | --- |
-| `↑`/`↓`, `Enter` | Move in the list, open or switch to a connection |
-| `Enter`/`Space`, `←`/`→` | On a group header: collapse or expand the group (`←` on a member collapses its group) |
-| `Shift+↑`/`Shift+↓` (or `K`/`J`) | On a group header: move the group up / down; the new order is saved |
-| `/` | Filter the list by alias, description, or group |
-| `Alt+←`/`Alt+→`, `[`/`]` (prefix `[`/`]` in the terminal) | Previous / next tab |
-| `Alt+↑`/`Alt+↓` | Previous / next open connection in the active Space |
-| `1`–`9` (prefix `1`–`9` in the terminal) | Switch to Space 1–9 |
-| `P` (in the list) / `S` (prefix `S` in the terminal) | Open the Space picker / show every Space's number and name under the Space bar |
+| `↑`/`↓` (or `k`/`j`), `Enter` | In the list: move, open or switch to a connection |
+| `Enter`/`Space`, `←`/`→` (or `h`/`l`) | In the list, on a group header: collapse or expand the group (`←` on a member collapses its group) |
+| `Shift+↑`/`Shift+↓` (or `K`/`J`) | In the list, on a group header: move the group up / down; the new order is saved |
+| `/`, prefix `/` | Filter the list by alias, description, or group (`Esc` in the list clears it) |
+| `[`/`]`, prefix `[`/`]` | Previous / next tab |
+| `{`/`}`, prefix `{`/`}` | Previous / next open connection in the active Space |
+| `1`–`9`, prefix `1`–`9` | Switch to Space 1–9 |
+| `P` / `S`, prefix `P` / `S` | Open the Space picker / show every Space's number and name under the Space bar |
+| `a` / `e` / `d`, prefix `a` / `e` / `d` | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
+| `q` (or `Ctrl+C` in the list), prefix `q` | Quit |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`); both refuse while the [Experimental feature](#experimental-features) is off |
 | prefix `g` | Open every closed connection in the group under the cursor as tabs (`sshctl group connect` instead opens one terminal window per connection) |
-| prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
-| `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab (while Bootstrap is off, `Ctrl+O` saves nothing and the form says why) |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
 | prefix `Tab` | Move focus between the list and the terminal |
 | prefix `s` | Scroll back through the tab's history (`q` to leave; the mouse wheel also scrolls) |
-| prefix `b` / `r` | Hide the list / reload connections from disk |
-| prefix `?` / `q` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) / quit |
+| prefix `b` / `R` | Hide the list / refresh connections from ssh_config |
+| prefix `?` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) |
+| `r` / `x` (on an ended tab) | Reconnect / close the tab |
+| `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab (while Bootstrap is off, `Ctrl+O` saves nothing and the form says why) |
 
 ### Spaces
 
@@ -262,7 +264,7 @@ sshctl-sync init --apply git@github.com:you/sshctl-sync.git
 
 If sshctl has run on this machine before, chezmoi asks before replacing its `config.json`. `state.json` is not touched, so this machine keeps its own History and keys. Choose this machine's key with `sshctl key use <key-path>`, or let Bootstrap create one.
 
-`~/.ssh/config` on a new machine usually lacks the `Include sshctl_config` line, so ssh cannot see the synced hosts yet. The Workspace asks at startup: `Add "Include sshctl_config" to the top of ~/.ssh/config? (y/n)`. Answer `y` (the previous file is kept as `~/.ssh/config.sshctl-backup`). Answering `n` leaves the file alone for the rest of the session, and `sshctl list` prints a hint until the line is there. If your dotfiles already manage `~/.ssh/config`, add the line there instead, so chezmoi doesn't undo it.
+`~/.ssh/config` on a new machine usually lacks the `Include sshctl_config` line, so ssh cannot see the synced hosts yet. The Workspace asks at startup: `Add "Include sshctl_config" to the top of ~/.ssh/config?  y yes · n no`. Answer `y` (the previous file is kept as `~/.ssh/config.sshctl-backup`). Answering `n` leaves the file alone for the rest of the session, and `sshctl list` prints a hint until the line is there. If your dotfiles already manage `~/.ssh/config`, add the line there instead, so chezmoi doesn't undo it.
 
 sshctl writes `IdentityFile` as `~/.ssh/...` for a key in your home directory, so one Host block works on Linux, macOS and Windows as long as each machine has a key at that path.
 
