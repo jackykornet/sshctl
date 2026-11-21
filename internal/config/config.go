@@ -374,12 +374,14 @@ func (c *Config) renameCollapsed(old, key string) {
 // reports whether c changed.
 func (c *Config) migrateGroups() bool {
 	changed := c.Version < Version
+	numberAll := c.Version < 5
 	c.Version = Version
 	n := len(c.Notices)
-	if c.addMissingSpaces() {
+	added := c.addMissingSpaces()
+	if len(added) > 0 {
 		changed = true
 	}
-	if c.numberSpaces() {
+	if c.numberSpaces(numberAll, added) {
 		changed = true
 	}
 	c.renameDigitGroups()

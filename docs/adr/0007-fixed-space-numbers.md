@@ -19,5 +19,5 @@ The Workspace switches to Spaces 1-9 by their number, so users learn "customer1 
 ## Consequences
 
 - The config format becomes Version 5. An older sshctl refuses a Version 5 file ("unsupported config version 5"), because saving it would silently drop every Space's number and close the gaps on the next load. A machine syncing the config through chezmoi needs the newer sshctl too. Load migrates a Version 4 config once, numbering its Spaces 1 to N in its order. A Space whose number an earlier Space already has, or one out of range (from a hand edit or a sync merge), takes the lowest free number.
-- A config with ten or more Spaces still loads: the first nine get numbers and the rest have none. sshctl never drops a Space or refuses to start. A Space without a number can be given a free one, but cannot swap with a numbered Space, which would leave that Space without one.
+- A config with ten or more Spaces still loads: the first nine get numbers and the rest have none. sshctl never drops a Space or refuses to start. A Space without a number keeps none on later loads, even when a delete frees a number, until the user gives it one. It can be given a free one, but cannot swap with a numbered Space, which would leave that Space without one.
 - Group numbers are unchanged: they are still positions and shift when a Group is deleted (ADR-0003).
