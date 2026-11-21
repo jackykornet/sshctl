@@ -285,6 +285,16 @@ func (c *Catalog) includeError() *IncludeError {
 	return &IncludeError{Line: openssh.IncludeLine, Config: displayPath(c.ssh.SSHConfig, home)}
 }
 
+// History returns the aliases opened, most recent first, as the config
+// holds them now.
+func (c *Catalog) History() ([]string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.History, nil
+}
+
 // RecordOpen records in History that alias was opened.
 func (c *Catalog) RecordOpen(alias string) error {
 	return c.update(func(cfg *config.Config) error {

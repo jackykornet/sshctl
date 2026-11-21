@@ -261,6 +261,21 @@ func TestConnectRecordsHistoryOnTheCurrentConfig(t *testing.T) {
 	}
 }
 
+// history reads History through the Connection catalog, so an open recorded
+// elsewhere since sshctl started is listed.
+func TestHistoryReadsTheCurrentConfig(t *testing.T) {
+	cfg := config.New()
+	cfg.History = []string{"web", "db"}
+	a, out := cliTree(t, "Host web\n", cfg, "")
+	stale(a)
+	if err := a.execute([]string{"history"}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "web\ndb\n" {
+		t.Errorf("history = %q, want web then db", out.String())
+	}
+}
+
 func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
 	cfg := config.New()
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}

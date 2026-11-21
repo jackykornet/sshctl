@@ -190,10 +190,7 @@ func (a *app) execute(args []string) error {
 	case "space":
 		return a.spaceCommand(args[1:])
 	case "history":
-		for _, h := range a.cfg.History {
-			fmt.Fprintln(a.out, h)
-		}
-		return nil
+		return a.history()
 	case "key":
 		return a.keys(args[1:])
 	case "agent":
@@ -299,9 +296,6 @@ func (a *app) connect(args []string) error {
 	}
 	return a.recordHistory(alias)
 }
-
-// recordHistory records in History that alias was opened.
-func (a *app) recordHistory(alias string) error { return a.catalog().RecordOpen(alias) }
 
 // metadata adds or edits alias's description and group, prompting with the
 // values the config holds now.
