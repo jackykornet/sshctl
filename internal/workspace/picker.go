@@ -35,7 +35,7 @@ func (m *Model) openPicker() {
 // picker returns the Space picker when it is the modal, or when it waits
 // behind a prompt or confirmation it opened.
 func (m *Model) picker() *spacePicker {
-	md := m.modal
+	md := m.mode.modal
 	if c, ok := md.(*confirmation); ok {
 		md = c.back
 	}
@@ -54,7 +54,7 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	n := len(m.st.SpaceSlots())
 	switch msg.String() {
 	case "esc", "ctrl+c", "q", "P":
-		m.modal = nil
+		m.showModal(nil)
 	case "up", "k":
 		p.cursor--
 	case "down", "j":
@@ -86,7 +86,7 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			p.say(fmt.Sprintf("no Space %d", t.Number), true)
 			return nil
 		}
-		m.modal = nil
+		m.showModal(nil)
 		return m.showSpace(t.Ref)
 	}
 	p.cursor = max(0, min(p.cursor, n-1))
@@ -219,7 +219,7 @@ func (in *spaceInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.modal = in.back
+		m.showModal(in.back)
 	case "enter":
 		return m.saveSpace(in)
 	default:
@@ -252,7 +252,7 @@ func (in *spaceInput) status() (string, bool) {
 func (m *Model) saveSpace(in *spaceInput) tea.Cmd {
 	name := strings.TrimSpace(in.name.String())
 	if in.old != "" && name == in.old {
-		m.modal = in.back
+		m.showModal(in.back)
 		return nil
 	}
 	var err error
@@ -273,7 +273,7 @@ func (m *Model) saveSpace(in *spaceInput) tea.Cmd {
 	if in.old != "" {
 		m.st.RenameSpace(in.old, name)
 	}
-	m.modal = in.back
+	m.showModal(in.back)
 	cmd := m.reload("", "")
 	in.back.setCursor(m, name)
 	in.back.say(status, false)

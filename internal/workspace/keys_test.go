@@ -83,11 +83,11 @@ func TestHelpScrollsAndShowsWhenMoreIsBelow(t *testing.T) {
 	if got := helpScreenLines(m); got[1] != first[1] {
 		t.Errorf("after PgUp to the top, line 1 = %q, want %q", got[1], first[1])
 	}
-	if _, ok := m.modal.(*helpScreen); !ok {
+	if _, ok := m.mode.modal.(*helpScreen); !ok {
 		t.Fatal("scrolling closed the help screen")
 	}
 	press(m, text("x")...)
-	if m.modal != nil {
+	if m.mode.modal != nil {
 		t.Error("another key did not close the help screen")
 	}
 }
@@ -129,7 +129,7 @@ func TestPrefixRefreshReloadsTheList(t *testing.T) {
 func TestKeysDispatchThroughBindings(t *testing.T) {
 	m := newTestModel(t, 80, 10)
 	press(m, text("/")...)
-	if !m.filtering {
+	if !m.filtering() {
 		t.Fatal("/ in the list should start filtering")
 	}
 	press(m, keyEnter)
@@ -157,7 +157,7 @@ func TestBracketsSelectTheNeighbouringTab(t *testing.T) {
 	if c.Current != 2 {
 		t.Fatalf("prefix ] in the pane: tab %d, want 3", c.Current+1)
 	}
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("prefix [ should no longer scroll back")
 	}
 	press(m, keyPrefix, tea.KeyPressMsg{Code: tea.KeyTab}) // to the list

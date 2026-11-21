@@ -7,7 +7,7 @@ import (
 )
 
 // A modal is the prompt, form or screen that takes the Workspace's input
-// before anything else. The Workspace holds at most one (Model.modal). While
+// before anything else. The Workspace holds at most one, in modal mode. While
 // it is open, key presses and paste go only to it, mouse input is ignored,
 // and it may claim the status line. Nothing behind it sees any of this.
 //
@@ -36,17 +36,13 @@ type modal interface {
 // any drag in progress end, since md now gets all input.
 func (m *Model) openModal(md modal) {
 	m.prefix = false
-	if m.drag != nil {
-		m.drag = nil
-		m.st.ShowUngrouped(false)
-	}
-	m.modal = md
+	m.showModal(md)
 }
 
 // form returns the connection form when it is the modal, or when it waits
 // behind the confirmation it opened.
 func (m *Model) form() *connForm {
-	md := m.modal
+	md := m.mode.modal
 	if c, ok := md.(*confirmation); ok {
 		md = c.back
 	}
@@ -56,7 +52,7 @@ func (m *Model) form() *connForm {
 
 // confirm returns the open confirmation, or nil.
 func (m *Model) confirm() *confirmation {
-	c, _ := m.modal.(*confirmation)
+	c, _ := m.mode.modal.(*confirmation)
 	return c
 }
 
@@ -71,12 +67,12 @@ type confirmation struct {
 
 // ask opens a y/n question, returning to the current modal once answered.
 func (m *Model) ask(question string, yes func(*Model) tea.Cmd) {
-	back := m.modal
+	back := m.mode.modal
 	m.openModal(&confirmation{question: question, yes: yes, back: back})
 }
 
 func (c *confirmation) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-	m.modal = c.back
+	m.showModal(c.back)
 	if k := msg.String(); k == "y" || k == "Y" {
 		return c.yes(m)
 	}
@@ -103,7 +99,7 @@ func (h *helpScreen) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	case "pgdown":
 		h.top += page
 	default:
-		m.modal = nil
+		m.showModal(nil)
 		return nil
 	}
 	h.top = max(0, min(h.top, m.helpMaxTop()))
@@ -156,9 +152,9 @@ func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.modal = nil
+		m.showModal(nil)
 	case "enter":
-		m.modal = nil
+		m.showModal(nil)
 		return m.moveTo(in.alias, in.group.String())
 	default:
 		in.group.key(msg)

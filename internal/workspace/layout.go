@@ -38,7 +38,7 @@ func (m *Model) listRows() (rows []Row, offset, top int) {
 		top++
 	}
 	top += len(m.spaceNoteLines(m.listWidth()))
-	if m.filtering || m.st.Filter() != "" {
+	if m.filtering() || m.st.Filter() != "" {
 		top++
 	}
 	height := m.h - 1 - top

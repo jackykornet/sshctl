@@ -11,26 +11,14 @@ import (
 // modeName names the Workspace's mode: list, filter or scroll, or a drag,
 // selection or modal "over" the one it returns to.
 func modeName(m *Model) string {
-	base := "list"
-	switch {
-	case m.filtering:
-		base = "filter"
-	case m.scrolling:
-		base = "scroll"
+	names := map[modeKind]string{
+		modeList: "list", modeFilter: "filter", modeScroll: "scroll",
+		modeDrag: "drag", modeSelect: "select", modeModal: "modal",
 	}
-	over := ""
-	switch {
-	case m.modal != nil:
-		over = "modal"
-	case m.drag != nil:
-		over = "drag"
-	case m.sel != nil:
-		over = "select"
+	if !m.mode.kind.over() {
+		return names[m.mode.kind]
 	}
-	if over == "" {
-		return base
-	}
-	return over + " over " + base
+	return names[m.mode.kind] + " over " + names[m.base().kind]
 }
 
 // A modeStep sends msg (or runs do) and expects the Workspace in mode want.
@@ -95,6 +83,9 @@ func TestModeChanges(t *testing.T) {
 			keyStep("prefix", "list"), keyStep("s", "scroll"),
 			{do: func(m *Model, sess *Session) { endSession(m, sess, 1) }, want: "scroll"},
 		}},
+		{"scroll: prefix s while filtering ends the filter", steps(toList, []modeStep{
+			keyStep("/", "filter"), keyStep("prefix", "filter"), keyStep("s", "scroll"),
+		})},
 		{"filter: wheel keeps typing the filter", steps(toList, []modeStep{
 			keyStep("/", "filter"),
 			{msg: wheel(tea.MouseWheelUp), want: "filter"},

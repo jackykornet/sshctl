@@ -66,21 +66,16 @@ type Model struct {
 	identities Snapshot
 	// features says which Experimental features are on, as of the last
 	// Snapshot.
-	features  catalog.Experimental
-	ev        *events
-	sessions  *sessions
-	w, h      int
-	focus     focus
-	prefix    bool // armed outside modals; a modal keeps its own
-	filtering bool
-	// filter is the filter being typed, with its cursor; State holds its text.
-	filter    line
-	scrolling bool
-	hideList  bool
-	modal     modal // gets input before anything else; see modal
-	drag      *drag
-	// sel is the text selected with the mouse in a Session pane, if any.
-	sel *selection
+	features catalog.Experimental
+	ev       *events
+	sessions *sessions
+	w, h     int
+	focus    focus
+	prefix   bool // armed in any mode but modal; a modal keeps its own
+	// mode is list, filter, scroll, drag, select or modal; it changes only
+	// through setMode.
+	mode     mode
+	hideList bool
 	// lastClick is the last left click in a Session pane, for double-clicks.
 	lastClick paneClick
 	// rightPaste is the right-click paste waiting for the clipboard, if any.
@@ -200,9 +195,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 // takeActivity marks the Sessions that wrote output since the last call, and
 // clears the selection when its Session's output changed under it.
 func (m *Model) takeActivity() {
-	if m.sel != nil {
-		if r := m.sessions.runner(m.sel.sess); r != nil && r.activity.Load() {
-			m.sel = nil
+	if sel := m.mode.sel; sel != nil {
+		if r := m.sessions.runner(sel.sess); r != nil && r.activity.Load() {
+			m.clearSelection()
 		}
 	}
 	m.sessions.takeActivity()
@@ -214,14 +209,15 @@ func (m *Model) takeActivity() {
 func (m *Model) keepViews() {
 	var r *runner
 	before := 0
-	if m.sel != nil {
-		if r = m.sessions.runner(m.sel.sess); r != nil {
+	sel := m.mode.sel
+	if sel != nil {
+		if r = m.sessions.runner(sel.sess); r != nil {
 			before = r.scroll
 		}
 	}
 	m.sessions.keepViews()
 	if r != nil {
-		m.sel.scroll += r.scroll - before
+		sel.scroll += r.scroll - before
 	}
 }
 
@@ -247,11 +243,12 @@ func (m *Model) liveRunner() *runner {
 // the live Session when the terminal has focus.
 func (m *Model) paste(text string) {
 	switch r := m.liveRunner(); {
-	case m.modal != nil:
-		m.modal.paste(text)
-	case m.filtering:
-		m.filter.paste(text)
-		m.st.SetFilter(m.filter.String())
+	case m.mode.modal != nil:
+		m.mode.modal.paste(text)
+	case m.filtering():
+		f := &m.base().filter
+		f.paste(text)
+		m.st.SetFilter(f.String())
 	case r != nil && m.focus == focusPane:
 		r.term.Paste(text)
 	}
@@ -261,9 +258,9 @@ func (m *Model) paste(text string) {
 // bindings for the context the Workspace is in (see bindings).
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	m.spaceNote = false
-	m.sel = nil
-	if m.modal != nil {
-		return m.modal.key(m, msg)
+	m.clearSelection()
+	if md := m.mode.modal; md != nil {
+		return md.key(m, msg)
 	}
 	if m.prefix {
 		m.prefix = false
@@ -276,7 +273,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if cmd, ok := m.runBinding(inAny, msg); ok {
 		return cmd
 	}
-	if m.filtering {
+	if m.filtering() {
 		m.filterKey(msg)
 		return nil
 	}
@@ -294,7 +291,7 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 	if s == nil {
 		return nil
 	}
-	if m.scrolling && r != nil {
+	if m.scrolling() && r != nil {
 		m.scrollKey(r, msg.String())
 		return nil
 	}
@@ -323,33 +320,38 @@ func (m *Model) scrollKey(r *runner, k string) {
 	case "g", "home":
 		m.scrollBy(r, r.term.ScrollbackLen())
 	case "G", "end", "q", "esc":
-		r.scroll, m.scrolling = 0, false
+		r.scroll = 0
+		m.stopScroll()
 	}
 }
 
 func (m *Model) scrollBy(r *runner, n int) {
 	r.keepView() // count from the history as it is now
 	r.scroll = max(0, min(r.scroll+n, r.term.ScrollbackLen()))
-	m.scrolling = r.scroll > 0
+	switch {
+	case r.scroll == 0:
+		m.stopScroll()
+	case !m.filtering(): // the wheel does not end typing the filter
+		m.setBase(mode{kind: modeScroll})
+	}
 }
 
 // startFilter starts typing the filter, resuming the current one with the
 // cursor at its end.
 func (m *Model) startFilter() {
-	m.filtering = true
-	m.filter = newLine(m.st.Filter())
+	m.setBase(mode{kind: modeFilter, filter: newLine(m.st.Filter())})
 }
 
 func (m *Model) filterKey(msg tea.KeyPressMsg) {
-	switch msg.String() {
+	switch f := &m.base().filter; msg.String() {
 	case "esc":
-		m.filtering = false
+		m.setBase(mode{kind: modeList})
 		m.st.SetFilter("")
 	case "enter":
-		m.filtering = false
+		m.setBase(mode{kind: modeList})
 	default:
-		if m.filter.key(msg) {
-			m.st.SetFilter(m.filter.String())
+		if f.key(msg) {
+			m.st.SetFilter(f.String())
 		}
 	}
 }
@@ -364,7 +366,7 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) selectTab(delta int) {
 	m.st.SelectTab(delta)
-	m.scrolling = false
+	m.stopScroll()
 }
 
 func (m *Model) enter() tea.Cmd {
@@ -420,7 +422,8 @@ func (m *Model) openSession(alias string, l Launch) error {
 		}
 		return err
 	}
-	m.focus, m.scrolling = focusPane, false
+	m.focus = focusPane
+	m.stopScroll()
 	if first {
 		if err := m.opts.Catalog.RecordOpen(alias); err != nil {
 			return fmt.Errorf("history: %w", err)
@@ -523,7 +526,7 @@ func (m *Model) reconnect() tea.Cmd {
 		}
 		return m.setStatus(err.Error(), true)
 	}
-	m.scrolling = false
+	m.stopScroll()
 	return nil
 }
 
@@ -535,7 +538,7 @@ func (m *Model) closeTab() tea.Cmd {
 	sess := c.CurrentSession()
 	doClose := func(m *Model) tea.Cmd {
 		m.sessions.closeCurrent()
-		m.scrolling = false
+		m.stopScroll()
 		if m.st.Active() == nil {
 			m.focus = focusList
 		}
@@ -600,7 +603,7 @@ func (m *Model) switchSpace(n int) tea.Cmd {
 // connection. Sessions in every Space keep running.
 func (m *Model) showSpace(ref string) tea.Cmd {
 	m.st.SetSpace(ref)
-	m.scrolling = false
+	m.stopScroll()
 	if m.st.Active() == nil {
 		m.focus = focusList
 	}

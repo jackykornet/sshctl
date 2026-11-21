@@ -206,7 +206,7 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	fl := &f.fields[f.focus]
 	switch msg.String() {
 	case "esc":
-		m.modal = nil
+		m.showModal(nil)
 	case "tab", "down":
 		f.focusField(f.focus + 1)
 	case "shift+tab", "up":
@@ -304,7 +304,7 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 		f.err = err.Error()
 		return nil
 	}
-	m.modal = nil
+	m.showModal(nil)
 	verb := "saved"
 	if f.old == "" {
 		verb = "added"

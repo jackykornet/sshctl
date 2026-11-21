@@ -42,7 +42,7 @@ func (m *Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "sshctl"
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
-		!m.scrolling && m.modal == nil && !m.filtering && m.drag == nil {
+		m.base().kind == modeList && m.mode.kind != modeModal && m.mode.kind != modeDrag {
 		if x, y, visible := r.term.Cursor(); visible {
 			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
 		}
@@ -59,7 +59,7 @@ func (m *Model) render() string {
 	// where they were.
 	m.keepViews()
 	mainH := m.h - 1
-	if h, ok := m.modal.(*helpScreen); ok {
+	if h, ok := m.mode.modal.(*helpScreen); ok {
 		// Help covers the whole Workspace without resizing the Sessions
 		// under it. Its title stays; the bindings scroll below it.
 		title, body := m.helpLines()
@@ -113,8 +113,8 @@ func (m *Model) renderList(w, h int) []string {
 	}
 	if len(lines) < top {
 		f := "/" + m.st.Filter()
-		if m.filtering {
-			f = "/" + m.filter.withCursor()
+		if m.filtering() {
+			f = "/" + m.base().filter.withCursor()
 		}
 		lines = append(lines, fit(f, w))
 	}
@@ -143,11 +143,11 @@ func (m *Model) renderList(w, h int) []string {
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
-		switch {
-		case m.drag != nil && m.drag.moving && m.drag.group == "" && !r.Header() && r.Conn.Alias == m.drag.alias,
-			m.drag != nil && m.drag.moving && m.drag.group != "" && r.Header() && r.Group == m.drag.group:
+		switch d := m.mode.drag; {
+		case d != nil && d.moving && d.group == "" && !r.Header() && r.Conn.Alias == d.alias,
+			d != nil && d.moving && d.group != "" && r.Header() && r.Group == d.group:
 			line = dimStyle.Render(ansi.Strip(line))
-		case m.drag != nil && m.drag.moving && m.drag.ok && r.Group == m.drag.target:
+		case d != nil && d.moving && d.ok && r.Group == d.target:
 			line = dropStyle.Render(ansi.Strip(line))
 		case highlight:
 			line = activeRow.Render(ansi.Strip(line))
@@ -420,7 +420,7 @@ func (m *Model) renderPane(w, h int) []string {
 	case r != nil:
 		body = r.term.Lines(r.scroll)
 	}
-	sel := m.sel
+	sel := m.mode.sel
 	if sel != nil && !sel.shownIn(s, r) {
 		sel = nil
 	}
@@ -481,33 +481,34 @@ func (m *Model) helpLines() (title string, body []string) {
 func (m *Model) renderStatus(w int) string {
 	var left string
 	modalStatus, ok := "", false
-	if m.modal != nil {
-		modalStatus, ok = m.modal.status()
+	if m.mode.modal != nil {
+		modalStatus, ok = m.mode.modal.status()
 	}
+	d := m.mode.drag
 	switch {
 	case ok:
 		left = modalStatus
 	case m.spaceNote && m.listWidth() == 0:
 		left = strings.Join(m.spaceNames(), " · ")
-	case m.drag != nil && m.drag.moving && m.drag.group != "":
-		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
-		if m.drag.ok {
-			left = fmt.Sprintf("move group %s to position %d · release to drop", m.drag.group, m.st.GroupPosition(m.drag.target))
+	case d != nil && d.moving && d.group != "":
+		left = "drop group " + d.group + " on another group header · release off the list to cancel"
+		if d.ok {
+			left = fmt.Sprintf("move group %s to position %d · release to drop", d.group, m.st.GroupPosition(d.target))
 		}
-	case m.drag != nil && m.drag.moving:
-		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
-		if m.drag.ok {
-			to := m.drag.target
+	case d != nil && d.moving:
+		left = "drop " + d.alias + " on a group · release off the list to cancel"
+		if d.ok {
+			to := d.target
 			if to == "" {
 				to = "ungrouped"
 			}
-			left = fmt.Sprintf("move %s → %s · release to drop", m.drag.alias, to)
+			left = fmt.Sprintf("move %s → %s · release to drop", d.alias, to)
 		}
 	case m.status != "" && m.statusErr:
 		left = errStyle.Render(m.status)
 	case m.status != "":
 		left = m.status
-	case m.scrolling:
+	case m.scrolling():
 		left = "scroll mode · ↑/↓ PgUp/PgDn g/G · q exit"
 		if _, r := m.currentRunner(); r != nil {
 			left = fmt.Sprintf("scroll: %d/%d lines back · ↑/↓ PgUp/PgDn g/G · q exit", r.scroll, r.term.ScrollbackLen())
@@ -515,7 +516,7 @@ func (m *Model) renderStatus(w int) string {
 	default:
 		left = m.sessionStatus()
 	}
-	if m.prefix || m.modal != nil && m.modal.prefixArmed() {
+	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
 	p := keyHint(m.opts.PrefixKey)
