@@ -253,9 +253,9 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	want := "" +
 		"web                      front end [prod]\n" +
 		"db\n" +
-		"mid                      moved (orphaned)\n" +
-		"old                      [prod] (orphaned)\n" +
-		"zz-gone                  retired (orphaned)\n"
+		"mid                      moved (missing)\n" +
+		"old                      [prod] (missing)\n" +
+		"zz-gone                  retired (missing)\n"
 	if out.String() != want {
 		t.Errorf("list output:\n%s\nwant:\n%s", out.String(), want)
 	}
@@ -291,9 +291,9 @@ func TestListHintsAtAMissingInclude(t *testing.T) {
 	}
 }
 
-func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
+func TestEditWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 	a, _ := cliTree(t, "Host web\n", config.New(), "\n\n")
-	if err := a.metadata([]string{"web"}, false); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := config.Load(a.cfgPath, nil)
@@ -301,7 +301,7 @@ func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m, ok := loaded.Connections["web"]; ok {
-		t.Errorf("empty add saved metadata %#v, want none", m)
+		t.Errorf("empty edit saved metadata %#v, want none", m)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "staging"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, _ := cliTree(t, "Host web\n", cfg, "\nstaging\n")
-	if err := a.metadata([]string{"web"}, true); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := config.Load(a.cfgPath, nil)
@@ -319,29 +319,6 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	}
 	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); got != want {
 		t.Errorf("edited metadata = %#v, want %#v", got, want)
-	}
-}
-
-func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	c := config.New()
-	c.Groups = []config.Group{{Name: "engineering"}}
-	if err := config.Save(path, c); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	ssh := &openssh.Client{SSHConfig: filepath.Join(t.TempDir(), "sshconfig")}
-	a := &app{in: strings.NewReader("development machine\nengineering\n"), out: &out, cfgPath: path, cfg: c, ssh: ssh}
-	if err := a.metadata([]string{"buildbox"}, false); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := config.Load(path, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := loaded.Connections["buildbox"]
-	if got.Description != "development machine" || got.Group != "engineering" {
-		t.Fatalf("unexpected saved metadata: %#v", got)
 	}
 }
 
@@ -391,7 +368,7 @@ func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, out := cliTree(t, "Host web\n", cfg, "\n\n")
 	stale(a)
-	if err := a.metadata([]string{"web"}, true); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Description [front end]: Group [prod]: ") {
@@ -399,27 +376,5 @@ func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
 	}
 	if got := load(t, a).Connections["web"]; got.Description != "front end" || got.Group != "prod" {
 		t.Errorf("web = %#v, want its metadata unchanged", got)
-	}
-}
-
-func TestRemoveDeletesOnlyMetadata(t *testing.T) {
-	cfg := config.New()
-	cfg.Connections["api"] = config.Connection{Alias: "api", Group: "prod"}
-	a, _ := cliTree(t, openssh.IncludeLine+"\n", cfg, "")
-	if err := a.ssh.SaveHost("", openssh.Host{Alias: "api", Endpoint: openssh.Endpoint{HostName: "10.0.0.9"}}); err != nil {
-		t.Fatal(err)
-	}
-	stale(a)
-	if err := a.remove([]string{"api"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := load(t, a).Connections["api"]; ok {
-		t.Error("api's metadata should be removed")
-	}
-	if hosts, err := a.ssh.ManagedHosts(); err != nil || len(hosts) != 1 || hosts[0].Alias != "api" {
-		t.Errorf("Host blocks = %+v, %v; want api's kept", hosts, err)
-	}
-	if err := a.remove([]string{"api"}); err == nil || err.Error() != `no sshctl metadata for "api"` {
-		t.Errorf("removing again: err = %v", err)
 	}
 }

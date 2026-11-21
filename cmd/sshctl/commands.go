@@ -117,14 +117,14 @@ var commands = []command{
 	{name: "connect", forms: []form{
 		{args: "<alias> [--claude]", help: "Connect using OpenSSH", run: (*app).connect},
 	}},
-	{name: "add", forms: []form{
-		{args: "<alias>", help: "Add or update connection metadata", run: func(a *app, args []string) error { return a.metadata(args, false) }},
+	{name: "add", note: connNote, forms: []form{
+		{args: "<alias> [--<field> <value>]...", help: "Add a Connection: its Host block, written to\n~/.ssh/sshctl_config, and its metadata", run: (*app).add},
 	}},
-	{name: "edit", forms: []form{
-		{args: "<alias>", help: "Edit connection metadata", run: func(a *app, args []string) error { return a.metadata(args, true) }},
+	{name: "edit", note: connNote, forms: []form{
+		{args: "<alias> [--<field> <value>]...", help: "Edit a Connection's fields; for one defined\noutside sshctl, only its metadata", run: (*app).edit},
 	}},
 	{name: "remove", forms: []form{
-		{args: "<alias>", help: "Remove sshctl metadata", run: (*app).remove},
+		{args: "<alias> [--yes]", help: "Remove a Connection: its Host block if sshctl\nwrote it, and its metadata", run: (*app).remove},
 	}},
 	{name: "space", forms: []form{
 		{sub: "list", help: "List Spaces: number, name, groups, connections", run: (*app).spaceList},
@@ -385,7 +385,7 @@ func (a *app) list(args []string) error {
 			label = append(label, "["+e.Group+"]")
 		}
 		if e.Orphaned {
-			label = append(label, "(orphaned)")
+			label = append(label, "(missing)")
 		}
 		if len(label) == 0 {
 			fmt.Fprintln(a.out, e.Alias)
@@ -422,57 +422,6 @@ func (a *app) connect(args []string) error {
 	return a.recordHistory(alias)
 }
 
-// metadata adds or edits alias's description and group, prompting with the
-// values the config holds now.
-func (a *app) metadata(args []string, edit bool) error {
-	if len(args) != 1 {
-		return errors.New("usage: sshctl add|edit <alias>")
-	}
-	alias := args[0]
-	snap, err := a.catalog().Snapshot()
-	if err != nil {
-		return err
-	}
-	c, _ := snap.Entry(alias)
-	if edit && c.Description == "" && c.Group == "" && c.Space == "" {
-		return fmt.Errorf("no sshctl metadata for %q", alias)
-	}
-	reader := bufio.NewReader(a.in)
-	fmt.Fprintf(a.out, "Description [%s]: ", c.Description)
-	desc, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	if strings.TrimSpace(desc) != "" {
-		c.Description = strings.TrimSpace(desc)
-	}
-	fmt.Fprintf(a.out, "Group [%s]: ", c.Group)
-	group, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	if strings.TrimSpace(group) != "" {
-		c.Group = strings.TrimSpace(group)
-	}
-	// Saving under the same alias without Managed changes only the
-	// description and group, never a Host block.
-	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Space: c.Space, Group: c.Group})
-	if errors.Is(err, catalog.ErrUnknownGroup) {
-		return fmt.Errorf("no group %q; create it first with: sshctl group add %s", c.Group, c.Group)
-	}
-	return err
-}
-func (a *app) remove(args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: sshctl remove <alias>")
-	}
-	// Only the metadata goes: a Host block, even sshctl's, stays.
-	err := a.catalog().DeleteMetadata(args[0])
-	if errors.Is(err, catalog.ErrNoMetadata) {
-		return fmt.Errorf("no sshctl metadata for %q", args[0])
-	}
-	return err
-}
 func confirm(in io.Reader) bool {
 	line, err := bufio.NewReader(in).ReadString('\n')
 	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
