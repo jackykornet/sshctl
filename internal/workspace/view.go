@@ -28,6 +28,9 @@ var (
 	// spaceActiveStyle is the accent colour of the active Space in the
 	// Space bar.
 	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// spaceFreeStyle is a free Space number in the Space bar, fainter than
+	// an idle Space. The picker draws its free rows in dimStyle.
+	spaceFreeStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Faint(true)
 )
 
 // unseenMarker flags tabs and Connections with activity the user hasn't seen.
@@ -39,7 +42,7 @@ func (m *Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "sshctl"
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
-		!m.scrolling && m.modal == nil && !m.filtering && m.drag == nil {
+		m.base().kind == modeList && m.mode.kind != modeModal && m.mode.kind != modeDrag {
 		if x, y, visible := r.term.Cursor(); visible {
 			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
 		}
@@ -56,7 +59,7 @@ func (m *Model) render() string {
 	// where they were.
 	m.keepViews()
 	mainH := m.h - 1
-	if h, ok := m.modal.(*helpScreen); ok {
+	if h, ok := m.mode.modal.(*helpScreen); ok {
 		// Help covers the whole Workspace without resizing the Sessions
 		// under it. Its title stays; the bindings scroll below it.
 		title, body := m.helpLines()
@@ -102,7 +105,7 @@ func (m *Model) render() string {
 func (m *Model) renderList(w, h int) []string {
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
-	if bar := m.spaceBar(); bar != "" {
+	if bar := m.spaceBar(w); bar != "" {
 		lines = append(lines, fit(bar, w))
 	}
 	for _, l := range m.spaceNoteLines(w) {
@@ -110,8 +113,8 @@ func (m *Model) renderList(w, h int) []string {
 	}
 	if len(lines) < top {
 		f := "/" + m.st.Filter()
-		if m.filtering {
-			f = "/" + m.filter.withCursor()
+		if m.filtering() {
+			f = "/" + m.base().filter.withCursor()
 		}
 		lines = append(lines, fit(f, w))
 	}
@@ -140,11 +143,11 @@ func (m *Model) renderList(w, h int) []string {
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
-		switch {
-		case m.drag != nil && m.drag.moving && m.drag.group == "" && !r.Header() && r.Conn.Alias == m.drag.alias,
-			m.drag != nil && m.drag.moving && m.drag.group != "" && r.Header() && r.Group == m.drag.group:
+		switch d := m.mode.drag; {
+		case d != nil && d.moving && d.group == "" && !r.Header() && r.Conn.Alias == d.alias,
+			d != nil && d.moving && d.group != "" && r.Header() && r.Group == d.group:
 			line = dimStyle.Render(ansi.Strip(line))
-		case m.drag != nil && m.drag.moving && m.drag.ok && r.Group == m.drag.target:
+		case d != nil && d.moving && d.ok && r.Group == d.target:
 			line = dropStyle.Render(ansi.Strip(line))
 		case highlight:
 			line = activeRow.Render(ansi.Strip(line))
@@ -164,34 +167,46 @@ func (m *Model) renderList(w, h int) []string {
 	return lines
 }
 
-// spaceBar shows every Space by its number, [1] [2] [3]: the active Space
+// spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
 // in the accent colour, one with a live Session in normal text, an idle one
-// dimmed. It is empty while there is only one Space.
-func (m *Model) spaceBar() string {
-	tabs := m.st.SpaceTabs()
-	if len(tabs) < 2 {
+// dimmed, and a free number fainter still. When that is wider than w, the
+// numbers close up, [1][2][3]. It is empty while there is only one Space.
+func (m *Model) spaceBar(w int) string {
+	if !m.st.SeveralSpaces() {
 		return ""
 	}
-	parts := make([]string, len(tabs))
-	for i, t := range tabs {
-		label := fmt.Sprintf("[%d]", i+1)
+	var parts []string
+	for _, t := range m.st.SpaceSlots() {
+		if t.Number == 0 {
+			continue // beyond the ninth: only the picker lists it
+		}
+		label := fmt.Sprintf("[%d]", t.Number)
 		switch {
+		case t.Free():
+			label = spaceFreeStyle.Render(label)
 		case t.Active:
 			label = spaceActiveStyle.Render(label)
 		case !t.Live:
 			label = dimStyle.Render(label)
 		}
-		parts[i] = label
+		parts = append(parts, label)
 	}
-	return " " + strings.Join(parts, " ")
+	if bar := " " + strings.Join(parts, " "); ansi.StringWidth(bar) <= w {
+		return bar
+	}
+	return " " + strings.Join(parts, "")
 }
 
-// spaceNames is every Space as "number name", in order.
+// spaceNames is every Space as "number name" in number order, a Space
+// without a number by its name alone.
 func (m *Model) spaceNames() []string {
 	tabs := m.st.SpaceTabs()
 	names := make([]string, len(tabs))
 	for i, t := range tabs {
-		names[i] = fmt.Sprintf("%d %s", i+1, t.Name)
+		names[i] = t.Name
+		if t.Number > 0 {
+			names[i] = fmt.Sprintf("%d %s", t.Number, t.Name)
+		}
 	}
 	return names
 }
@@ -405,7 +420,7 @@ func (m *Model) renderPane(w, h int) []string {
 	case r != nil:
 		body = r.term.Lines(r.scroll)
 	}
-	sel := m.sel
+	sel := m.mode.sel
 	if sel != nil && !sel.shownIn(s, r) {
 		sel = nil
 	}
@@ -466,33 +481,34 @@ func (m *Model) helpLines() (title string, body []string) {
 func (m *Model) renderStatus(w int) string {
 	var left string
 	modalStatus, ok := "", false
-	if m.modal != nil {
-		modalStatus, ok = m.modal.status()
+	if m.mode.modal != nil {
+		modalStatus, ok = m.mode.modal.status()
 	}
+	d := m.mode.drag
 	switch {
 	case ok:
 		left = modalStatus
 	case m.spaceNote && m.listWidth() == 0:
 		left = strings.Join(m.spaceNames(), " · ")
-	case m.drag != nil && m.drag.moving && m.drag.group != "":
-		left = "drop group " + m.drag.group + " on another group header · release off the list to cancel"
-		if m.drag.ok {
-			left = fmt.Sprintf("move group %s to position %d · release to drop", m.drag.group, m.st.GroupPosition(m.drag.target))
+	case d != nil && d.moving && d.group != "":
+		left = "drop group " + d.group + " on another group header · release off the list to cancel"
+		if d.ok {
+			left = fmt.Sprintf("move group %s to position %d · release to drop", d.group, m.st.GroupPosition(d.target))
 		}
-	case m.drag != nil && m.drag.moving:
-		left = "drop " + m.drag.alias + " on a group · release off the list to cancel"
-		if m.drag.ok {
-			to := m.drag.target
+	case d != nil && d.moving:
+		left = "drop " + d.alias + " on a group · release off the list to cancel"
+		if d.ok {
+			to := d.target
 			if to == "" {
 				to = "ungrouped"
 			}
-			left = fmt.Sprintf("move %s → %s · release to drop", m.drag.alias, to)
+			left = fmt.Sprintf("move %s → %s · release to drop", d.alias, to)
 		}
 	case m.status != "" && m.statusErr:
 		left = errStyle.Render(m.status)
 	case m.status != "":
 		left = m.status
-	case m.scrolling:
+	case m.scrolling():
 		left = "scroll mode · ↑/↓ PgUp/PgDn g/G · q exit"
 		if _, r := m.currentRunner(); r != nil {
 			left = fmt.Sprintf("scroll: %d/%d lines back · ↑/↓ PgUp/PgDn g/G · q exit", r.scroll, r.term.ScrollbackLen())
@@ -500,7 +516,7 @@ func (m *Model) renderStatus(w int) string {
 	default:
 		left = m.sessionStatus()
 	}
-	if m.prefix || m.modal != nil && m.modal.prefixArmed() {
+	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
 	p := keyHint(m.opts.PrefixKey)
@@ -523,7 +539,7 @@ func (m *Model) sessionStatus() string {
 		key = filepath.Base(k)
 	}
 	space := ""
-	if m.spaceBar() != "" {
+	if m.st.SeveralSpaces() {
 		space = m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()

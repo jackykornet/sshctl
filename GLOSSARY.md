@@ -37,11 +37,11 @@ A Group's current position in its Space's connection list, counting from 1, show
 _Avoid_: Group ID, index
 
 **Space**:
-A named, ordered set of Groups and Connections kept apart from the rest, such as one per customer or project. Every Connection and every Group belongs to exactly one Space; a Group name is unique only within its Space. A Space is sshctl metadata only: aliases stay one namespace across all Spaces and every Host block stays where it was (ADR-0005). The **default Space** holds every Connection not put elsewhere; it can be renamed but not deleted, and a Space that still holds anything cannot be deleted. The Workspace shows one Space at a time, the **active Space**, while other Spaces' Sessions keep running; only its filter searches every Space, and acting on a match from another Space makes that Space active. A Space can set its own dotfiles repo (between its Groups' and the global one) and its own Selected identity.
+A named set of Groups and Connections kept apart from the rest, such as one per customer or project. Every Connection and every Group belongs to exactly one Space; a Group name is unique only within its Space. A Space is sshctl metadata only: aliases stay one namespace across all Spaces and every Host block stays where it was (ADR-0005). The **default Space** holds every Connection not put elsewhere; it can be renamed but not deleted, and a Space that still holds anything cannot be deleted. The Workspace shows one Space at a time, the **active Space**, while other Spaces' Sessions keep running; only its filter searches every Space, and acting on a match from another Space makes that Space active. A Space can set its own dotfiles repo (between its Groups' and the global one) and its own Selected identity.
 _Avoid_: Workspace, project, tenant, customer
 
 **Space number**:
-A Space's current position in the user's order of Spaces, counting from 1; the Workspace switches to Spaces 1-9 by their number. A Space name may not be only digits, nor contain `/`.
+A number from 1 to 9 that a Space keeps until the user changes it (ADR-0010); the Workspace switches to Spaces by their number. A new Space takes the lowest free number unless the user picks one, so there are at most nine Spaces. Deleting a Space leaves its number free, and moving a Space to a taken number swaps the two. Only a Space beyond the ninth in an older config has none. A Space name may not be only digits, nor contain `/`.
 _Avoid_: Space ID, index
 
 **History**:

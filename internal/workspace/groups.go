@@ -37,7 +37,7 @@ func (in *groupInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.modal = nil
+		m.showModal(nil)
 	case "enter":
 		return m.saveGroup(in)
 	default:
@@ -72,7 +72,7 @@ func (m *Model) startRenameGroup(group string) tea.Cmd {
 func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 	name := strings.TrimSpace(in.name.String())
 	if in.old != "" && name == in.old {
-		m.modal = nil
+		m.showModal(nil)
 		return nil
 	}
 	var err error
@@ -87,7 +87,7 @@ func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 		in.err = err.Error()
 		return nil
 	}
-	m.modal = nil
+	m.showModal(nil)
 	if in.old != "" && m.st.Collapsed(in.old) {
 		// The catalog keeps a renamed Group's collapsed state.
 		m.st.SetCollapsed(in.old, false)

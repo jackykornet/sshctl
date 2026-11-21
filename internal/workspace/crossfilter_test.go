@@ -60,8 +60,8 @@ func TestEveryActionOnAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
 			}
 		}},
 		{"prefix m moves it among its own Groups", []tea.KeyPressMsg{keyPrefix, text("m")[0]}, func(t *testing.T, m *Model) {
-			if in, ok := m.modal.(*moveInput); !ok || in.alias != "db" {
-				t.Errorf("modal = %#v, want the move prompt for db", m.modal)
+			if in, ok := m.mode.modal.(*moveInput); !ok || in.alias != "db" {
+				t.Errorf("modal = %#v, want the move prompt for db", m.mode.modal)
 			}
 		}},
 		{"a adds in its Space and Group", text("a"), func(t *testing.T, m *Model) {
@@ -97,7 +97,7 @@ func TestClickingAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
 	if got := m.st.Space(); got != "acme" {
 		t.Fatalf("clicking db left Space %q active, want acme", got)
 	}
-	if m.drag != nil {
+	if m.mode.drag != nil {
 		t.Error("a click on a match from another Space started a drag")
 	}
 }

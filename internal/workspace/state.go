@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -188,13 +187,14 @@ func spaceRef(sp Space) string {
 	return sp.Name
 }
 
-// SpaceRef returns how Connections refer to Space number n, counting from
-// 1 ("" for the default Space), and whether there is one.
+// SpaceRef returns how Connections refer to the Space with Space number n
+// ("" for the default Space), and whether one has it.
 func (s *State) SpaceRef(n int) (string, bool) {
-	if n < 1 || n > len(s.spaces) {
+	sp, ok := catalog.Snapshot{Spaces: s.spaces}.SpaceNumbered(n)
+	if !ok {
 		return "", false
 	}
-	return spaceRef(s.spaces[n-1]), true
+	return spaceRef(sp), true
 }
 
 // ActiveSpaceName returns the active Space's name.
@@ -210,16 +210,24 @@ func (s *State) SpaceName(ref string) string {
 	return ""
 }
 
-// SpaceTab is a Space as the Space bar shows it.
+// SpaceTab is a Space as the Space bar and picker show it, or a free Space
+// number (SpaceSlots), which has no Name.
 type SpaceTab struct {
-	Name   string
+	Name string
+	// Ref is how Connections refer to the Space, "" for the default Space.
+	Ref string
+	// Number is the Space number, 0 for a Space beyond the ninth.
+	Number int
 	Active bool
 	// Live is set when one of the Space's Connections has a live Session.
 	Live bool
 }
 
-// SpaceTabs returns every Space in the user's order, so Space number n is
-// SpaceTabs()[n-1].
+// Free reports whether t is a free Space number rather than a Space.
+func (t SpaceTab) Free() bool { return t.Name == "" }
+
+// SpaceTabs returns every Space in Space number order, any without a
+// number last.
 func (s *State) SpaceTabs() []SpaceTab {
 	live := map[string]bool{}
 	for _, c := range s.conns {
@@ -230,9 +238,27 @@ func (s *State) SpaceTabs() []SpaceTab {
 	tabs := make([]SpaceTab, len(s.spaces))
 	for i, sp := range s.spaces {
 		ref := spaceRef(sp)
-		tabs[i] = SpaceTab{Name: sp.Name, Active: ref == s.space, Live: live[ref]}
+		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref]}
 	}
 	return tabs
+}
+
+// SpaceSlots returns one SpaceTab per Space number, 1 to catalog.MaxSpaces,
+// a free number as a SpaceTab with only its Number, then every Space
+// without a number.
+func (s *State) SpaceSlots() []SpaceTab {
+	slots := make([]SpaceTab, catalog.MaxSpaces)
+	for i := range slots {
+		slots[i].Number = i + 1
+	}
+	for _, t := range s.SpaceTabs() {
+		if t.Number >= 1 && t.Number <= catalog.MaxSpaces {
+			slots[t.Number-1] = t
+		} else {
+			slots = append(slots, t)
+		}
+	}
+	return slots
 }
 
 // RenameSpace renames the Space old to name, as the catalog has. Its
@@ -375,70 +401,40 @@ func (s *State) GroupPosition(group string) int {
 // ResolveGroup turns what the user typed for a Group of the active Space
 // into its name; see ResolveGroupIn.
 func (s *State) ResolveGroup(input string) (group string, ok bool) {
-	return resolveGroup(s.groups, input)
+	return s.ResolveGroupIn(s.space, input)
 }
 
 // ResolveGroupIn turns what the user typed for a Group of the Space ref
-// ("" for the default Space) into its name. All digits is a Group number
-// within that Space: 0 means ungrouped, and n the stored Group at position
-// n (ok is false when there is none). Anything else is a name, as typed;
-// Group names are never all digits.
+// ("" for the default Space) into its name, by catalog.Snapshot.ResolveGroup:
+// a Group number within that Space (0 for ungrouped; ok is false when no
+// Group has it) or a name. A name no Group has is returned as typed, so
+// the caller can offer to create it.
 func (s *State) ResolveGroupIn(ref, input string) (group string, ok bool) {
-	return resolveGroup(s.SpaceGroups(ref), input)
-}
-
-func resolveGroup(groups []string, input string) (string, bool) {
-	if !isDigits(input) {
+	group, err := s.catalogData().ResolveGroup(ref, input)
+	if errors.Is(err, catalog.ErrUnknownGroup) {
 		return input, true
 	}
-	n, err := strconv.Atoi(input)
-	if err == nil && n == 0 {
-		return "", true
-	}
-	if err != nil || n > len(groups) {
-		return "", false
-	}
-	return groups[n-1], true
+	return group, err == nil
+}
+
+// catalogData is the Spaces and Groups the State was given, as the
+// catalog's lookups read them.
+func (s *State) catalogData() catalog.Snapshot {
+	return catalog.Snapshot{Spaces: s.spaces, Groups: s.allGroups}
 }
 
 // SpaceGroups returns the stored Groups of the Space ref ("" for the
 // default Space) in the user's order.
 func (s *State) SpaceGroups(ref string) []string {
-	var out []string
-	for _, g := range s.allGroups {
-		if g.Space == ref {
-			out = append(out, g.Name)
-		}
-	}
-	return out
+	return s.catalogData().GroupNames(ref)
 }
 
-// ResolveSpace turns what the user typed for a Space into how Connections
-// refer to it ("" for the default Space): all digits is a Space number,
-// anything else a Space's name. ok is false when there is no such Space.
+// ResolveSpace turns what the user typed for a Space, its Space number or
+// name, into how Connections refer to it ("" for the default Space), by
+// catalog.Snapshot.ResolveSpace. ok is false when there is no such Space.
 func (s *State) ResolveSpace(input string) (ref string, ok bool) {
-	if isDigits(input) {
-		n, err := strconv.Atoi(input)
-		if err != nil {
-			return "", false
-		}
-		return s.SpaceRef(n)
-	}
-	for _, sp := range s.spaces {
-		if sp.Name == input {
-			return spaceRef(sp), true
-		}
-	}
-	return "", false
-}
-
-func isDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != ""
+	ref, err := s.catalogData().ResolveSpace(input)
+	return ref, err == nil
 }
 
 // HasGroup reports whether group is a Group the list shows.
@@ -500,7 +496,12 @@ func (s *State) Rows() []Row {
 // matching Connections of every Space and the active Space's open ones,
 // with no group headers, Space by Space in the user's order, then by
 // Group, then by alias.
-func (s *State) CrossSpace() bool { return s.filter != "" && len(s.spaces) > 1 }
+func (s *State) CrossSpace() bool { return s.filter != "" && s.SeveralSpaces() }
+
+// SeveralSpaces reports whether there is more than the default Space, so
+// the Workspace shows the Space bar, names the active Space on the status
+// line and gives the form a Space field.
+func (s *State) SeveralSpaces() bool { return len(s.spaces) > 1 }
 
 func (s *State) crossSpaceRows() []Row {
 	spaceRank := map[string]int{}

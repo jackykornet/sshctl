@@ -12,18 +12,11 @@ import (
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
-const provisionUsage = "provision <alias> | provision default [<url|none> | --unset] [--group <name>]"
-
+// provisionCommand runs `sshctl provision <alias>`.
 func (a *app) provisionCommand(args []string) error {
-	if err := a.checkFeature(config.FeatureProvision); err != nil {
-		return err
-	}
-	if len(args) > 0 && args[0] == "default" {
-		return a.provisionDefault(args[1:])
-	}
 	alias, ok := aliasArg(args)
 	if !ok {
-		return errors.New("usage: sshctl " + provisionUsage)
+		return errUsage
 	}
 	return a.provision(alias)
 }

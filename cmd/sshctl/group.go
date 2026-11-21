@@ -3,84 +3,95 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/platform"
 )
 
-const groupUsage = "group [--space <name>] list | add <name> | rename <group> <new> | delete <group> [--yes] | move <group> <position> | connect <group>"
+// The group commands take --space to pick the Space; without it, a Group is
+// looked up in every Space (see findGroup). A Group is given by name or
+// Group number, 0 for ungrouped; a name keeps scripts working when Groups
+// are reordered.
 
-// groupHelp is groupUsage with a note that group connect opens OS terminal
-// windows (internal/platform), unlike prefix g in the Workspace, which opens
-// tabs. Both `sshctl group --help` and a wrong group call print it.
-const groupHelp = groupUsage + "\n\ngroup connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments)."
+func (a *app) groupAdd(space spaceOption, args []string) error {
+	if len(args) != 1 {
+		return errUsage
+	}
+	return a.catalog().AddGroup(space.name, args[0])
+}
 
-// groupCommand runs `sshctl group ...`. --space picks the Space; without
-// it, a Group is looked up in every Space (see findGroup). A Group is given
-// by name or Group number; a name keeps scripts working when Groups are
-// reordered.
-func (a *app) groupCommand(args []string) error {
-	space, args, err := cutSpaceOption(args)
+func (a *app) groupRename(space spaceOption, args []string) error {
+	if len(args) != 2 {
+		return errUsage
+	}
+	return a.withGroup(space, args[0], func(ref, name string) error {
+		return a.catalog().RenameGroup(ref, name, args[1])
+	})
+}
+
+func (a *app) groupMove(space spaceOption, args []string) error {
+	if len(args) != 2 {
+		return errUsage
+	}
+	position, err := strconv.Atoi(args[1])
+	if err != nil {
+		return fmt.Errorf("position %q is not a number", args[1])
+	}
+	return a.withGroup(space, args[0], func(ref, name string) error {
+		return a.catalog().MoveGroup(ref, name, position)
+	})
+}
+
+// groupConnect opens a terminal window for each Connection of the Group
+// arg, or with 0 each ungrouped Connection of the Space.
+func (a *app) groupConnect(space spaceOption, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: sshctl group [--space <space>] connect <group>")
+	}
+	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	if len(args) == 0 {
-		return errors.New("usage: sshctl " + groupHelp)
+	ref, group, err := findGroup(snap, space, args[0])
+	if err != nil {
+		return err
 	}
-	cat := a.catalog()
-	switch args[0] {
-	case "list":
-		if len(args) == 1 {
-			return a.groupList(space)
+	var names []string
+	for _, e := range snap.Entries {
+		if e.Space == ref && e.Group == group {
+			names = append(names, e.Alias)
 		}
-	case "add":
-		if len(args) == 2 {
-			return cat.AddGroup(space.name, args[1])
-		}
-	case "rename":
-		if len(args) == 3 {
-			return a.withGroup(space, args[1], func(ref, name string) error {
-				return cat.RenameGroup(ref, name, args[2])
-			})
-		}
-	case "delete":
-		var names []string
-		yes := false
-		for _, arg := range args[1:] {
-			if arg == "--yes" {
-				yes = true
-			} else {
-				names = append(names, arg)
-			}
-		}
-		if len(names) == 1 {
-			return a.groupDelete(space, names[0], yes)
-		}
-	case "move":
-		if len(args) == 3 {
-			position, err := strconv.Atoi(args[2])
-			if err != nil {
-				return fmt.Errorf("position %q is not a number", args[2])
-			}
-			return a.withGroup(space, args[1], func(ref, name string) error {
-				return cat.MoveGroup(ref, name, position)
-			})
-		}
-	case "connect":
-		return a.groupConnect(space, args[1:])
 	}
-	return errors.New("usage: sshctl " + groupHelp)
+	sort.Strings(names)
+	if len(names) == 0 {
+		if group == "" {
+			return fmt.Errorf("space %s has no ungrouped Connections", snap.SpaceName(ref))
+		}
+		return fmt.Errorf("group %q has no Connections", group)
+	}
+	open := a.openTerminal
+	if open == nil {
+		open = platform.OpenSSH
+	}
+	for _, n := range names {
+		if err := open(n, snap.SpaceIdentity(ref)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // withGroup finds the Group arg (see findGroup) and runs do with its Space,
-// as Groups refer to it, and its name.
+// as Groups refer to it, and its name. It refuses 0: ungrouped is not a
+// Group to change.
 func (a *app) withGroup(space spaceOption, arg string, do func(ref, name string) error) error {
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	ref, name, err := findGroup(snap, space, arg)
+	ref, name, err := findStoredGroup(snap, space, arg)
 	if err != nil {
 		return err
 	}
@@ -88,56 +99,43 @@ func (a *app) withGroup(space spaceOption, arg string, do func(ref, name string)
 }
 
 // findGroup returns the Space, as Groups refer to it, and the name of the
-// Group arg, a Group name or, since a name is never only digits, a Group
-// number. With --space it is that Space's Group. Without, a name is looked
-// up in every Space and refused, naming them, when several have it; a
-// number counts within a Space, so it is refused while there are several.
+// Group arg ("" for 0, ungrouped): with --space the Space's Group
+// (catalog.Snapshot.ResolveGroup), and without, the one Space's that has it
+// (catalog.Snapshot.FindGroup).
 func findGroup(snap catalog.Snapshot, space spaceOption, arg string) (ref, name string, err error) {
-	spaces, err := space.spaces(snap)
-	if err != nil {
-		return "", "", err
+	if space.set {
+		name, err := snap.ResolveGroup(space.ref, arg)
+		return space.ref, name, err
 	}
-	if n, atoiErr := strconv.Atoi(arg); atoiErr == nil && strings.Trim(arg, "0123456789") == "" {
-		if len(spaces) > 1 {
-			return "", "", fmt.Errorf("group number %d counts within a space and there are several; pick one with --space", n)
-		}
-		names := snap.GroupNames(spaces[0].ref)
-		if n < 1 || n > len(names) {
-			return "", "", fmt.Errorf("no group number %d (there are %d groups)", n, len(names))
-		}
-		return spaces[0].ref, names[n-1], nil
+	ref, name, err = snap.FindGroup(arg)
+	if errors.Is(err, catalog.ErrGroupInSeveralSpaces) {
+		return "", "", fmt.Errorf("%w; pick one with --space", err)
 	}
-	var found []spaceIn
-	var in []string
-	for _, s := range spaces {
-		if snap.HasGroup(s.ref, arg) {
-			found = append(found, s)
-			in = append(in, s.name)
-		}
+	return ref, name, err
+}
+
+// findStoredGroup is findGroup for a command that changes a Group, so it
+// refuses 0.
+func findStoredGroup(snap catalog.Snapshot, space spaceOption, arg string) (ref, name string, err error) {
+	ref, name, err = findGroup(snap, space, arg)
+	if err == nil && name == "" {
+		return "", "", errors.New("0 stands for ungrouped, which is not a Group; give a Group name or number from 1")
 	}
-	switch {
-	case len(found) == 1:
-		return found[0].ref, arg, nil
-	case len(found) > 1:
-		return "", "", fmt.Errorf("group %q is in spaces %s; pick one with --space", arg, strings.Join(in, ", "))
-	case space.set:
-		return "", "", fmt.Errorf("no group %q in space %s", arg, space.name)
-	}
-	return "", "", fmt.Errorf("no group %q", arg)
+	return ref, name, err
 }
 
 // groupList prints each Group's number, name, member count and dotfiles
 // setting, Space by Space. With --space it lists that Space's Groups; with
 // several Spaces and no --space, each line starts with the Space's name.
-func (a *app) groupList(space spaceOption) error {
+func (a *app) groupList(space spaceOption, args []string) error {
+	if len(args) != 0 {
+		return errUsage
+	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	spaces, err := space.spaces(snap)
-	if err != nil {
-		return err
-	}
+	spaces := space.spaces(snap)
 	dotfiles := map[groupKey]string{}
 	for _, g := range snap.Groups {
 		dotfiles[groupKey{g.Space, g.Name}] = g.Dotfiles
@@ -156,15 +154,28 @@ func (a *app) groupList(space spaceOption) error {
 	return nil
 }
 
-// groupDelete deletes the Group arg (see findGroup) after asking, unless yes is set. Its
-// Connections become ungrouped; none is deleted.
-func (a *app) groupDelete(space spaceOption, arg string, yes bool) error {
+// groupDelete deletes the Group args name (see findGroup) after asking,
+// unless --yes is given. Its Connections become ungrouped; none is deleted.
+func (a *app) groupDelete(space spaceOption, args []string) error {
+	var names []string
+	yes := false
+	for _, arg := range args {
+		if arg == "--yes" {
+			yes = true
+		} else {
+			names = append(names, arg)
+		}
+	}
+	if len(names) != 1 {
+		return errUsage
+	}
+	arg := names[0]
 	cat := a.catalog()
 	snap, err := cat.Snapshot()
 	if err != nil {
 		return err
 	}
-	ref, name, err := findGroup(snap, space, arg)
+	ref, name, err := findStoredGroup(snap, space, arg)
 	if err != nil {
 		return err
 	}
