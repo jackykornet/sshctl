@@ -377,6 +377,9 @@ func (c *Config) migrateGroups() bool {
 	if c.addMissingSpaces() {
 		changed = true
 	}
+	if c.numberSpaces() {
+		changed = true
+	}
 	c.renameDigitGroups()
 	if c.addMissingGroups() {
 		changed = true
@@ -400,7 +403,7 @@ func (c *Config) RecordOpen(alias string) {
 }
 
 func New() *Config {
-	return &Config{Version: Version, Spaces: []Space{{Name: DefaultSpaceName, Default: true}}, Connections: map[string]Connection{}}
+	return &Config{Version: Version, Spaces: []Space{{Name: DefaultSpaceName, Number: 1, Default: true}}, Connections: map[string]Connection{}}
 }
 
 // Paths returns the config path and the legacy files Load migrates from.

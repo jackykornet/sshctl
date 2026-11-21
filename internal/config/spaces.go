@@ -8,10 +8,13 @@ import (
 	"strings"
 )
 
-// Space is a stored Space record (ADR-0005). Its position in Config.Spaces
-// is its Space number, counting from 1.
+// Space is a stored Space record (ADR-0005).
 type Space struct {
 	Name string `json:"name"`
+	// Number is the Space number, 1 to MaxSpaces, which the Space keeps
+	// until the user changes it (ADR-0007), or 0 for a Space that has none
+	// because every number was taken when Load numbered it.
+	Number int `json:"number,omitempty"`
 	// Default marks the default Space, which holds every Connection and
 	// Group not put in another. Groups and Connections refer to it as "",
 	// so renaming it touches nothing but this record.
@@ -21,6 +24,9 @@ type Space struct {
 	// for them, or "" when unset, so the global Provision.Dotfiles applies.
 	Dotfiles string `json:"dotfiles,omitempty"`
 }
+
+// MaxSpaces is how many Space numbers there are, and so how many Spaces.
+const MaxSpaces = 9
 
 // DefaultSpaceName is the default Space's name until the user renames it.
 const DefaultSpaceName = "default"
@@ -100,6 +106,71 @@ func (c *Config) addMissingSpaces() bool {
 		c.Spaces = append(c.Spaces, Space{Name: name})
 	}
 	return changed || len(missing) > 0
+}
+
+// numberSpaces gives every Space without a number of its own the lowest
+// free one, in their order; a Space whose number an earlier Space has, or
+// one out of range, counts as having none. Once all MaxSpaces numbers are
+// taken, the rest keep 0. It then sorts Spaces by number, unnumbered last,
+// and reports whether it changed c.
+func (c *Config) numberSpaces() bool {
+	before := slices.Clone(c.Spaces)
+	var taken [MaxSpaces + 1]bool
+	var unnumbered []int
+	for i, s := range c.Spaces {
+		if s.Number >= 1 && s.Number <= MaxSpaces && !taken[s.Number] {
+			taken[s.Number] = true
+		} else {
+			unnumbered = append(unnumbered, i)
+		}
+	}
+	n := 1
+	for _, i := range unnumbered {
+		for n <= MaxSpaces && taken[n] {
+			n++
+		}
+		if n > MaxSpaces {
+			c.Spaces[i].Number = 0
+			continue
+		}
+		c.Spaces[i].Number = n
+		taken[n] = true
+	}
+	c.SortSpaces()
+	return !slices.Equal(before, c.Spaces)
+}
+
+// SpaceNumbered returns the position in Spaces of the Space with number
+// n, or -1 when n is free.
+func (c *Config) SpaceNumbered(n int) int {
+	return slices.IndexFunc(c.Spaces, func(s Space) bool { return s.Number == n })
+}
+
+// FreeSpaceNumber returns the lowest Space number no Space has, or 0 when
+// all MaxSpaces are taken.
+func (c *Config) FreeSpaceNumber() int {
+	for n := 1; n <= MaxSpaces; n++ {
+		if c.SpaceNumbered(n) < 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// SortSpaces puts Spaces in Space number order, any without a number last
+// in the order they had.
+func (c *Config) SortSpaces() {
+	slices.SortStableFunc(c.Spaces, func(a, b Space) int {
+		return spaceOrder(a) - spaceOrder(b)
+	})
+}
+
+// spaceOrder sorts a Space without a number after every numbered one.
+func spaceOrder(s Space) int {
+	if s.Number == 0 {
+		return MaxSpaces + 1
+	}
+	return s.Number
 }
 
 // RenameSpace renames the Space space ("" for the default Space) to name,

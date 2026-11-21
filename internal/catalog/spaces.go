@@ -14,8 +14,13 @@ var (
 	ErrUnknownSpace = errors.New("no such space")
 	// ErrSpaceExists is returned when a Space would take a name another Space has.
 	ErrSpaceExists = errors.New("a space with that name already exists")
-	// ErrSpacePosition is returned by MoveSpace for a position with no Space.
-	ErrSpacePosition = errors.New("no such space position")
+	// ErrSpaceNumber is returned for a Space number outside 1..MaxSpaces.
+	ErrSpaceNumber = fmt.Errorf("space numbers run from 1 to %d", config.MaxSpaces)
+	// ErrSpaceNumberTaken is returned by AddSpaceAt for a number another
+	// Space has.
+	ErrSpaceNumberTaken = errors.New("another space has that number")
+	// ErrSpacesFull is returned by AddSpace when every Space number is taken.
+	ErrSpacesFull = fmt.Errorf("all %d space numbers are taken", config.MaxSpaces)
 	// ErrSpaceNotEmpty is returned by DeleteSpace while the Space still
 	// holds Groups or Connections.
 	ErrSpaceNotEmpty = errors.New("the space is not empty")
@@ -25,20 +30,54 @@ var (
 
 // Every Space method takes a Space by name; "" also names the default Space.
 
-// AddSpace creates an empty Space named name after the others. It refuses a
-// name config.CheckSpaceName refuses and one another Space has.
+// AddSpace creates an empty Space named name with the lowest free Space
+// number. It refuses a name config.CheckSpaceName refuses, one another
+// Space has, and a new Space once every number is taken (ErrSpacesFull).
 func (c *Catalog) AddSpace(name string) error {
 	return c.update(func(cfg *config.Config) error {
-		if err := freeSpaceName(cfg, name); err != nil {
-			return err
+		n := cfg.FreeSpaceNumber()
+		if n == 0 {
+			return ErrSpacesFull
 		}
-		cfg.Spaces = append(cfg.Spaces, Space{Name: name})
-		return nil
+		return addSpace(cfg, name, n)
 	})
 }
 
+// AddSpaceAt creates an empty Space named name with Space number n, as
+// AddSpace does. It refuses a number outside 1..MaxSpaces (ErrSpaceNumber)
+// and one another Space has (ErrSpaceNumberTaken).
+func (c *Catalog) AddSpaceAt(name string, n int) error {
+	return c.update(func(cfg *config.Config) error {
+		if err := checkSpaceNumber(n); err != nil {
+			return err
+		}
+		if i := cfg.SpaceNumbered(n); i >= 0 {
+			return fmt.Errorf("%d is %q: %w", n, cfg.Spaces[i].Name, ErrSpaceNumberTaken)
+		}
+		return addSpace(cfg, name, n)
+	})
+}
+
+// addSpace adds the Space name with the free number n.
+func addSpace(cfg *config.Config, name string, n int) error {
+	if err := freeSpaceName(cfg, name); err != nil {
+		return err
+	}
+	cfg.Spaces = append(cfg.Spaces, Space{Name: name, Number: n})
+	cfg.SortSpaces()
+	return nil
+}
+
+// checkSpaceNumber refuses a Space number outside 1..MaxSpaces.
+func checkSpaceNumber(n int) error {
+	if n < 1 || n > config.MaxSpaces {
+		return fmt.Errorf("%d: %w", n, ErrSpaceNumber)
+	}
+	return nil
+}
+
 // RenameSpace renames the Space old to name. Its Groups and Connections
-// move with it, and it keeps its position, collapsed Groups and whether it
+// move with it, and it keeps its number, collapsed Groups and whether it
 // is active. The default Space can be renamed and stays the default.
 func (c *Catalog) RenameSpace(old, name string) error {
 	return c.update(func(cfg *config.Config) error {
@@ -85,21 +124,28 @@ func (c *Catalog) DeleteSpace(name string) error {
 	})
 }
 
-// MoveSpace puts the Space name at position, counting from 1 (its new Space
-// number); the Spaces between shift by one. It refuses an unknown Space and
-// a position outside 1..len(Spaces).
-func (c *Catalog) MoveSpace(name string, position int) error {
+// MoveSpace gives the Space name Space number n. A Space that already has
+// n swaps numbers with it; no other Space's number changes. It refuses an
+// unknown Space, a number outside 1..MaxSpaces (ErrSpaceNumber), and a
+// taken number for a Space that has none to swap (ErrSpaceNumberTaken).
+func (c *Catalog) MoveSpace(name string, n int) error {
 	return c.update(func(cfg *config.Config) error {
 		ref, err := spaceRef(cfg, name)
 		if err != nil {
 			return err
 		}
-		if position < 1 || position > len(cfg.Spaces) {
-			return fmt.Errorf("%d: %w (there are %d spaces)", position, ErrSpacePosition, len(cfg.Spaces))
+		if err := checkSpaceNumber(n); err != nil {
+			return err
 		}
 		i := cfg.SpaceIndex(ref)
-		s := cfg.Spaces[i]
-		cfg.Spaces = slices.Insert(slices.Delete(cfg.Spaces, i, i+1), position-1, s)
+		if j := cfg.SpaceNumbered(n); j >= 0 {
+			if cfg.Spaces[i].Number == 0 {
+				return fmt.Errorf("%d is %q: %w", n, cfg.Spaces[j].Name, ErrSpaceNumberTaken)
+			}
+			cfg.Spaces[j].Number = cfg.Spaces[i].Number
+		}
+		cfg.Spaces[i].Number = n
+		cfg.SortSpaces()
 		return nil
 	})
 }
