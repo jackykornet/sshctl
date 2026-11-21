@@ -172,7 +172,7 @@ func (m *Model) renderList(w, h int) []string {
 // dimmed, and a free number fainter still. When that is wider than w, the
 // numbers close up, [1][2][3]. It is empty while there is only one Space.
 func (m *Model) spaceBar(w int) string {
-	if len(m.st.SpaceTabs()) < 2 {
+	if !m.st.SeveralSpaces() {
 		return ""
 	}
 	var parts []string
@@ -538,7 +538,7 @@ func (m *Model) sessionStatus() string {
 		key = filepath.Base(k)
 	}
 	space := ""
-	if len(m.st.SpaceTabs()) > 1 {
+	if m.st.SeveralSpaces() {
 		space = m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()

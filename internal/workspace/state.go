@@ -527,7 +527,12 @@ func (s *State) Rows() []Row {
 // matching Connections of every Space and the active Space's open ones,
 // with no group headers, Space by Space in the user's order, then by
 // Group, then by alias.
-func (s *State) CrossSpace() bool { return s.filter != "" && len(s.spaces) > 1 }
+func (s *State) CrossSpace() bool { return s.filter != "" && s.SeveralSpaces() }
+
+// SeveralSpaces reports whether there is more than the default Space, so
+// the Workspace shows the Space bar, names the active Space on the status
+// line and gives the form a Space field.
+func (s *State) SeveralSpaces() bool { return len(s.spaces) > 1 }
 
 func (s *State) crossSpaceRows() []Row {
 	spaceRank := map[string]int{}

@@ -1089,7 +1089,7 @@ func (m *Model) paneOffset() int {
 // when shown).
 func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
-	if len(m.st.SpaceTabs()) > 1 { // the Space bar
+	if m.st.SeveralSpaces() { // the Space bar
 		top++
 	}
 	top += len(m.spaceNoteLines(m.listWidth()))
