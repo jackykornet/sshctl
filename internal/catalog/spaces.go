@@ -52,7 +52,7 @@ func (c *Catalog) AddSpaceAt(name string, n int) error {
 			return err
 		}
 		if i := cfg.SpaceNumbered(n); i >= 0 {
-			return fmt.Errorf("%d is %q: %w", n, cfg.Spaces[i].Name, ErrSpaceNumberTaken)
+			return numberTaken(cfg, i)
 		}
 		return addSpace(cfg, name, n)
 	})
@@ -66,6 +66,12 @@ func addSpace(cfg *config.Config, name string, n int) error {
 	cfg.Spaces = append(cfg.Spaces, Space{Name: name, Number: n})
 	cfg.SortSpaces()
 	return nil
+}
+
+// numberTaken is ErrSpaceNumberTaken for the number of cfg.Spaces[i].
+func numberTaken(cfg *config.Config, i int) error {
+	s := cfg.Spaces[i]
+	return fmt.Errorf("%d is %q: %w", s.Number, s.Name, ErrSpaceNumberTaken)
 }
 
 // checkSpaceNumber refuses a Space number outside 1..MaxSpaces.
@@ -140,7 +146,7 @@ func (c *Catalog) MoveSpace(name string, n int) error {
 		i := cfg.SpaceIndex(ref)
 		if j := cfg.SpaceNumbered(n); j >= 0 {
 			if cfg.Spaces[i].Number == 0 {
-				return fmt.Errorf("%d is %q: %w", n, cfg.Spaces[j].Name, ErrSpaceNumberTaken)
+				return numberTaken(cfg, j)
 			}
 			cfg.Spaces[j].Number = cfg.Spaces[i].Number
 		}

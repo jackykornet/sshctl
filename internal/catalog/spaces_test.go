@@ -90,7 +90,7 @@ func TestAddSpaceRefusesATenthSpace(t *testing.T) {
 	}
 }
 
-func TestAddSpaceAppendsAnEmptySpace(t *testing.T) {
+func TestAddSpaceAddsAnEmptySpaceAndRefusesABadName(t *testing.T) {
 	tr := newTree(t, true, "")
 	for _, name := range []string{"acme", "globex"} {
 		if err := tr.cat.AddSpace(name); err != nil {
@@ -312,7 +312,7 @@ func TestMoveSpaceNumbersASpaceThatHasNone(t *testing.T) {
 	if err := tr.cat.MoveSpace("s10", 5); err != nil {
 		t.Fatal(err)
 	}
-	if got := spaceNumbers(t, tr); got[4] != "s10:5" {
+	if got := spaceNumbers(t, tr); len(got) < 5 || got[4] != "s10:5" {
 		t.Errorf("spaces = %v, want s10 at 5", got)
 	}
 }

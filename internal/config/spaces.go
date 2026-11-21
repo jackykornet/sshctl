@@ -115,26 +115,15 @@ func (c *Config) addMissingSpaces() bool {
 // and reports whether it changed c.
 func (c *Config) numberSpaces() bool {
 	before := slices.Clone(c.Spaces)
-	var taken [MaxSpaces + 1]bool
 	var unnumbered []int
 	for i, s := range c.Spaces {
-		if s.Number >= 1 && s.Number <= MaxSpaces && !taken[s.Number] {
-			taken[s.Number] = true
-		} else {
+		if s.Number < 1 || s.Number > MaxSpaces || c.SpaceNumbered(s.Number) < i {
+			c.Spaces[i].Number = 0
 			unnumbered = append(unnumbered, i)
 		}
 	}
-	n := 1
 	for _, i := range unnumbered {
-		for n <= MaxSpaces && taken[n] {
-			n++
-		}
-		if n > MaxSpaces {
-			c.Spaces[i].Number = 0
-			continue
-		}
-		c.Spaces[i].Number = n
-		taken[n] = true
+		c.Spaces[i].Number = c.FreeSpaceNumber()
 	}
 	c.SortSpaces()
 	return !slices.Equal(before, c.Spaces)
