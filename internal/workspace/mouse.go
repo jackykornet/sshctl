@@ -34,23 +34,23 @@ type drag struct {
 }
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
-	if m.modal != nil {
+	if m.mode.modal != nil {
 		return nil
 	}
 	mm := msg.Mouse()
-	if m.sel != nil && m.sel.dragging {
+	if sel := m.mode.sel; sel != nil && sel.dragging {
 		switch msg.(type) {
 		case tea.MouseMotionMsg:
-			m.sel.head = m.panePos(mm)
+			sel.head = m.panePos(mm)
 			return nil
 		case tea.MouseReleaseMsg:
 			return m.copySelection(mm)
 		}
 	}
 	if _, ok := msg.(tea.MouseClickMsg); ok {
-		m.sel = nil
+		m.clearSelection()
 	}
-	if m.drag != nil {
+	if m.mode.drag != nil {
 		switch msg.(type) {
 		case tea.MouseMotionMsg:
 			m.dragOver(mm)
@@ -76,7 +76,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			for _, sp := range spans {
 				if paneX >= sp.start && paneX < sp.end {
 					m.st.SelectTabIndex(sp.index)
-					m.scrolling = false
+					m.stopScroll()
 				}
 			}
 			if m.st.Active() != nil {
@@ -99,7 +99,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	switch msg.(type) {
 	case tea.MouseWheelMsg:
-		m.sel = nil
+		m.clearSelection()
 		switch mm.Button {
 		case tea.MouseWheelUp:
 			m.scrollBy(r, wheelLines)
@@ -115,7 +115,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			if m.doubleClick(s, p) {
 				return m.selectWord(s, r, p)
 			}
-			m.sel = &selection{sess: s, scroll: r.scroll, anchor: p, head: p, dragging: true}
+			m.setMode(mode{kind: modeSelect, sel: &selection{sess: s, scroll: r.scroll, anchor: p, head: p, dragging: true}})
 		case mm.Button == tea.MouseRight && !s.Ended:
 			return m.startPaste(s)
 		}
@@ -135,7 +135,7 @@ func (m *Model) panePos(mm tea.Mouse) pos {
 // copySelection ends a selection drag at the pointer and copies the selected
 // text to the system clipboard. A press and release on one cell selects nothing.
 func (m *Model) copySelection(mm tea.Mouse) tea.Cmd {
-	m.sel.head, m.sel.dragging = m.panePos(mm), false
+	m.mode.sel.head, m.mode.sel.dragging = m.panePos(mm), false
 	return m.copySelected()
 }
 
@@ -158,26 +158,26 @@ func (m *Model) doubleClick(sess *Session, p pos) bool {
 func (m *Model) selectWord(sess *Session, r *runner, p pos) tea.Cmd {
 	from, to, ok := r.term.Word(r.scroll, p)
 	if !ok {
-		m.sel = nil
+		m.clearSelection()
 		return nil
 	}
-	m.sel = &selection{sess: sess, scroll: r.scroll, anchor: from, head: to, word: true}
+	m.setMode(mode{kind: modeSelect, sel: &selection{sess: sess, scroll: r.scroll, anchor: from, head: to, word: true}})
 	return m.copySelected()
 }
 
 // copySelected copies the selected text to the system clipboard and says how
 // much it copied. A selection with no text is dropped.
 func (m *Model) copySelected() tea.Cmd {
-	sel := m.sel
+	sel := m.mode.sel
 	r := m.sessions.runner(sel.sess)
 	if sel.empty() || r == nil {
-		m.sel = nil
+		m.clearSelection()
 		return nil
 	}
 	from, to := sel.bounds()
 	text := r.term.Text(sel.scroll, from, to)
 	if text == "" {
-		m.sel = nil
+		m.clearSelection()
 		return nil
 	}
 	return tea.Batch(tea.SetClipboard(text), m.setStatus(fmt.Sprintf("copied %d characters", utf8.RuneCountInString(text)), false))
@@ -204,18 +204,19 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 			// Released where it was pressed, it toggles; see drop.
 			m.st.SetCursorGroup(row.Group)
 			m.focus = focusList
-			m.drag = &drag{group: row.Group, fromY: mm.Y}
+			m.setMode(mode{kind: modeDrag, drag: &drag{group: row.Group, fromY: mm.Y}})
 			return nil
 		}
 		c := row.Conn
 		if !m.st.CrossSpace() {
 			// A match from another Space has another Space's Groups to drop on.
-			m.drag = &drag{alias: c.Alias, fromY: mm.Y}
+			m.setMode(mode{kind: modeDrag, drag: &drag{alias: c.Alias, fromY: mm.Y}})
 		}
 		saved := m.showSpaceOf(c)
 		if c.Open() {
 			m.st.Activate(c.Alias)
-			m.focus, m.scrolling = focusPane, false
+			m.focus = focusPane
+			m.stopScroll()
 		} else {
 			m.st.SetCursor(c.Alias)
 			m.focus = focusList
@@ -241,7 +242,7 @@ func (m *Model) rowAt(x, y int) (Row, bool) {
 // dragOver follows a held Connection. Once it leaves its own row the list
 // also shows the ungrouped header, so it can be dropped out of its group.
 func (m *Model) dragOver(mm tea.Mouse) {
-	d := m.drag
+	d := m.mode.drag
 	if !d.moving {
 		if mm.Y == d.fromY || mm.Button != tea.MouseLeft {
 			return
@@ -263,8 +264,11 @@ func (m *Model) dragOver(mm tea.Mouse) {
 // Released off the list, or without having moved, nothing changes, except
 // that a Group header pressed and released in place toggles.
 func (m *Model) drop(mm tea.Mouse) tea.Cmd {
-	d := m.drag
-	m.drag = nil
+	d := m.mode.drag
+	// The row is found while a held Connection still shows the ungrouped
+	// header, which leaving the drag hides.
+	row, ok := m.rowAt(mm.X, mm.Y)
+	m.leave()
 	if d.group != "" {
 		switch {
 		case !d.moving:
@@ -277,8 +281,6 @@ func (m *Model) drop(mm tea.Mouse) tea.Cmd {
 	if !d.moving {
 		return nil
 	}
-	row, ok := m.rowAt(mm.X, mm.Y)
-	m.st.ShowUngrouped(false)
 	if !ok {
 		return m.setStatus("move cancelled", false)
 	}

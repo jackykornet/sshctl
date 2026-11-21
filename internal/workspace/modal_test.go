@@ -194,7 +194,7 @@ func TestCtrlUClearsTheFilter(t *testing.T) {
 	if f := m.st.Filter(); f != "" {
 		t.Fatalf("filter = %q, want empty", f)
 	}
-	if !m.filtering {
+	if !m.filtering() {
 		t.Fatal("ctrl+u should keep the filter open")
 	}
 }

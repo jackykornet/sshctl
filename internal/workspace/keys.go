@@ -141,7 +141,7 @@ var bindings = []binding{
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if _, r := m.currentRunner(); r != nil {
-				m.scrolling = true
+				m.setBase(mode{kind: modeScroll}) // ends typing a filter
 				m.focus = focusPane
 			}
 			return nil
@@ -231,7 +231,7 @@ func selectTab(delta int) action {
 func cycleActive(delta int) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		m.st.CycleActive(delta)
-		m.scrolling = false
+		m.stopScroll()
 		return nil
 	}
 }

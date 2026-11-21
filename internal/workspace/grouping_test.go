@@ -214,8 +214,8 @@ func TestDragConnectionOntoAnotherGroup(t *testing.T) {
 			g.Update(tea.MouseClickMsg{X: 5, Y: 3, Button: tea.MouseLeft}) // alpha
 			g.Update(tea.MouseMotionMsg{X: 5, Y: 2, Button: tea.MouseLeft})
 			g.Update(tea.MouseMotionMsg{X: 5, Y: tt.dropY, Button: tea.MouseLeft})
-			if g.drag == nil || !g.drag.ok || g.drag.target != tt.want {
-				t.Fatalf("drag = %+v, want target %q", g.drag, tt.want)
+			if g.mode.drag == nil || !g.mode.drag.ok || g.mode.drag.target != tt.want {
+				t.Fatalf("drag = %+v, want target %q", g.mode.drag, tt.want)
 			}
 			g.Update(tea.MouseReleaseMsg{X: 5, Y: tt.dropY, Button: tea.MouseLeft})
 			if got := g.rows(); !reflect.DeepEqual(got, tt.wantRow) {
@@ -250,7 +250,7 @@ func TestDragWithoutMovingOrOffListChangesNothing(t *testing.T) {
 	g.Update(tea.MouseClickMsg{X: 5, Y: 3, Button: tea.MouseLeft})
 	g.Update(tea.MouseMotionMsg{X: 5, Y: 0, Button: tea.MouseLeft})
 	g.Update(tea.MouseReleaseMsg{X: 50, Y: 0, Button: tea.MouseLeft}) // over the pane
-	if len(g.moves) != 0 || g.st.Get("alpha").Group != "web" || g.drag != nil {
+	if len(g.moves) != 0 || g.st.Get("alpha").Group != "web" || g.mode.drag != nil {
 		t.Fatalf("moves = %v group = %q", g.moves, g.st.Get("alpha").Group)
 	}
 	if got, want := g.rows(), []string{"[batch]", "job", "[web]", "alpha", "beta", "[]", "loose"}; !reflect.DeepEqual(got, want) {
@@ -279,6 +279,6 @@ func plainList(m *Model) []string {
 
 // movePrompt returns the open move prompt, or nil.
 func movePrompt(m *Model) *moveInput {
-	in, _ := m.modal.(*moveInput)
+	in, _ := m.mode.modal.(*moveInput)
 	return in
 }

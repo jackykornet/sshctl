@@ -165,7 +165,7 @@ func TestDragGroupHeaderOffAnotherHeaderChangesNothing(t *testing.T) {
 			if got := g.rows(); !reflect.DeepEqual(got, before) {
 				t.Errorf("rows = %v, want %v", got, before)
 			}
-			if g.drag != nil {
+			if g.mode.drag != nil {
 				t.Error("the drag should have ended")
 			}
 		})

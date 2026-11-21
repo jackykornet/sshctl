@@ -228,14 +228,14 @@ func TestSelectionStaysWhenAnotherSessionWrites(t *testing.T) {
 	other.activity.Store(true)
 	m.sessions.runners[&Session{}] = other
 	m.Update(redrawMsg{})
-	if m.sel == nil {
+	if m.mode.sel == nil {
 		t.Fatal("output in another Session must not clear the selection")
 	}
 }
 
 func TestFullScreenProgramKeepsTheMouse(t *testing.T) {
 	m, _ := newPaneModel(t, "\x1b[?1049hvim")
-	if cmd := dragMouse(m, [2]int{29, 1}, [2]int{33, 2}); cmd != nil || m.sel != nil {
+	if cmd := dragMouse(m, [2]int{29, 1}, [2]int{33, 2}); cmd != nil || m.mode.sel != nil {
 		t.Fatal("a drag over a full-screen program goes to the program, not to a selection")
 	}
 }
@@ -312,7 +312,7 @@ func TestSlowSecondClickIsNoDoubleClick(t *testing.T) {
 	defer func(d time.Duration) { doubleClickTime = d }(doubleClickTime)
 	doubleClickTime = 0
 	m, _ := newPaneModel(t, "ssh deploy@web01:/srv now")
-	if cmd := doubleClick(m, 29+8, 1); cmd != nil || m.sel != nil && !m.sel.empty() {
+	if cmd := doubleClick(m, 29+8, 1); cmd != nil || m.mode.sel != nil && !m.mode.sel.empty() {
 		t.Fatal("two clicks further apart than doubleClickTime select nothing")
 	}
 }
