@@ -6,15 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
-	"github.com/sshctl/sshctl/internal/platform"
 )
 
 type app struct {
@@ -26,6 +22,10 @@ type app struct {
 	ssh      *openssh.Client
 	// runSSH runs ssh and ssh-keygen; tests replace it.
 	runSSH openssh.Runner
+	// openTerminal opens a terminal window running ssh to alias, with key
+	// when set, for group connect; nil means platform.OpenSSH. Tests
+	// replace it.
+	openTerminal func(alias, key string) error
 }
 
 func run(args []string, in io.Reader, out, errOut io.Writer) error {
@@ -77,143 +77,270 @@ func helpFeatures() config.Experimental {
 	return c.Experimental
 }
 
+// command is one sshctl command: its name, the forms it is called in, and,
+// when inSpace is set, the --space option, which picks the Space for every
+// form and may come before the form's subcommand.
+type command struct {
+	name    string
+	inSpace bool
+	// spaceHelp is the help for --space, on a line of its own.
+	spaceHelp string
+	// note follows the usage in the command's own --help and in its usage
+	// errors, for what the usage line cannot say.
+	note  string
+	forms []form
+}
+
+// form is one way to call a command: its subcommand ("" for none), the
+// arguments after it, a help line (with "\n" between wrapped lines) and the
+// Experimental feature it needs, if any. run gets the arguments after the
+// subcommand, --space included; it returns errUsage for arguments that do
+// not fit, and execute turns that into the command's usage.
+type form struct {
+	sub, args, help, feature string
+	run                      func(a *app, args []string) error
+}
+
+// spaceOptionUsage is how help shows the --space option.
+const spaceOptionUsage = "[--space <space>]"
+
+// errUsage is returned by a form for arguments that do not fit it.
+var errUsage = errors.New("usage")
+
+// commands is every sshctl command, in the order help lists them. It drives
+// both dispatch (execute) and help, and the README's Commands block lists
+// its forms in the same order.
+var commands = []command{
+	{name: "list", forms: []form{
+		{args: spaceOptionUsage, help: "List Connections, or one Space's", run: (*app).list},
+	}},
+	{name: "connect", forms: []form{
+		{args: "<alias> [--claude]", help: "Connect using OpenSSH", run: (*app).connect},
+	}},
+	{name: "add", forms: []form{
+		{args: "<alias>", help: "Add or update connection metadata", run: func(a *app, args []string) error { return a.metadata(args, false) }},
+	}},
+	{name: "edit", forms: []form{
+		{args: "<alias>", help: "Edit connection metadata", run: func(a *app, args []string) error { return a.metadata(args, true) }},
+	}},
+	{name: "remove", forms: []form{
+		{args: "<alias>", help: "Remove sshctl metadata", run: (*app).remove},
+	}},
+	{name: "space", forms: []form{
+		{sub: "list", help: "List Spaces: number, name, groups, connections", run: (*app).spaceList},
+		{sub: "add", args: "<name> [<number>]", help: "Create a Space, with the lowest free number\n(1-9) or the one given", run: (*app).spaceAdd},
+		{sub: "rename", args: "<space> <new>", help: "Rename a Space, keeping its contents and number", run: (*app).spaceRename},
+		{sub: "delete", args: "<space>", help: "Delete an empty Space, leaving its number free", run: (*app).spaceDelete},
+		{sub: "move", args: "<space> <number>", help: "Give a Space a number, swapping with the Space\nthat has it; <space> is a Space name or number", run: (*app).spaceMove},
+		{sub: "dotfiles", args: "<space> [<url|none> | --unset]", help: "Show or set a Space's dotfiles repo", feature: config.FeatureProvision, run: (*app).spaceDotfiles},
+	}},
+	{name: "group", inSpace: true, spaceHelp: "Pick the Space for a group command;\n<group> is a Group name or number",
+		// group connect opens OS terminal windows (internal/platform),
+		// unlike prefix g in the Workspace, which opens tabs.
+		note: "group connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments).", forms: []form{
+			{sub: "list", help: "List Groups: number, name, members, dotfiles", run: inSpace((*app).groupList)},
+			{sub: "add", args: "<name>", help: "Create a Group", run: inSpace((*app).groupAdd)},
+			{sub: "rename", args: "<group> <new>", help: "Rename a Group, moving its Connections", run: inSpace((*app).groupRename)},
+			{sub: "delete", args: "<group> [--yes]", help: "Delete a Group; its Connections become ungrouped", run: inSpace((*app).groupDelete)},
+			{sub: "move", args: "<group> <position>", help: "Set a Group's position (its number)", run: inSpace((*app).groupMove)},
+			{sub: "connect", args: "<group>", help: "Open one terminal window per Connection in the\nGroup; for tabs, use prefix g in the Workspace", run: inSpace((*app).groupConnect)},
+		}},
+	{name: "history", forms: []form{
+		{help: "Show recent connections", run: func(a *app, _ []string) error { return a.history() }},
+	}},
+	{name: "key", forms: []form{
+		{sub: "list", help: "List the keys in ~/.ssh and the registered ones", run: (*app).keyList},
+		{sub: "use", args: spaceOptionUsage + " <key-path|none>", help: "Select the key sshctl uses, or with --space a\nSpace's; none falls back to the global one", run: (*app).keyUse},
+		{sub: "add", args: "<private-key-path>", help: "Register a key path", run: (*app).keyAdd},
+	}},
+	{name: "agent", forms: []form{
+		{sub: "ensure", help: "Inspect SSH agent and optionally add the Selected identity", run: func(a *app, _ []string) error { return a.agentEnsure() }},
+	}},
+	{name: "known-hosts", forms: []form{
+		{sub: "list", help: "Show known hosts", run: (*app).knownHostsList},
+		{sub: "remove", args: "<host>", help: "Remove a known host", run: (*app).knownHostsRemove},
+	}},
+	{name: "bootstrap", forms: []form{
+		{args: "<alias>", help: "Install your key on the host and use it", feature: config.FeatureBootstrap, run: (*app).bootstrapCommand},
+	}},
+	{name: "provision", forms: []form{
+		{args: "<alias>", help: "Apply your dotfiles to the host with chezmoi", feature: config.FeatureProvision, run: (*app).provisionCommand},
+		{sub: "default", args: "[<url|none> | --unset] [--group <name>]", help: "Show or set the global or a Group's dotfiles repo", feature: config.FeatureProvision, run: (*app).provisionDefault},
+	}},
+	{name: "experimental", forms: []form{
+		{sub: "list", help: "Show which Experimental features are on", run: (*app).experimentalList},
+		{args: "enable|disable <feature>", help: "Turn bootstrap or provision on or off; they are\nnot fully tested yet and start off", run: (*app).experimentalSet},
+	}},
+	{name: "config", forms: []form{
+		{sub: "show", help: "Show paths and relevant SSH settings", run: func(a *app, _ []string) error { return a.showConfig() }},
+	}},
+}
+
+// inSpace adapts a command that takes --space to a form: it takes --space,
+// wherever it is, out of the arguments.
+func inSpace(run func(a *app, space spaceOption, args []string) error) func(*app, []string) error {
+	return func(a *app, args []string) error {
+		space, rest, err := a.cutSpaceOption(args)
+		if err != nil {
+			return err
+		}
+		return run(a, space, rest)
+	}
+}
+
+// call is how help shows f: its subcommand and arguments.
+func (f form) call() string { return strings.TrimSpace(f.sub + " " + f.args) }
+
+// prefix is c's name and, if it takes one, its --space option.
+func (c command) prefix() string {
+	if c.inSpace {
+		return c.name + " " + spaceOptionUsage
+	}
+	return c.name
+}
+
+// synopsis is how f of c is called, after "sshctl ".
+func (c command) synopsis(f form) string { return strings.TrimSpace(c.prefix() + " " + f.call()) }
+
+// usage is how c is called, after "sshctl ": every form, after the option.
+func (c command) usage() string {
+	calls := make([]string, len(c.forms))
+	for i, f := range c.forms {
+		calls[i] = f.call()
+	}
+	return strings.TrimSpace(c.prefix() + " " + strings.Join(calls, " | "))
+}
+
+// usageText is the command's usage followed by its note, if it has one.
+func (c command) usageText() string {
+	if c.note == "" {
+		return c.usage()
+	}
+	return c.usage() + "\n\n" + c.note
+}
+
+// usage is how the command named name is called, after "sshctl ", with its
+// note.
+func usage(name string) string {
+	if c := findCommand(name); c != nil {
+		return c.usageText()
+	}
+	return name
+}
+
+// findCommand returns the command named name, or nil.
+func findCommand(name string) *command {
+	for i := range commands {
+		if commands[i].name == name {
+			return &commands[i]
+		}
+	}
+	return nil
+}
+
+// lookup finds the command and form that args call, and returns the
+// arguments for the form: those after its subcommand, with any --space
+// before it. A form without a subcommand takes what no other form of the
+// command does. It returns a nil command for an unknown one, and a nil form
+// when no form fits.
+func lookup(args []string) (*command, *form, []string) {
+	if len(args) == 0 {
+		return nil, nil, nil
+	}
+	c := findCommand(args[0])
+	if c == nil {
+		return nil, nil, nil
+	}
+	var opts []string
+	rest := args[1:]
+	for c.inSpace && len(rest) > 0 && rest[0] == "--space" {
+		n := min(2, len(rest))
+		opts, rest = append(opts, rest[:n]...), rest[n:]
+	}
+	for i := range c.forms {
+		if f := &c.forms[i]; f.sub != "" && len(rest) > 0 && rest[0] == f.sub {
+			return c, f, append(opts, rest[1:]...)
+		}
+	}
+	for i := range c.forms {
+		if f := &c.forms[i]; f.sub == "" {
+			return c, f, append(opts, rest...)
+		}
+	}
+	return c, nil, nil
+}
+
+// helpColumn is the width of help's first column, the calls.
+const helpColumn = 29
+
 // help prints the command overview; exp marks the Experimental features
 // that are off.
 func help(w io.Writer, exp config.Experimental) {
-	off := func(feature string) string {
-		if exp.On(feature) {
-			return ""
-		}
-		return " (experimental, off)"
-	}
-	bootstrap, provision := off(config.FeatureBootstrap), off(config.FeatureProvision)
 	fmt.Fprint(w, `sshctl manages OpenSSH connections and local connection metadata.
 
 Usage: sshctl                 Open the Workspace (in a terminal)
        sshctl <command> [arguments]
 
 Commands:
-  list [--space <name>]        List Connections, or one Space's
-  connect <alias> [--claude]   Connect using OpenSSH
-  add <alias>                  Add or update connection metadata
-  edit <alias>                 Edit connection metadata
-  remove <alias>               Remove sshctl metadata
-  space list                   List Spaces: number, name, groups, connections
-  space add <name>             Create a Space
-  space rename <old> <new>     Rename a Space, keeping its contents
-  space delete <name>          Delete an empty Space
-  space move <name> <position> Set a Space's position (its number)
-  space dotfiles <name> [<url|none>|--unset]
-                               Show or set a Space's dotfiles repo`+provision+`
-  group [--space <name>] ...   Pick the Space for a group command;
-                               <group> is a Group name or number
-  group list                   List Groups: number, name, members, dotfiles
-  group add <name>             Create a Group
-  group rename <group> <new>   Rename a Group, moving its Connections
-  group delete <group> [--yes] Delete a Group; its Connections become ungrouped
-  group move <group> <pos>     Set a Group's position (its number)
-  group connect <group>        Open one terminal window per Connection in the
-                               Group; for tabs, use prefix g in the Workspace
-  history                      Show recent connections
-  key list|use|add             List, select, or register keys;
-                               key use --space <name> <key|none> selects a
-                               Space's key; none falls back to the global one
-  agent ensure                 Inspect SSH agent and optionally add the Selected identity
-  known-hosts list|remove      Show or remove known hosts
-  bootstrap <alias>            Install your key on the host and use it`+bootstrap+`
-  provision <alias>            Apply your dotfiles to the host with chezmoi`+provision+`
-  provision default [<url|none>|--unset] [--group <name>]
-                               Show or set the global or a Group's dotfiles repo`+provision+`
-  experimental list            Show which Experimental features are on
-  experimental enable|disable <feature>
-                               Turn bootstrap or provision on or off; they are
-                               not fully tested yet and start off
-  config show                  Show paths and relevant SSH settings
-
-Use sshctl <command> --help for command usage where available.
+`)
+	for _, c := range commands {
+		if c.inSpace {
+			helpLine(w, c.prefix()+" ...", c.spaceHelp)
+		}
+		for _, f := range c.forms {
+			text := f.help
+			if f.feature != "" && !exp.On(f.feature) {
+				text += " (experimental, off)"
+			}
+			helpLine(w, strings.TrimSpace(c.name+" "+f.call()), text)
+		}
+	}
+	fmt.Fprint(w, `
+Use sshctl <command> --help for command usage.
 `)
 }
-func usage(command string) string {
-	switch command {
-	case "list":
-		return "list [--space <name>]"
-	case "connect":
-		return "connect <alias> [--claude]"
-	case "add", "edit", "remove":
-		return command + " <alias>"
-	case "group":
-		return groupHelp
-	case "space":
-		return spaceUsage
-	case "key":
-		return "key list | use [--space <name>] <key-path|none> | add <private-key-path>"
-	case "agent":
-		return "agent ensure"
-	case "known-hosts":
-		return "known-hosts list | remove <host>"
-	case "provision":
-		return provisionUsage
-	case "bootstrap":
-		return bootstrapUsage
-	case "experimental":
-		return experimentalUsage
-	case "config":
-		return "config show"
-	default:
-		return command
+
+// helpLine prints call and its help text in two columns; a call too long
+// for the first column gets a line of its own.
+func helpLine(w io.Writer, call, text string) {
+	indent := strings.Repeat(" ", 2+helpColumn)
+	if len(call) < helpColumn {
+		fmt.Fprintf(w, "  %-*s", helpColumn, call)
+	} else {
+		fmt.Fprintf(w, "  %s\n%s", call, indent)
 	}
+	fmt.Fprintln(w, strings.ReplaceAll(text, "\n", "\n"+indent))
 }
 
+// execute runs the command args call, through the commands table.
 func (a *app) execute(args []string) error {
 	if args[0] == "--help" || args[0] == "-h" {
 		help(a.out, a.cfg.Experimental)
 		return nil
 	}
+	c, f, rest := lookup(args)
+	if c == nil {
+		return errors.New("unknown or incomplete command; run sshctl --help")
+	}
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
-		fmt.Fprintf(a.out, "Usage: sshctl %s\n", usage(args[0]))
+		fmt.Fprintf(a.out, "Usage: sshctl %s\n", c.usageText())
 		return nil
 	}
-	switch args[0] {
-	case "list":
-		return a.list(args[1:])
-	case "connect":
-		return a.connect(args[1:])
-	case "add":
-		return a.metadata(args[1:], false)
-	case "edit":
-		return a.metadata(args[1:], true)
-	case "remove":
-		return a.remove(args[1:])
-	case "group":
-		return a.groupCommand(args[1:])
-	case "space":
-		return a.spaceCommand(args[1:])
-	case "history":
-		for _, h := range a.cfg.History {
-			fmt.Fprintln(a.out, h)
-		}
-		return nil
-	case "key":
-		return a.keys(args[1:])
-	case "agent":
-		if len(args) > 1 && args[1] == "ensure" {
-			return a.agentEnsure()
-		}
-	case "known-hosts":
-		return a.knownHosts(args[1:])
-	case "provision":
-		return a.provisionCommand(args[1:])
-	case "bootstrap":
-		return a.bootstrapCommand(args[1:])
-	case "experimental":
-		return a.experimentalCommand(args[1:])
-	case "config":
-		if len(args) > 1 && args[1] == "show" {
-			return a.showConfig()
+	if f == nil {
+		return errors.New("usage: sshctl " + c.usageText())
+	}
+	if f.feature != "" {
+		if err := a.checkFeature(f.feature); err != nil {
+			return err
 		}
 	}
-	return fmt.Errorf("unknown or incomplete command; run sshctl --help")
+	err := f.run(a, rest)
+	if errors.Is(err, errUsage) {
+		return errors.New("usage: sshctl " + c.usageText())
+	}
+	return err
 }
+
 func (a *app) save() error { return config.Save(a.cfgPath, a.cfg) }
 
 // catalog is the Connection catalog over a's config files, read fresh on each call.
@@ -235,20 +362,19 @@ func (a *app) identityFor(alias string) (string, error) { return a.catalog().Ide
 // sshctl's hosts file is not Included in ssh_config it adds a one-line hint
 // on stderr.
 func (a *app) list(args []string) error {
-	space, rest, err := cutSpaceOption(args)
-	if err != nil || len(rest) > 0 {
-		return errors.New("usage: sshctl " + usage("list"))
+	space, rest, err := a.cutSpaceOption(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return errUsage
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	spaces, err := space.spaces(snap)
-	if err != nil {
-		return err
-	}
 	for _, e := range snap.Entries {
-		if space.set && e.Space != spaces[0].ref {
+		if space.set && e.Space != space.ref {
 			continue
 		}
 		var label []string
@@ -295,9 +421,6 @@ func (a *app) connect(args []string) error {
 	}
 	return a.recordHistory(alias)
 }
-
-// recordHistory records in History that alias was opened.
-func (a *app) recordHistory(alias string) error { return a.catalog().RecordOpen(alias) }
 
 // metadata adds or edits alias's description and group, prompting with the
 // values the config holds now.
@@ -349,205 +472,6 @@ func (a *app) remove(args []string) error {
 		return fmt.Errorf("no sshctl metadata for %q", args[0])
 	}
 	return err
-}
-func (a *app) groupConnect(space spaceOption, args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: sshctl group [--space <name>] connect <group>")
-	}
-	snap, err := a.catalog().Snapshot()
-	if err != nil {
-		return err
-	}
-	ref, group, err := findGroup(snap, space, args[0])
-	if err != nil {
-		return err
-	}
-	var names []string
-	for _, e := range snap.Entries {
-		if e.Space == ref && e.Group == group {
-			names = append(names, e.Alias)
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		return fmt.Errorf("group %q has no Connections", group)
-	}
-	for _, n := range names {
-		if err := platform.OpenSSH(n, snap.SpaceIdentity(ref)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func (a *app) keys(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: sshctl key list|use|add")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	keyDir := filepath.Join(home, ".ssh")
-	switch args[0] {
-	case "list":
-		set := map[string]bool{}
-		entries, _ := os.ReadDir(keyDir)
-		for _, e := range entries {
-			n := e.Name()
-			if strings.HasSuffix(n, ".pub") || strings.HasSuffix(n, "-cert.pub") {
-				set[filepath.Join(keyDir, n)] = true
-			}
-		}
-		for _, k := range a.cfg.Keys {
-			set[k] = true
-		}
-		keys := make([]string, 0, len(set))
-		for k := range set {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		snap, err := a.catalog().Snapshot()
-		if err != nil {
-			return err
-		}
-		for _, k := range keys {
-			var tags []string
-			if isKey(k, snap.Identity) {
-				tags = append(tags, "Selected identity")
-			}
-			var spaces []string
-			for ref, key := range snap.SpaceIdentities {
-				if isKey(k, key) {
-					spaces = append(spaces, "Selected identity of space "+snap.SpaceName(ref))
-				}
-			}
-			sort.Strings(spaces)
-			tags = append(tags, spaces...)
-			if len(tags) > 0 {
-				k += " (" + strings.Join(tags, ", ") + ")"
-			}
-			fmt.Fprintln(a.out, k)
-		}
-		return nil
-	case "add":
-		if len(args) != 2 {
-			return errors.New("usage: sshctl key add <private-key-path>")
-		}
-		abs, err := filepath.Abs(args[1])
-		if err != nil {
-			return err
-		}
-		if _, err = os.Stat(abs); err != nil {
-			return err
-		}
-		for _, k := range a.cfg.Keys {
-			if k == abs {
-				return nil
-			}
-		}
-		a.cfg.Keys = append(a.cfg.Keys, abs)
-		return a.save()
-	case "use":
-		space, rest, err := cutSpaceOption(args[1:])
-		if err != nil || len(rest) != 1 {
-			return errors.New("usage: sshctl key use [--space <name>] <key-path|none>")
-		}
-		k := rest[0]
-		if k != "none" {
-			abs, err := filepath.Abs(k)
-			if err != nil {
-				return err
-			}
-			k = abs
-			if _, err = os.Stat(k); err != nil {
-				return err
-			}
-		} else {
-			k = ""
-		}
-		if space.set {
-			// none unsets the Space's own, so the global one applies.
-			return a.catalog().SetSpaceIdentity(space.name, k)
-		}
-		return a.catalog().SetIdentity(k)
-	}
-	return errors.New("usage: sshctl key list|use|add")
-}
-
-// isKey reports whether the key file k (a private key or its .pub) is the
-// private key selected, which is set.
-func isKey(k, selected string) bool {
-	return selected != "" && (k == selected || strings.TrimSuffix(k, ".pub") == selected)
-}
-
-func (a *app) agentEnsure() error {
-	status, err := openssh.AgentStatus()
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(a.out, "SSH agent:", status)
-	key, err := a.identity()
-	if err != nil {
-		return err
-	}
-	if key == "" {
-		fmt.Fprintln(a.out, "No Selected identity; OpenSSH config identities remain in effect.")
-		return nil
-	}
-	loaded, checkable, err := openssh.KeyLoaded(key)
-	if err != nil {
-		return err
-	}
-	if loaded {
-		fmt.Fprintln(a.out, "Selected key is already loaded.")
-		return nil
-	}
-	if !checkable {
-		fmt.Fprintln(a.out, "No adjacent .pub file; loaded status cannot be checked without unlocking the private key.")
-	}
-	fmt.Fprintf(a.out, "Add the Selected identity %q to the agent? [y/N] ", key)
-	if !confirm(a.in) {
-		return nil
-	}
-	return openssh.AddKey(key)
-}
-func (a *app) knownHosts(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: sshctl known-hosts list|remove <host>")
-	}
-	path := openssh.KnownHostsPath()
-	switch args[0] {
-	case "list":
-		f, err := os.Open(path)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				parts := strings.Fields(line)
-				if len(parts) > 0 {
-					fmt.Fprintln(a.out, parts[0])
-				}
-			}
-		}
-		return sc.Err()
-	case "remove":
-		if len(args) != 2 {
-			return errors.New("usage: sshctl known-hosts remove <host>")
-		}
-		fmt.Fprintf(a.out, "Remove known host %q? [y/N] ", args[1])
-		if !confirm(a.in) {
-			return nil
-		}
-		return openssh.RemoveKnownHost(args[1], path)
-	}
-	return errors.New("usage: sshctl known-hosts list|remove <host>")
 }
 func confirm(in io.Reader) bool {
 	line, err := bufio.NewReader(in).ReadString('\n')

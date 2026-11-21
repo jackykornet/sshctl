@@ -43,7 +43,7 @@ func TestDeleteOnAGroupHeaderAsksThenUngroupsItsMembers(t *testing.T) {
 func TestAddOnAGroupHeaderAddsAGroup(t *testing.T) {
 	m, f := newGroupModel(t)
 	press(m, keyPrefix, text("a")[0])
-	if got, _ := m.modal.status(); !strings.HasPrefix(got, "new group: █") {
+	if got, _ := m.mode.modal.status(); !strings.HasPrefix(got, "new group: █") {
 		t.Fatalf("status line = %q, want the new group prompt", got)
 	}
 	press(m, text("dev")...)
@@ -51,8 +51,8 @@ func TestAddOnAGroupHeaderAddsAGroup(t *testing.T) {
 	if !reflect.DeepEqual(f.groupOps, []string{"add dev"}) || len(f.saves) != 0 {
 		t.Fatalf("group calls = %v saves = %v", f.groupOps, f.saves)
 	}
-	if want := []string{"web", "batch", "dev"}; m.modal != nil || !reflect.DeepEqual(m.st.Groups(), want) {
-		t.Fatalf("modal = %v groups = %v, want %v", m.modal, m.st.Groups(), want)
+	if want := []string{"web", "batch", "dev"}; m.mode.modal != nil || !reflect.DeepEqual(m.st.Groups(), want) {
+		t.Fatalf("modal = %v groups = %v, want %v", m.mode.modal, m.st.Groups(), want)
 	}
 	if r, _ := m.st.CursorRow(); !r.Header() || r.Group != "dev" {
 		t.Errorf("cursor on %+v, want dev's header", r)
@@ -77,7 +77,7 @@ func TestCrudKeysOffAGroupHeaderActOnConnections(t *testing.T) {
 		{"a on the ungrouped header", func(m *Model) { m.st.SetCursorGroup("") }, "a",
 			func(m *Model) bool { return m.form() != nil && m.form().spec().Group == "" }},
 		{"e on the ungrouped header", func(m *Model) { m.st.SetCursorGroup("") }, "e",
-			func(m *Model) bool { return m.modal == nil && m.status == "no connection to edit" }},
+			func(m *Model) bool { return m.mode.modal == nil && m.status == "no connection to edit" }},
 		{"e with the terminal focused", func(m *Model) {
 			m.st.OpenSession("alpha")
 			m.focus = focusPane
@@ -94,7 +94,7 @@ func TestCrudKeysOffAGroupHeaderActOnConnections(t *testing.T) {
 			tt.setup(m)
 			press(m, keyPrefix, text(tt.key)[0])
 			if !tt.check(m) || len(f.groupOps) != 0 {
-				t.Fatalf("modal = %T status = %q group calls = %v", m.modal, m.status, f.groupOps)
+				t.Fatalf("modal = %T status = %q group calls = %v", m.mode.modal, m.status, f.groupOps)
 			}
 		})
 	}
@@ -276,7 +276,7 @@ func TestEditOnAGroupHeaderRenamesIt(t *testing.T) {
 	m, f := newGroupModel(t)
 	press(m, text("h")...) // collapse web; it stays collapsed under its new name
 	press(m, text("e")...)
-	if got, _ := m.modal.status(); !strings.HasPrefix(got, "rename group web to: web█") {
+	if got, _ := m.mode.modal.status(); !strings.HasPrefix(got, "rename group web to: web█") {
 		t.Fatalf("status line = %q, want the rename prompt", got)
 	}
 	press(m, keyClear)
@@ -285,8 +285,8 @@ func TestEditOnAGroupHeaderRenamesIt(t *testing.T) {
 	if !reflect.DeepEqual(f.groupOps, []string{"rename web→front"}) {
 		t.Fatalf("group calls = %v", f.groupOps)
 	}
-	if m.modal != nil || m.st.HasGroup("web") || m.st.Get("alpha").Group != "front" {
-		t.Fatalf("modal = %v groups = %v alpha in %q", m.modal, m.st.Groups(), m.st.Get("alpha").Group)
+	if m.mode.modal != nil || m.st.HasGroup("web") || m.st.Get("alpha").Group != "front" {
+		t.Fatalf("modal = %v groups = %v alpha in %q", m.mode.modal, m.st.Groups(), m.st.Get("alpha").Group)
 	}
 	if r, _ := m.st.CursorRow(); !r.Header() || r.Group != "front" {
 		t.Errorf("cursor on %+v, want front's header", r)
@@ -306,12 +306,12 @@ func TestARefusedGroupNameKeepsThePromptOpen(t *testing.T) {
 	press(m, keyClear)
 	press(m, text("batch")...)
 	press(m, keyEnter)
-	got, _ := m.modal.status()
+	got, _ := m.mode.modal.status()
 	if !strings.Contains(got, "batch█") || !strings.Contains(got, "already exists") {
 		t.Fatalf("status line = %q, want the prompt with the error", got)
 	}
 	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.modal != nil || !m.st.HasGroup("web") {
-		t.Fatalf("modal = %v groups = %v", m.modal, m.st.Groups())
+	if m.mode.modal != nil || !m.st.HasGroup("web") {
+		t.Fatalf("modal = %v groups = %v", m.mode.modal, m.st.Groups())
 	}
 }
