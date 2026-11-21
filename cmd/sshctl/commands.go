@@ -112,7 +112,8 @@ Commands:
   group rename <group> <new>   Rename a Group, moving its Connections
   group delete <group> [--yes] Delete a Group; its Connections become ungrouped
   group move <group> <pos>     Set a Group's position (its number)
-  group connect <group>        Open group connections in terminal windows
+  group connect <group>        Open one terminal window per Connection in the
+                               Group; for tabs, use prefix g in the Workspace
   history                      Show recent connections
   key list|use|add             List, select, or register keys;
                                key use --space <name> <key|none> selects a
@@ -141,7 +142,7 @@ func usage(command string) string {
 	case "add", "edit", "remove":
 		return command + " <alias>"
 	case "group":
-		return groupUsage
+		return groupHelp
 	case "space":
 		return spaceUsage
 	case "key":

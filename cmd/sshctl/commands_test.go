@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -108,6 +109,30 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	}
 	if err := run([]string{"not-a-command"}, strings.NewReader(""), &out, &out); err == nil {
 		t.Fatal("expected unknown command error")
+	}
+}
+
+// group connect opens OS terminal windows while the Workspace opens tabs, so
+// both help screens say which one it does and where tabs are.
+func TestHelpSaysGroupConnectOpensTerminalWindows(t *testing.T) {
+	fakeHome(t)
+	for _, args := range [][]string{{"--help"}, {"group", "--help"}} {
+		var out bytes.Buffer
+		if err := run(args, strings.NewReader(""), &out, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"one terminal window per Connection", "prefix g in the Workspace"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("sshctl %s does not say %q:\n%s", strings.Join(args, " "), want, out.String())
+			}
+		}
+	}
+	// A wrong group call prints the group usage, note included.
+	for _, args := range [][]string{{"group"}, {"group", "bogus"}} {
+		err := run(args, strings.NewReader(""), io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "one terminal window per Connection") {
+			t.Errorf("sshctl %s: error %v does not carry the group connect note", strings.Join(args, " "), err)
+		}
 	}
 }
 

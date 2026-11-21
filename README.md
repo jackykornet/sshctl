@@ -73,7 +73,7 @@ Spaces keep Connections apart, for example one per customer or project, and are 
 
 `list --space <name>` lists only that Space's Connections. `group` commands take `--space <name>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number counts within a Space, so it works without `--space` only while there is one Space.
 
-Group launching starts a separate terminal for each Connection in the group. The CLI supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
+`group connect <group>` opens one OS terminal window per Connection in the Group, each connecting with ssh. To open a Group's Connections as tabs instead, use prefix `g` in the [Workspace](#workspace). For terminal windows, sshctl supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
 
 ### Experimental features
 
@@ -142,7 +142,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`); both refuse while the [Experimental feature](#experimental-features) is off |
-| prefix `g` | Open every closed connection in the group under the cursor (`group connect` still opens separate windows) |
+| prefix `g` | Open every closed connection in the group under the cursor as tabs (`sshctl group connect` instead opens one terminal window per connection) |
 | prefix `a` / `e` / `d` (or `a` / `e` / `d` in the list) | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
 | `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab (while Bootstrap is off, `Ctrl+O` saves nothing and the form says why) |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |
