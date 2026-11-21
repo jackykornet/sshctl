@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,17 +14,29 @@ import (
 )
 
 // spaceTree is an app whose config has the default Space (renamed home)
-// with Group prod (web) and the loose Connection solo, and Space acme with
-// Groups prod (db) and data (empty) and Space empty with nothing in it.
+// with Group prod (web) and the loose Connection solo, Space acme with
+// Groups prod (db) and data (empty), and Space empty with nothing in it.
+// They are Spaces 1, 2 and 4, so 3 is free.
 func spaceTree(t *testing.T, in string) (*app, *bytes.Buffer) {
 	t.Helper()
 	cfg := config.New()
-	cfg.Spaces = []config.Space{{Name: "home", Default: true}, {Name: "acme"}, {Name: "empty"}}
+	cfg.Spaces = []config.Space{{Name: "home", Number: 1, Default: true}, {Name: "acme", Number: 2}, {Name: "empty", Number: 4}}
 	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "prod", Space: "acme"}, {Name: "data", Space: "acme"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Group: "prod"}
 	cfg.Connections["solo"] = config.Connection{Alias: "solo", Description: "loose"}
 	cfg.Connections["db"] = config.Connection{Alias: "db", Space: "acme", Group: "prod"}
 	return cliTree(t, "Host web\nHost db\nHost solo\nHost other\n", cfg, in)
+}
+
+// spaceNumbers returns "<number> <name>" for each Space in a's config, in
+// order.
+func spaceNumbers(t *testing.T, a *app) []string {
+	t.Helper()
+	var got []string
+	for _, s := range loadCLI(t, a).Spaces {
+		got = append(got, strconv.Itoa(s.Number)+" "+s.Name)
+	}
+	return got
 }
 
 // spaceList returns the Space names in a's config, in order.
@@ -45,24 +58,52 @@ func TestSpaceListShowsNumberNameGroupsAndConnections(t *testing.T) {
 	want := "" +
 		"1  home                 1  3  (default)\n" +
 		"2  acme                 2  1\n" +
-		"3  empty                0  0\n"
+		"4  empty                0  0\n"
 	if out.String() != want {
 		t.Errorf("space list:\n%s\nwant:\n%s", out.String(), want)
 	}
 }
 
-func TestSpaceAddCreatesAnEmptySpaceLast(t *testing.T) {
+func TestSpaceAddTakesTheLowestFreeNumber(t *testing.T) {
 	a, _ := spaceTree(t, "")
 	if err := a.execute([]string{"space", "add", "prive"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := spaceList(t, a), []string{"home", "acme", "empty", "prive"}; !slices.Equal(got, want) {
+	if got, want := spaceNumbers(t, a), []string{"1 home", "2 acme", "3 prive", "4 empty"}; !slices.Equal(got, want) {
 		t.Errorf("spaces = %v, want %v", got, want)
 	}
 	for _, name := range []string{"acme", "7", "a/b", ""} {
 		if err := a.execute([]string{"space", "add", name}); err == nil {
 			t.Errorf("space add %q succeeded, want it refused", name)
 		}
+	}
+}
+
+func TestSpaceAddWithANumberTakesIt(t *testing.T) {
+	a, _ := spaceTree(t, "")
+	if err := a.execute([]string{"space", "add", "prive", "9"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, a), []string{"1 home", "2 acme", "4 empty", "9 prive"}; !slices.Equal(got, want) {
+		t.Errorf("spaces = %v, want %v", got, want)
+	}
+	for _, args := range [][]string{{"x", "2"}, {"x", "0"}, {"x", "10"}, {"x", "two"}, {"x", "3", "4"}} {
+		if err := a.execute(append([]string{"space", "add"}, args...)); err == nil {
+			t.Errorf("space add %v succeeded, want it refused", args)
+		}
+	}
+}
+
+func TestSpaceAddRefusesATenthSpace(t *testing.T) {
+	a, _ := spaceTree(t, "")
+	for _, name := range []string{"s3", "s5", "s6", "s7", "s8", "s9"} {
+		if err := a.execute([]string{"space", "add", name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := a.execute([]string{"space", "add", "s10"})
+	if err == nil || !strings.Contains(err.Error(), "taken") {
+		t.Errorf("tenth space: err = %v, want it refused as all numbers taken", err)
 	}
 }
 
@@ -112,18 +153,118 @@ func TestSpaceDeleteRefusesTheDefaultAndANonEmptySpace(t *testing.T) {
 	}
 }
 
-func TestSpaceMoveSetsThePosition(t *testing.T) {
+// space move gives a Space a number, swapping with the Space that had it.
+func TestSpaceMoveSwapsOrTakesAFreeNumber(t *testing.T) {
 	a, _ := spaceTree(t, "")
 	if err := a.execute([]string{"space", "move", "empty", "1"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := spaceList(t, a), []string{"empty", "home", "acme"}; !slices.Equal(got, want) {
-		t.Errorf("spaces = %v, want %v", got, want)
+	if got, want := spaceNumbers(t, a), []string{"1 empty", "2 acme", "4 home"}; !slices.Equal(got, want) {
+		t.Errorf("after the swap, spaces = %v, want %v", got, want)
 	}
-	for _, args := range [][]string{{"acme", "4"}, {"acme", "0"}, {"acme", "first"}, {"nowhere", "1"}} {
+	if err := a.execute([]string{"space", "move", "2", "7"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := spaceNumbers(t, a), []string{"1 empty", "4 home", "7 acme"}; !slices.Equal(got, want) {
+		t.Errorf("after the move to a free number, spaces = %v, want %v", got, want)
+	}
+	for _, args := range [][]string{{"acme", "10"}, {"acme", "0"}, {"acme", "first"}, {"nowhere", "1"}, {"3", "1"}} {
 		if err := a.execute(append([]string{"space", "move"}, args...)); err == nil {
 			t.Errorf("space move %v succeeded, want it refused", args)
 		}
+	}
+	err := a.execute([]string{"space", "move", "acme", "x"})
+	if err == nil || strings.Contains(err.Error(), "position") {
+		t.Errorf("err = %v, want it refused without the word position", err)
+	}
+}
+
+// A space command takes a Space by name or by number.
+func TestSpaceCommandsTakeASpaceNumber(t *testing.T) {
+	a, out := spaceTree(t, "")
+	for _, args := range [][]string{
+		{"space", "rename", "2", "acme-corp"},
+		{"space", "dotfiles", "2", "https://example.com/acme.git"},
+		{"space", "delete", "4"},
+	} {
+		if err := a.execute(args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if got, want := spaceNumbers(t, a), []string{"1 home", "2 acme-corp"}; !slices.Equal(got, want) {
+		t.Errorf("spaces = %v, want %v", got, want)
+	}
+	if err := a.execute([]string{"space", "dotfiles", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "https://example.com/acme.git\n" {
+		t.Errorf("space dotfiles 2 printed %q, want acme-corp's repo", got)
+	}
+	err := a.execute([]string{"space", "rename", "3", "x"})
+	if err == nil || !strings.Contains(err.Error(), "no Space 3") {
+		t.Errorf("space rename 3: err = %v, want no Space 3", err)
+	}
+}
+
+// --space takes a Space by name or by number, on list, group and key use.
+func TestSpaceOptionTakesASpaceNumber(t *testing.T) {
+	a, out := spaceTree(t, "")
+	if err := a.execute([]string{"list", "--space", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "db                       [prod]\n"; out.String() != want {
+		t.Errorf("list --space 2:\n%s\nwant:\n%s", out.String(), want)
+	}
+	key := keyFile(t, "id_acme")
+	for _, args := range [][]string{
+		{"group", "add", "--space", "2", "stats"},
+		{"group", "rename", "--space", "2", "prod", "live"},
+		{"key", "use", "--space", "2", key},
+	} {
+		if err := a.execute(args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	cfg := loadCLI(t, a)
+	if db := cfg.Connections["db"]; db.Group != "live" {
+		t.Errorf("db = %+v, want it in acme's live", db)
+	}
+	if got := cfg.Groups; !slices.ContainsFunc(got, func(g config.Group) bool { return g.Space == "acme" && g.Name == "stats" }) {
+		t.Errorf("groups = %+v, want acme's stats", got)
+	}
+	if got, _ := a.identityFor("db"); got != key {
+		t.Errorf("db's identity = %q, want acme's %q", got, key)
+	}
+	for _, args := range [][]string{{"list", "--space", "3"}, {"group", "add", "--space", "3", "x"}, {"group", "list", "--space", "9"}} {
+		err := a.execute(args)
+		if err == nil || !strings.Contains(err.Error(), "no Space") {
+			t.Errorf("%v: err = %v, want no Space", args, err)
+		}
+	}
+}
+
+// space list shows a Space beyond the ninth in an older config, which has
+// no number, last and without one.
+func TestSpaceListShowsUnnumberedSpacesLast(t *testing.T) {
+	cfg := config.New()
+	cfg.Spaces = []config.Space{{Name: "extra"}}
+	want := ""
+	for n := 1; n <= config.MaxSpaces; n++ {
+		name := "s" + strconv.Itoa(n)
+		cfg.Spaces = append(cfg.Spaces, config.Space{Name: name, Number: n, Default: n == 1})
+		line := strconv.Itoa(n) + "  " + name + strings.Repeat(" ", 21-len(name)) + "0  0"
+		if n == 1 {
+			line += "  (default)"
+		}
+		want += line + "\n"
+	}
+	want += "-  extra                0  0\n"
+	a, out := cliTree(t, "", cfg, "")
+	if err := a.execute([]string{"space", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != want {
+		t.Errorf("space list:\n%s\nwant:\n%s", out.String(), want)
 	}
 }
 
@@ -257,7 +398,7 @@ func TestSpaceListShowsASpacesDotfilesAndKey(t *testing.T) {
 	want := "" +
 		"1  home                 1  3  (default)\n" +
 		"2  acme                 2  1  dotfiles https://example.com/acme.git  key " + key + "\n" +
-		"3  empty                0  0\n"
+		"4  empty                0  0\n"
 	if out.String() != want {
 		t.Errorf("space list:\n%s\nwant:\n%s", out.String(), want)
 	}
@@ -299,5 +440,30 @@ func TestProvisionDefaultListsSpaceAndGroupSettingsBySpace(t *testing.T) {
 		"group acme/data: unset\n"
 	if out.String() != want {
 		t.Errorf("provision default:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+// The help describes Space numbers, not positions.
+func TestHelpDescribesSpaceNumbers(t *testing.T) {
+	var out bytes.Buffer
+	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"space add <name> [<number>]", "space move <space> <number>", "list [--space <space>]"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("help is missing %q:\n%s", want, out.String())
+		}
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "space") && strings.Contains(line, "position") {
+			t.Errorf("help still calls a Space number a position: %q", line)
+		}
+	}
+	a, help := spaceTree(t, "")
+	if err := a.execute([]string{"space", "--help"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Usage: sshctl " + spaceUsage + "\n"; help.String() != want || strings.Contains(spaceUsage, "position") {
+		t.Errorf("space --help = %q", help.String())
 	}
 }

@@ -5,13 +5,16 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
-// spacePicker lists every Space in the pane, with a cursor. Enter switches
-// to the Space under it; it is the only way to reach Spaces after the 9th.
+// spacePicker lists every Space number in the pane, one row each with its
+// Space or free, then any Space without a number, with a cursor. Enter
+// switches to the Space under it; it is the only way to reach a Space
+// without a number.
 type spacePicker struct {
 	prefixGate
-	cursor int // index into State.SpaceTabs
+	cursor int // index into State.SpaceSlots
 	// note is what the last action said, such as why a delete was refused,
 	// shown on the status line until the next key.
 	note    string
@@ -21,7 +24,7 @@ type spacePicker struct {
 // openPicker opens the Space picker with its cursor on the active Space.
 func (m *Model) openPicker() {
 	p := &spacePicker{}
-	for i, t := range m.st.SpaceTabs() {
+	for i, t := range m.st.SpaceSlots() {
 		if t.Active {
 			p.cursor = i
 		}
@@ -48,7 +51,7 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	p.note, p.noteErr = "", false
-	n := len(m.st.SpaceTabs())
+	n := len(m.st.SpaceSlots())
 	switch msg.String() {
 	case "esc", "ctrl+c", "q", "P":
 		m.modal = nil
@@ -57,10 +60,14 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	case "down", "j":
 		p.cursor++
 	case "a":
-		m.openModal(&spaceInput{back: p})
+		in := &spaceInput{back: p}
+		if t, ok := p.target(m); ok && t.Free() {
+			in.number = t.Number
+		}
+		m.openModal(in)
 		return nil
 	case "e":
-		if t, ok := p.target(m); ok {
+		if t, ok := p.target(m); ok && !t.Free() {
 			m.openModal(&spaceInput{back: p, old: t.Name, name: newLine(t.Name)})
 		}
 		return nil
@@ -71,17 +78,24 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+down", "J":
 		return m.shiftSpace(p, 1)
 	case "enter", "space":
+		t, ok := p.target(m)
+		if !ok {
+			break
+		}
+		if t.Free() {
+			p.say(fmt.Sprintf("no Space %d", t.Number), true)
+			return nil
+		}
 		m.modal = nil
-		ref, _ := m.st.SpaceRef(p.cursor + 1)
-		return m.showSpace(ref)
+		return m.showSpace(t.Ref)
 	}
 	p.cursor = max(0, min(p.cursor, n-1))
 	return nil
 }
 
-// target is the Space under the cursor.
+// target is the row under the cursor: a Space, or a free Space number.
 func (p *spacePicker) target(m *Model) (SpaceTab, bool) {
-	tabs := m.st.SpaceTabs()
+	tabs := m.st.SpaceSlots()
 	if p.cursor < 0 || p.cursor >= len(tabs) {
 		return SpaceTab{}, false
 	}
@@ -102,15 +116,17 @@ func (p *spacePicker) status() (string, bool) {
 	return "Enter switch · a add · e rename · d delete · Shift+↑/↓ move · Esc close", true
 }
 
-// shiftSpace moves the Space under the picker's cursor delta places up or
-// down, the cursor following it. It does nothing at either end.
+// shiftSpace moves the Space under the picker's cursor to the next Space
+// number up (delta -1) or down (1), swapping with the Space that has it;
+// the cursor follows it. It does nothing at 1 or 9, on a free number, or
+// for a Space without a number.
 func (m *Model) shiftSpace(p *spacePicker, delta int) tea.Cmd {
 	t, ok := p.target(m)
-	to := p.cursor + delta
-	if !ok || to < 0 || to >= len(m.st.SpaceTabs()) {
+	to := t.Number + delta
+	if !ok || t.Free() || t.Number == 0 || to < 1 || to > catalog.MaxSpaces {
 		return nil
 	}
-	if err := m.opts.Catalog.MoveSpace(t.Name, to+1); err != nil {
+	if err := m.opts.Catalog.MoveSpace(t.Name, to); err != nil {
 		p.say("move space "+t.Name+": "+err.Error(), true)
 		return nil
 	}
@@ -128,7 +144,7 @@ func (p *spacePicker) say(text string, isErr bool) { p.note, p.noteErr = text, i
 // not empty is given to it without asking, so its refusal shows at once.
 func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 	t, ok := p.target(m)
-	if !ok {
+	if !ok || t.Free() {
 		return nil
 	}
 	del := func(m *Model) tea.Cmd {
@@ -137,33 +153,43 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 			return nil
 		}
 		cmd := m.reload("", "")
-		p.cursor = min(p.cursor, len(m.st.SpaceTabs())-1)
+		p.cursor = min(p.cursor, len(m.st.SpaceSlots())-1) // a numbered row stays, free
 		p.say("deleted space "+t.Name, false)
 		return cmd
 	}
-	if ref, _ := m.st.SpaceRef(p.cursor + 1); ref == "" || !m.st.SpaceEmpty(ref) {
+	if t.Ref == "" || !m.st.SpaceEmpty(t.Ref) {
 		return del(m)
 	}
 	m.ask(fmt.Sprintf("Delete space %s? (y/n)", t.Name), del)
 	return nil
 }
 
-// render draws the picker in the w by h pane.
+// render draws the picker in the w by h pane: a row per Space number,
+// [2] acme, or [3] empty dimmed when it is free, then each Space without a
+// number.
 func (p *spacePicker) render(m *Model, w, h int) []string {
 	lines := []string{fit(" "+boldStyle.Render("Spaces"), w)}
-	for i, t := range m.st.SpaceTabs() {
+	for i, t := range m.st.SpaceSlots() {
 		pointer := "  "
 		if i == p.cursor {
 			pointer = " ›"
 		}
-		name := t.Name
-		switch {
-		case t.Active:
-			name = spaceActiveStyle.Render(name)
-		case !t.Live:
-			name = dimStyle.Render(name)
+		number := "   "
+		if t.Number > 0 {
+			number = fmt.Sprintf("[%d]", t.Number)
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s %s %s", pointer, dimStyle.Render(fmt.Sprint(i+1)), name), w))
+		var row string
+		switch {
+		case t.Free():
+			row = dimStyle.Render(number + " empty")
+		case t.Active:
+			row = dimStyle.Render(number) + " " + spaceActiveStyle.Render(t.Name)
+		case !t.Live:
+			row = dimStyle.Render(number + " " + t.Name)
+		default:
+			row = dimStyle.Render(number) + " " + t.Name
+		}
+		lines = append(lines, fit(pointer+" "+row, w))
 	}
 	lines = lines[:min(len(lines), h)]
 	for len(lines) < h {
@@ -179,9 +205,12 @@ type spaceInput struct {
 	prefixGate
 	back *spacePicker
 	// old is the name of the Space being renamed, or "" for a new Space.
-	old  string
-	name line
-	err  string
+	old string
+	// number is the free Space number a new Space takes, or 0 for the
+	// lowest free one.
+	number int
+	name   line
+	err    string
 }
 
 func (in *spaceInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
@@ -203,6 +232,9 @@ func (in *spaceInput) paste(text string) { in.name.paste(text) }
 
 func (in *spaceInput) status() (string, bool) {
 	prompt, help := "new space: ", "Enter add · Esc cancel"
+	if in.number > 0 {
+		prompt = fmt.Sprintf("new space %d: ", in.number)
+	}
 	if in.old != "" {
 		prompt, help = "rename space "+in.old+" to: ", "Enter rename · Esc cancel"
 	}
@@ -225,9 +257,12 @@ func (m *Model) saveSpace(in *spaceInput) tea.Cmd {
 	}
 	var err error
 	status := "added space " + name
-	if in.old == "" {
+	switch {
+	case in.old == "" && in.number > 0:
+		err = m.opts.Catalog.AddSpaceAt(name, in.number)
+	case in.old == "":
 		err = m.opts.Catalog.AddSpace(name)
-	} else {
+	default:
 		err = m.opts.Catalog.RenameSpace(in.old, name)
 		status = fmt.Sprintf("renamed space %s to %s", in.old, name)
 	}
@@ -247,8 +282,8 @@ func (m *Model) saveSpace(in *spaceInput) tea.Cmd {
 
 // setCursor puts the picker's cursor on the Space name.
 func (p *spacePicker) setCursor(m *Model, name string) {
-	for i, t := range m.st.SpaceTabs() {
-		if t.Name == name {
+	for i, t := range m.st.SpaceSlots() {
+		if !t.Free() && t.Name == name {
 			p.cursor = i
 		}
 	}

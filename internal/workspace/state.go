@@ -188,13 +188,14 @@ func spaceRef(sp Space) string {
 	return sp.Name
 }
 
-// SpaceRef returns how Connections refer to Space number n, counting from
-// 1 ("" for the default Space), and whether there is one.
+// SpaceRef returns how Connections refer to the Space with Space number n
+// ("" for the default Space), and whether one has it.
 func (s *State) SpaceRef(n int) (string, bool) {
-	if n < 1 || n > len(s.spaces) {
+	sp, ok := catalog.Snapshot{Spaces: s.spaces}.SpaceNumbered(n)
+	if !ok {
 		return "", false
 	}
-	return spaceRef(s.spaces[n-1]), true
+	return spaceRef(sp), true
 }
 
 // ActiveSpaceName returns the active Space's name.
@@ -210,16 +211,24 @@ func (s *State) SpaceName(ref string) string {
 	return ""
 }
 
-// SpaceTab is a Space as the Space bar shows it.
+// SpaceTab is a Space as the Space bar and picker show it, or a free Space
+// number (SpaceSlots), which has no Name.
 type SpaceTab struct {
-	Name   string
+	Name string
+	// Ref is how Connections refer to the Space, "" for the default Space.
+	Ref string
+	// Number is the Space number, 0 for a Space beyond the ninth.
+	Number int
 	Active bool
 	// Live is set when one of the Space's Connections has a live Session.
 	Live bool
 }
 
-// SpaceTabs returns every Space in the user's order, so Space number n is
-// SpaceTabs()[n-1].
+// Free reports whether t is a free Space number rather than a Space.
+func (t SpaceTab) Free() bool { return t.Name == "" }
+
+// SpaceTabs returns every Space in Space number order, any without a
+// number last.
 func (s *State) SpaceTabs() []SpaceTab {
 	live := map[string]bool{}
 	for _, c := range s.conns {
@@ -230,9 +239,27 @@ func (s *State) SpaceTabs() []SpaceTab {
 	tabs := make([]SpaceTab, len(s.spaces))
 	for i, sp := range s.spaces {
 		ref := spaceRef(sp)
-		tabs[i] = SpaceTab{Name: sp.Name, Active: ref == s.space, Live: live[ref]}
+		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref]}
 	}
 	return tabs
+}
+
+// SpaceSlots returns one SpaceTab per Space number, 1 to catalog.MaxSpaces,
+// a free number as a SpaceTab with only its Number, then every Space
+// without a number.
+func (s *State) SpaceSlots() []SpaceTab {
+	slots := make([]SpaceTab, catalog.MaxSpaces)
+	for i := range slots {
+		slots[i].Number = i + 1
+	}
+	for _, t := range s.SpaceTabs() {
+		if t.Number >= 1 && t.Number <= catalog.MaxSpaces {
+			slots[t.Number-1] = t
+		} else {
+			slots = append(slots, t)
+		}
+	}
+	return slots
 }
 
 // RenameSpace renames the Space old to name, as the catalog has. Its
@@ -500,7 +527,12 @@ func (s *State) Rows() []Row {
 // matching Connections of every Space and the active Space's open ones,
 // with no group headers, Space by Space in the user's order, then by
 // Group, then by alias.
-func (s *State) CrossSpace() bool { return s.filter != "" && len(s.spaces) > 1 }
+func (s *State) CrossSpace() bool { return s.filter != "" && s.SeveralSpaces() }
+
+// SeveralSpaces reports whether there is more than the default Space, so
+// the Workspace shows the Space bar, names the active Space on the status
+// line and gives the form a Space field.
+func (s *State) SeveralSpaces() bool { return len(s.spaces) > 1 }
 
 func (s *State) crossSpaceRows() []Row {
 	spaceRank := map[string]int{}

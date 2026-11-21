@@ -408,7 +408,7 @@ func spaced() *State {
 		{Alias: "db", Space: "acme", Group: "prod"},
 		{Alias: "api", Space: "acme", Group: "web"},
 	})
-	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}}, "")
+	s.SetSpaces([]Space{{Name: "home", Number: 1, Default: true}, {Name: "acme", Number: 2}}, "")
 	s.SetGroups([]Group{{Name: "web"}, {Name: "prod", Space: "acme"}, {Name: "web", Space: "acme"}, {Name: "spare", Space: "acme"}})
 	return s
 }
@@ -478,10 +478,10 @@ func TestEachSpaceKeepsItsActiveConnectionAndCyclesWithinIt(t *testing.T) {
 
 func TestSpaceTabsMarkTheActiveSpaceAndLiveSessions(t *testing.T) {
 	s := spaced()
-	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}, {Name: "idle"}}, "")
+	s.SetSpaces([]Space{{Name: "home", Number: 1, Default: true}, {Name: "acme", Number: 2}, {Name: "idle", Number: 3}}, "")
 	sess := mustOpen(t, s, "web-1")
 	s.SetSpace("acme")
-	want := []SpaceTab{{Name: "home", Live: true}, {Name: "acme", Active: true}, {Name: "idle"}}
+	want := []SpaceTab{{Name: "home", Number: 1, Live: true}, {Name: "acme", Ref: "acme", Number: 2, Active: true}, {Name: "idle", Ref: "idle", Number: 3}}
 	if got := s.SpaceTabs(); !reflect.DeepEqual(got, want) {
 		t.Errorf("tabs = %+v, want %+v", got, want)
 	}
@@ -493,7 +493,7 @@ func TestSpaceTabsMarkTheActiveSpaceAndLiveSessions(t *testing.T) {
 
 func TestSwitchingToASpaceWithNothingOpenPutsTheCursorOnItsFirstRow(t *testing.T) {
 	s := spaced()
-	s.SetSpaces([]Space{{Name: "home", Default: true}, {Name: "acme"}}, "")
+	s.SetSpaces([]Space{{Name: "home", Number: 1, Default: true}, {Name: "acme", Number: 2}}, "")
 	s.SetCursorGroup("web") // acme has a Group web too
 	s.SetSpace("acme")
 	if r, ok := s.CursorRow(); !ok || !r.Header() || r.Group != "prod" {
@@ -591,6 +591,29 @@ func TestResolveSpaceTakesANumberOrAName(t *testing.T) {
 		if got != tt.want || ok != tt.ok {
 			t.Errorf("ResolveSpace(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
 		}
+	}
+}
+
+func TestSpacesKeepTheirOwnNumbers(t *testing.T) {
+	s := spaced()
+	// home is 4 and acme 2; Spaces 1 and 3 are free; far has no number.
+	s.SetSpaces([]Space{{Name: "acme", Number: 2}, {Name: "home", Number: 4, Default: true}, {Name: "far"}}, "")
+	for _, tt := range []struct {
+		n    int
+		want string
+		ok   bool
+	}{{1, "", false}, {2, "acme", true}, {3, "", false}, {4, "", true}, {0, "", false}} {
+		if got, ok := s.SpaceRef(tt.n); got != tt.want || ok != tt.ok {
+			t.Errorf("SpaceRef(%d) = %q, %v; want %q, %v", tt.n, got, ok, tt.want, tt.ok)
+		}
+	}
+	if got, ok := s.ResolveSpace("3"); ok {
+		t.Errorf("ResolveSpace(3) = %q on a free number", got)
+	}
+	want := []SpaceTab{{Number: 1}, {Name: "acme", Ref: "acme", Number: 2}, {Number: 3}, {Name: "home", Number: 4, Active: true},
+		{Number: 5}, {Number: 6}, {Number: 7}, {Number: 8}, {Number: 9}, {Name: "far", Ref: "far"}}
+	if got := s.SpaceSlots(); !reflect.DeepEqual(got, want) {
+		t.Errorf("SpaceSlots = %+v\nwant %+v", got, want)
 	}
 }
 

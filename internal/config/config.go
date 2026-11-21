@@ -16,9 +16,11 @@ import (
 
 // Version is the config format written by Save. Version 2 stores Groups
 // as records (ADR-0003); version 3 moves the machine-local values to
-// state.json (ADR-0004); version 4 adds Spaces (ADR-0005). Older configs
-// are migrated by Load.
-const Version = 4
+// state.json (ADR-0004); version 4 adds Spaces (ADR-0005); version 5
+// gives each Space a fixed number (ADR-0010), so an older sshctl refuses
+// the file rather than save it without them. Older configs are migrated
+// by Load.
+const Version = 5
 
 // StateVersion is the state.json format written by Save.
 const StateVersion = 1
@@ -372,9 +374,14 @@ func (c *Config) renameCollapsed(old, key string) {
 // reports whether c changed.
 func (c *Config) migrateGroups() bool {
 	changed := c.Version < Version
+	numberAll := c.Version < 5
 	c.Version = Version
 	n := len(c.Notices)
-	if c.addMissingSpaces() {
+	added := c.addMissingSpaces()
+	if len(added) > 0 {
+		changed = true
+	}
+	if c.numberSpaces(numberAll, added) {
 		changed = true
 	}
 	c.renameDigitGroups()
@@ -400,7 +407,7 @@ func (c *Config) RecordOpen(alias string) {
 }
 
 func New() *Config {
-	return &Config{Version: Version, Spaces: []Space{{Name: DefaultSpaceName, Default: true}}, Connections: map[string]Connection{}}
+	return &Config{Version: Version, Spaces: []Space{{Name: DefaultSpaceName, Number: 1, Default: true}}, Connections: map[string]Connection{}}
 }
 
 // Paths returns the config path and the legacy files Load migrates from.

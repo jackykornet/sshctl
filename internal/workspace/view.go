@@ -28,6 +28,9 @@ var (
 	// spaceActiveStyle is the accent colour of the active Space in the
 	// Space bar.
 	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// spaceFreeStyle is a free Space number in the Space bar, fainter than
+	// an idle Space. The picker draws its free rows in dimStyle.
+	spaceFreeStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Faint(true)
 )
 
 // unseenMarker flags tabs and Connections with activity the user hasn't seen.
@@ -102,7 +105,7 @@ func (m *Model) render() string {
 func (m *Model) renderList(w, h int) []string {
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
-	if bar := m.spaceBar(); bar != "" {
+	if bar := m.spaceBar(w); bar != "" {
 		lines = append(lines, fit(bar, w))
 	}
 	for _, l := range m.spaceNoteLines(w) {
@@ -164,34 +167,46 @@ func (m *Model) renderList(w, h int) []string {
 	return lines
 }
 
-// spaceBar shows every Space by its number, [1] [2] [3]: the active Space
+// spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
 // in the accent colour, one with a live Session in normal text, an idle one
-// dimmed. It is empty while there is only one Space.
-func (m *Model) spaceBar() string {
-	tabs := m.st.SpaceTabs()
-	if len(tabs) < 2 {
+// dimmed, and a free number fainter still. When that is wider than w, the
+// numbers close up, [1][2][3]. It is empty while there is only one Space.
+func (m *Model) spaceBar(w int) string {
+	if !m.st.SeveralSpaces() {
 		return ""
 	}
-	parts := make([]string, len(tabs))
-	for i, t := range tabs {
-		label := fmt.Sprintf("[%d]", i+1)
+	var parts []string
+	for _, t := range m.st.SpaceSlots() {
+		if t.Number == 0 {
+			continue // beyond the ninth: only the picker lists it
+		}
+		label := fmt.Sprintf("[%d]", t.Number)
 		switch {
+		case t.Free():
+			label = spaceFreeStyle.Render(label)
 		case t.Active:
 			label = spaceActiveStyle.Render(label)
 		case !t.Live:
 			label = dimStyle.Render(label)
 		}
-		parts[i] = label
+		parts = append(parts, label)
 	}
-	return " " + strings.Join(parts, " ")
+	if bar := " " + strings.Join(parts, " "); ansi.StringWidth(bar) <= w {
+		return bar
+	}
+	return " " + strings.Join(parts, "")
 }
 
-// spaceNames is every Space as "number name", in order.
+// spaceNames is every Space as "number name" in number order, a Space
+// without a number by its name alone.
 func (m *Model) spaceNames() []string {
 	tabs := m.st.SpaceTabs()
 	names := make([]string, len(tabs))
 	for i, t := range tabs {
-		names[i] = fmt.Sprintf("%d %s", i+1, t.Name)
+		names[i] = t.Name
+		if t.Number > 0 {
+			names[i] = fmt.Sprintf("%d %s", t.Number, t.Name)
+		}
 	}
 	return names
 }
@@ -523,7 +538,7 @@ func (m *Model) sessionStatus() string {
 		key = filepath.Base(k)
 	}
 	space := ""
-	if m.spaceBar() != "" {
+	if m.st.SeveralSpaces() {
 		space = m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()

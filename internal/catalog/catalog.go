@@ -21,9 +21,13 @@ type Host = openssh.Endpoint
 // position among its Space's Groups in Snapshot.Groups, counting from 1.
 type Group = config.Group
 
-// Space is a stored Space record (ADR-0005). A Space's number is its
-// position in Snapshot.Spaces counting from 1.
+// Space is a stored Space record (ADR-0005). Its Number is its fixed Space
+// number (ADR-0010); Snapshot.Spaces lists Spaces in number order.
 type Space = config.Space
+
+// MaxSpaces is how many Space numbers there are, and so how many Spaces
+// (ADR-0010).
+const MaxSpaces = config.MaxSpaces
 
 // ErrUnknownGroup is returned when a Connection is moved into a Group that
 // has no record.
@@ -119,6 +123,24 @@ func (s Snapshot) Space(name string) (Space, bool) {
 		return Space{}, false
 	}
 	return s.Spaces[(&config.Config{Spaces: s.Spaces}).SpaceIndex(ref)], true
+}
+
+// SpaceNumbered returns the Space with Space number n, and whether one has
+// it; no Space has a number outside 1..MaxSpaces.
+func (s Snapshot) SpaceNumbered(n int) (Space, bool) {
+	if n < 1 || n > MaxSpaces {
+		return Space{}, false
+	}
+	if i := (&config.Config{Spaces: s.Spaces}).SpaceNumbered(n); i >= 0 {
+		return s.Spaces[i], true
+	}
+	return Space{}, false
+}
+
+// FreeSpaceNumber returns the lowest Space number no Space has, or 0 when
+// all MaxSpaces are taken.
+func (s Snapshot) FreeSpaceNumber() int {
+	return (&config.Config{Spaces: s.Spaces}).FreeSpaceNumber()
 }
 
 // SpaceName returns the name of the Space ref ("" for the default Space).
