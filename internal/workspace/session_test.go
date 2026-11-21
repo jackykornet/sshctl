@@ -208,7 +208,7 @@ func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
 	if shown.Unseen {
 		t.Fatal("output in the shown tab must not mark it")
 	}
-	press(m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	press(m, keyPrefix, text("[")[0])
 	if bg.Unseen || c.Unseen() {
 		t.Fatal("switching to the tab clears its marker")
 	}
@@ -226,7 +226,7 @@ func TestBellMarksBackgroundConnection(t *testing.T) {
 	if m.st.Get("beta").Unseen() {
 		t.Fatal("the shown tab's bell must not mark it")
 	}
-	press(m, tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}) // back to alpha
+	press(m, keyPrefix, text("{")[0]) // back to alpha
 	if alpha.Unseen() {
 		t.Fatal("showing alpha's only tab clears its row marker")
 	}

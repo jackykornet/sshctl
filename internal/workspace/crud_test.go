@@ -99,7 +99,7 @@ func TestDecliningTheStartupIncludeLastsTheSession(t *testing.T) {
 	if m.confirm() != nil || f.includes != 0 || len(f.saves) != 0 {
 		t.Fatalf("confirm = %+v includes = %d saves = %v", m.confirm(), f.includes, f.saves)
 	}
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	if m.confirm() != nil || m.status != "connection list refreshed" {
 		t.Fatalf("refresh asked again: confirm = %+v status = %q", m.confirm(), m.status)
 	}

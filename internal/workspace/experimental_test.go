@@ -97,7 +97,7 @@ func TestHelpScreenSaysWhichExperimentalFeaturesAreOff(t *testing.T) {
 func TestReloadPicksUpAFeatureTurnedOn(t *testing.T) {
 	m, r := offModel(t, []Entry{{Alias: "alpha"}}, catalog.FeatureBootstrap)
 	r.off = nil
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	press(m, keyPrefix, text("i")[0])
 	if want := (commandCall{"alpha", bootstrapLaunch}); len(r.calls) != 1 || r.calls[0] != want {
 		t.Fatalf("Command calls = %v, want [%v]", r.calls, want)

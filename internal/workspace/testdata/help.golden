@@ -1,24 +1,24 @@
   Keys  (↑/↓ PgUp/PgDn scroll · any other key closes)                           
-  ↑/↓/k/j               move the cursor                                         
-  Enter/Space           open or switch to a connection, or toggle a group       
-  ←/→/h/l               on a group: collapse / expand it                        
-  Shift+↑/↓/K/J         on a group: move it up / down (or drag its header)      
-  /                     filter the connection list                              
-  Esc                   clear the filter                                        
-  Alt+←/→  [/]  ^B [/]  previous / next tab                                     
-  P/S/1-9  ^B S/1-9     Space picker / Space names / switch to Space 1-9        
-  Alt+↑/↓               previous / next open connection in the Space            
-  ^B n/c                new tab for the active connection (c runs claude)       
-  ^B i/p                bootstrap / provision in its own tab                    
-  ^B g                  open the connection's group as tabs                     
-  ^B m                  move a connection to a group (or drag it)               
-  a/e/d  ^B a/e/d       add / edit / delete the cursor's connection or group    
-  ^B w  x/r             close tab (on an ended tab: x close, r reconnect)       
-  ^B Tab                move focus between list and terminal                    
-  ^B s                  scroll back (mouse wheel also scrolls)                  
-  ^B b                  hide or show the connection list                        
-  ^B r                  refresh connections from ssh_config                     
-  ^B ^B                 send the prefix key to the session                      
-  ^B ?                  show this help                                          
-  q/^C  ^B q            quit                                                    
+  ↑/↓/k/j              move the cursor                                          
+  Enter/Space          open or switch to a connection, or toggle a group        
+  ←/→/h/l              on a group: collapse / expand it                         
+  Shift+↑/↓/K/J        on a group: move it up / down (or drag its header)       
+  /  ^B /              filter the connection list                               
+  Esc                  clear the filter                                         
+  [/]  ^B [/]          previous / next tab                                      
+  {/}  ^B {/}          previous / next open connection in the Space             
+  P/S/1-9  ^B P/S/1-9  Space picker / Space names / switch to Space 1-9         
+  ^B n/c               new tab for the active connection (c runs claude)        
+  ^B i/p               bootstrap / provision in its own tab                     
+  ^B g                 open the connection's group as tabs                      
+  ^B m                 move a connection to a group (or drag it)                
+  a/e/d  ^B a/e/d      add / edit / delete the cursor's connection or group     
+  ^B w  r/x            close tab (on an ended tab: r reconnect, x close)        
+  ^B Tab               move focus between list and terminal                     
+  ^B s                 scroll back (mouse wheel also scrolls)                   
+  ^B b                 hide or show the connection list                         
+  ^B R                 refresh connections from ssh_config                      
+  ^B ^B                send the prefix key to the session                       
+  ^B ?                 show this help                                           
+  q/^C  ^B q/^C        quit                                                     
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

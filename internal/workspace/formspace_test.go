@@ -147,7 +147,7 @@ func TestFormSpaceGolden(t *testing.T) {
 func TestSavingIntoAnotherSpaceShowsThatSpace(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "web"}, {Alias: "db", Space: "acme"}})
 	r.spaces = []Space{{Name: "acme"}}
-	press(m, keyPrefix, text("r")[0]) // reload to see acme
+	press(m, keyPrefix, text("R")[0]) // reload to see acme
 	m.st.SetCursor("web")
 	press(m, keyEnter) // web has a live tab
 	press(m, keyPrefix, text("e")[0])

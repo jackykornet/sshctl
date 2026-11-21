@@ -41,8 +41,6 @@ func keyStep(k string, want string) modeStep {
 		msg = keyDown
 	case "tab":
 		msg = tea.KeyPressMsg{Code: tea.KeyTab}
-	case "alt+right":
-		msg = tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt}
 	default:
 		msg = text(k)[0]
 	}
@@ -78,7 +76,7 @@ func TestModeChanges(t *testing.T) {
 			{msg: wheel(tea.MouseWheelUp), want: "scroll"},
 			{msg: wheel(tea.MouseWheelDown), want: "list"},
 		}},
-		{"scroll: another tab leaves it", []modeStep{keyStep("prefix", "list"), keyStep("s", "scroll"), keyStep("alt+right", "list")}},
+		{"scroll: another tab leaves it", []modeStep{keyStep("prefix", "list"), keyStep("s", "scroll"), keyStep("prefix", "scroll"), keyStep("]", "list")}},
 		{"scroll: Session ended keeps it", []modeStep{
 			keyStep("prefix", "list"), keyStep("s", "scroll"),
 			{do: func(m *Model, sess *Session) { endSession(m, sess, 1) }, want: "scroll"},

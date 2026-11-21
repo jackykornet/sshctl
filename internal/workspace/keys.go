@@ -15,11 +15,9 @@ import (
 type keyContext int
 
 const (
-	// inAny is outside modals with either focus, even while filtering.
-	inAny keyContext = iota
 	// inList is the connection list with focus and no filter being typed.
-	inList
-	// inPrefix is the key after the prefix key.
+	inList keyContext = iota
+	// inPrefix is the key after the prefix key, with either focus.
 	inPrefix
 	// inEnded is the terminal pane with focus on an ended Session.
 	inEnded
@@ -37,7 +35,13 @@ type action func(m *Model, msg tea.KeyPressMsg) tea.Cmd
 type boundKey struct {
 	key string
 	run action
+	// name is what the key does in a hint line, such as "close tab"; a key
+	// without one is left out of hints.
+	name string
 }
+
+// as names k for hint lines.
+func (k boundKey) as(name string) boundKey { k.name = name; return k }
 
 // A binding is one Workspace command: the keys that run it in each context,
 // and its help text. Key handling and the help screen both read bindings.
@@ -47,60 +51,65 @@ type binding struct {
 	// features lists the Experimental features the binding runs; the
 	// help screen says which of them are off.
 	features []string
+	// listOnly marks a binding that moves around the list (its cursor,
+	// Groups and filter), so it has no prefix keys (ADR-0007).
+	listOnly bool
 }
 
 // bindings lists every Workspace key binding, in help-screen order.
 var bindings = []binding{
 	{
-		keys: each(inList, on("up", moveCursor(-1)), on("down", moveCursor(1)), on("k", moveCursor(-1)), on("j", moveCursor(1))),
-		help: "move the cursor",
+		keys:     each(inList, on("up", moveCursor(-1)), on("down", moveCursor(1)), on("k", moveCursor(-1)), on("j", moveCursor(1))),
+		help:     "move the cursor",
+		listOnly: true,
 	},
 	{
-		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"),
-		help: "open or switch to a connection, or toggle a group",
+		keys:     keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"),
+		help:     "open or switch to a connection, or toggle a group",
+		listOnly: true,
 	},
 	{
-		keys: each(inList, on("left", collapse(true)), on("right", collapse(false)), on("h", collapse(true)), on("l", collapse(false))),
-		help: "on a group: collapse / expand it",
+		keys:     each(inList, on("left", collapse(true)), on("right", collapse(false)), on("h", collapse(true)), on("l", collapse(false))),
+		help:     "on a group: collapse / expand it",
+		listOnly: true,
 	},
 	{
-		keys: each(inList, on("shift+up", shiftGroup(-1)), on("shift+down", shiftGroup(1)), on("K", shiftGroup(-1)), on("J", shiftGroup(1))),
-		help: "on a group: move it up / down (or drag its header)",
+		keys:     each(inList, on("shift+up", shiftGroup(-1)), on("shift+down", shiftGroup(1)), on("K", shiftGroup(-1)), on("J", shiftGroup(1))),
+		help:     "on a group: move it up / down (or drag its header)",
+		listOnly: true,
 	},
 	{
-		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.startFilter(); return nil }, "/"),
+		keys: both(on("/", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+			m.focus = focusList
+			m.startFilter()
+			return nil
+		})),
 		help: "filter the connection list",
 	},
 	{
-		keys: keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil }, "esc"),
-		help: "clear the filter",
+		keys:     keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil }, "esc"),
+		help:     "clear the filter",
+		listOnly: true,
 	},
 	{
-		keys: merge(
-			each(inAny, on("alt+left", selectTab(-1)), on("alt+right", selectTab(1))),
-			each(inList, tabKeys...),
-			each(inPrefix, tabKeys...),
-		),
+		keys: both(on("[", selectTab(-1)).as("tab"), on("]", selectTab(1)).as("tab")),
 		help: "previous / next tab",
+	},
+	{
+		keys: both(on("{", cycleActive(-1)).as("connection"), on("}", cycleActive(1)).as("connection")),
+		help: "previous / next open connection in the Space",
 	},
 	{
 		// The picker and the note share the digits' line so the help
 		// screen fits 80x24.
-		keys: merge(
-			keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }, "P"),
-			keysIn(inList, spaceNote, "S"),
-			keysIn(inList, switchSpace, digits...),
-			keysIn(inPrefix, spaceNote, "S"),
-			keysIn(inPrefix, switchSpace, digits...),
-		),
+		keys: both(append([]boundKey{
+			on("P", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }).as("spaces"),
+			on("S", spaceNote),
+		}, digitKeys()...)...),
 		help: "Space picker / Space names / switch to Space 1-9",
 	},
 	{
-		keys: each(inAny, on("alt+up", cycleActive(-1)), on("alt+down", cycleActive(1))),
-		help: "previous / next open connection in the Space",
-	},
-	{
-		keys: each(inPrefix, on("n", followCursor(newTab(false))), on("c", followCursor(newTab(true)))),
+		keys: each(inPrefix, on("n", followCursor(newTab(false))).as("new tab"), on("c", followCursor(newTab(true)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
@@ -118,14 +127,15 @@ var bindings = []binding{
 		help: "move a connection to a group (or drag it)",
 	},
 	{
-		keys: merge(each(inList, crud...), each(inPrefix, crud...)),
+		keys: both(crud...),
 		help: "add / edit / delete the cursor's connection or group",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.
-		keys: merge(keysIn(inPrefix, closeTab, "w"), each(inEnded, on("x", closeTab),
-			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }))),
-		help: "close tab (on an ended tab: x close, r reconnect)",
+		keys: merge(each(inPrefix, on("w", closeTab).as("close tab")), each(inEnded,
+			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }).as("reconnect"),
+			on("x", closeTab).as("close"))),
+		help: "close tab (on an ended tab: r reconnect, x close)",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -153,7 +163,7 @@ var bindings = []binding{
 		help: "hide or show the connection list",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "r"),
+		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R"),
 		help: "refresh connections from ssh_config",
 	},
 	{
@@ -166,22 +176,33 @@ var bindings = []binding{
 		help: "send the prefix key to the session",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }, "?"),
+		keys: each(inPrefix, on("?", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }).as("help")),
 		help: "show this help",
 	},
 	{
-		keys: merge(keysIn(inList, quit, "q", "ctrl+c"), keysIn(inPrefix, quit, "q")),
+		// Bare Ctrl+C in the pane is the Session's.
+		keys: both(on("q", quit).as("quit"), on("ctrl+c", quit)),
 		help: "quit",
 	},
 }
 
-// tabKeys select the previous and next tab, bound alike in the list and
-// after the prefix.
-var tabKeys = []boundKey{on("[", selectTab(-1)), on("]", selectTab(1))}
+// both binds keys alike in the list and after the prefix, as ADR-0007 has
+// every list action.
+func both(keys ...boundKey) [numContexts][]boundKey {
+	return merge(each(inList, keys...), each(inPrefix, keys...))
+}
 
-// crud is the add, edit and delete keys, bound alike in two contexts. They
-// act on the Group whose header is under the cursor, otherwise on a
-// Connection.
+// digitKeys switch to Spaces 1 to 9.
+func digitKeys() []boundKey {
+	out := make([]boundKey, len(digits))
+	for i, d := range digits {
+		out[i] = on(d, switchSpace)
+	}
+	return out
+}
+
+// crud is the add, edit and delete keys, a list action. They act on the
+// Group whose header is under the cursor, otherwise on a Connection.
 var crud = []boundKey{
 	on("a", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.headerTarget(); ok {

@@ -270,9 +270,6 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.prefix = true
 		return nil
 	}
-	if cmd, ok := m.runBinding(inAny, msg); ok {
-		return cmd
-	}
 	if m.filtering() {
 		m.filterKey(msg)
 		return nil

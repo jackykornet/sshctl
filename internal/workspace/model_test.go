@@ -158,8 +158,7 @@ func TestActivityMarkersGolden(t *testing.T) {
 	m.st.MarkActivity(db.Sessions[2]) // shown: never marked
 	golden(t, "activity", m)
 
-	alt := tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt}
-	press(m, alt, alt) // through db-main 2 to db-main 1
+	press(m, keyPrefix, text("[")[0], keyPrefix, text("[")[0]) // through db-main 2 to db-main 1
 	golden(t, "activity-cleared", m)
 }
 
