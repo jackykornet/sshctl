@@ -32,31 +32,28 @@ type groupInput struct {
 }
 
 func (in *groupInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-	if cmd, ok := in.intercept(m, msg); ok {
-		return cmd
-	}
-	switch msg.String() {
-	case "esc", "ctrl+c":
-		m.showModal(nil)
-	case "enter":
-		return m.saveGroup(in)
-	default:
-		in.name.key(msg)
-	}
-	return nil
+	return in.promptKey(m, msg, in.keys(), &in.name)
 }
+
+func (in *groupInput) keys() []boundKey {
+	done := "add"
+	if in.old != "" {
+		done = "rename"
+	}
+	return promptKeys(done, func(m *Model) tea.Cmd { return m.saveGroup(in) }, nil)
+}
+
+func (in *groupInput) hints() []hintLine { return []hintLine{in.promptHints(in.keys())} }
 
 func (in *groupInput) paste(text string) { in.name.paste(text) }
 
 func (in *groupInput) status() (string, bool) {
-	prompt, help := "new group: ", "Enter add · Esc cancel"
+	prompt := "new group: "
 	if in.old != "" {
-		prompt, help = "rename group "+in.old+" to: ", "Enter rename · Esc cancel"
+		prompt = "rename group " + in.old + " to: "
 	}
-	switch {
-	case in.swallowed:
-		help = "group prompt open: Esc to cancel"
-	case in.err != "":
+	help := in.promptHints(in.keys()).String()
+	if in.err != "" && !in.swallowed {
 		help = in.err
 	}
 	return prompt + in.name.withCursor() + "  " + help, true
@@ -103,7 +100,7 @@ func (m *Model) saveGroup(in *groupInput) tea.Cmd {
 // name, the reason is the status, or the error of the form the question was
 // asked from.
 func (m *Model) askCreateGroup(space, name string, then func(*Model) tea.Cmd) {
-	m.ask(fmt.Sprintf("Create group %s? (y/n)", name), func(m *Model) tea.Cmd {
+	m.ask(fmt.Sprintf("Create group %s?", name), func(m *Model) tea.Cmd {
 		if err := m.opts.Catalog.AddGroup(space, name); err != nil {
 			if f := m.form(); f != nil {
 				f.err = err.Error()
@@ -123,7 +120,7 @@ func (m *Model) deleteGroup(group string) tea.Cmd {
 	if n == 1 {
 		verb = "becomes"
 	}
-	question := fmt.Sprintf("Delete group %s? %s %s ungrouped. (y/n)", group, countConnections(n), verb)
+	question := fmt.Sprintf("Delete group %s? %s %s ungrouped.", group, countConnections(n), verb)
 	m.ask(question, func(m *Model) tea.Cmd {
 		if err := m.opts.Catalog.DeleteGroup(m.st.Space(), group); err != nil {
 			return m.setStatus("delete group "+group+": "+err.Error(), true)

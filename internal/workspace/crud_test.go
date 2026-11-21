@@ -99,7 +99,7 @@ func TestDecliningTheStartupIncludeLastsTheSession(t *testing.T) {
 	if m.confirm() != nil || f.includes != 0 || len(f.saves) != 0 {
 		t.Fatalf("confirm = %+v includes = %d saves = %v", m.confirm(), f.includes, f.saves)
 	}
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	if m.confirm() != nil || m.status != "connection list refreshed" {
 		t.Fatalf("refresh asked again: confirm = %+v status = %q", m.confirm(), m.status)
 	}
@@ -238,7 +238,7 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 	m.st.SetCursor("mine")
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
-	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "Ctrl+S save"} {
+	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "^S save"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("screen missing %q:\n%s", want, screen)
 		}

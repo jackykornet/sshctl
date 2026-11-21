@@ -441,7 +441,7 @@ func (m *Model) renderPane(w, h int) []string {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
 	if s != nil && s.Ended && h > 1 {
-		banner := fmt.Sprintf(" session ended (exit %d) · r reconnect · x close ", s.ExitCode)
+		banner := fmt.Sprintf(" session ended (exit %d) · %s ", s.ExitCode, m.endedHints())
 		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
@@ -470,7 +470,7 @@ func (m *Model) helpLines() (title string, body []string) {
 		labels[i] = m.bindingLabel(b)
 		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  (↑/↓ PgUp/PgDn scroll · any other key closes)")
+	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  "+(&helpScreen{}).hints()[0].String())
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
 		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(m.helpText(b)))
@@ -509,9 +509,9 @@ func (m *Model) renderStatus(w int) string {
 	case m.status != "":
 		left = m.status
 	case m.scrolling():
-		left = "scroll mode · ↑/↓ PgUp/PgDn g/G · q exit"
+		left = "scroll mode · " + m.scrollHints().String()
 		if _, r := m.currentRunner(); r != nil {
-			left = fmt.Sprintf("scroll: %d/%d lines back · ↑/↓ PgUp/PgDn g/G · q exit", r.scroll, r.term.ScrollbackLen())
+			left = fmt.Sprintf("scroll: %d/%d lines back · %s", r.scroll, r.term.ScrollbackLen(), m.scrollHints())
 		}
 	default:
 		left = m.sessionStatus()
@@ -519,12 +519,9 @@ func (m *Model) renderStatus(w int) string {
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
-	p := keyHint(m.opts.PrefixKey)
 	line := " " + left
-	for _, right := range []string{
-		fmt.Sprintf("%s ? help · %s n new tab · %s w close", p, p, p),
-		p + " ? help",
-	} {
+	for _, hints := range m.statusHints() {
+		right := hints.String()
 		if gap := w - ansi.StringWidth(line) - ansi.StringWidth(right) - 1; gap >= 1 {
 			line += strings.Repeat(" ", gap) + right + " "
 			break
@@ -532,6 +529,15 @@ func (m *Model) renderStatus(w int) string {
 	}
 	return barStyle.Render(fit(line, w))
 }
+
+// statusHints are the status line's hint lines for the right side, the
+// longest first; it shows the first that fits.
+func (m *Model) statusHints() []hintLine {
+	return []hintLine{m.hint(inPrefix, "?", "n", "w"), m.hint(inPrefix, "?")}
+}
+
+// endedHints is the ended tab banner's hint line.
+func (m *Model) endedHints() hintLine { return m.hint(inEnded, "r", "x") }
 
 func (m *Model) sessionStatus() string {
 	key := "OpenSSH default"

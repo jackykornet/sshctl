@@ -71,39 +71,61 @@ func (m *Model) ask(question string, yes func(*Model) tea.Cmd) {
 	m.openModal(&confirmation{question: question, yes: yes, back: back})
 }
 
+// key answers the question: y or Y is yes, any other key no.
 func (c *confirmation) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	m.showModal(c.back)
-	if k := msg.String(); k == "y" || k == "Y" {
-		return c.yes(m)
+	if bk, ok := findKey(c.keys(), msg.String()); ok {
+		return bk.run(m, msg)
 	}
 	return nil
 }
 
-func (c *confirmation) paste(string)           {}
-func (c *confirmation) status() (string, bool) { return c.question, true }
-func (c *confirmation) prefixArmed() bool      { return false }
+func (c *confirmation) keys() []boundKey {
+	yes := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return c.yes(m) }
+	no := func(*Model, tea.KeyPressMsg) tea.Cmd { return nil }
+	return []boundKey{on("y", yes).as("yes"), on("Y", yes), on("n", no).as("no")}
+}
+
+func (c *confirmation) hints() []hintLine { return []hintLine{hintsFor(c.keys(), "y", "n")} }
+
+func (c *confirmation) paste(string) {}
+func (c *confirmation) status() (string, bool) {
+	return c.question + "  " + c.hints()[0].String(), true
+}
+func (c *confirmation) prefixArmed() bool { return false }
 
 // helpScreen lists the keys over the whole Workspace, scrolled down by top
 // lines when they do not fit.
 type helpScreen struct{ top int }
 
+// key scrolls the help screen; any key not in its table closes it.
 func (h *helpScreen) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-	page := max(1, m.helpRows()-1)
-	switch msg.String() {
-	case "up":
-		h.top--
-	case "down":
-		h.top++
-	case "pgup":
-		h.top -= page
-	case "pgdown":
-		h.top += page
-	default:
-		m.showModal(nil)
-		return nil
+	if bk, ok := findKey(h.keys(), msg.String()); ok {
+		return bk.run(m, msg)
 	}
-	h.top = max(0, min(h.top, m.helpMaxTop()))
+	m.showModal(nil)
 	return nil
+}
+
+func (h *helpScreen) keys() []boundKey {
+	by := func(pages, lines int) action {
+		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+			h.top += pages*max(1, m.helpRows()-1) + lines
+			h.top = max(0, min(h.top, m.helpMaxTop()))
+			return nil
+		}
+	}
+	return []boundKey{
+		on("up", by(0, -1)).as("scroll"),
+		on("down", by(0, 1)).as("scroll"),
+		on("pgup", by(-1, 0)).as("scroll"),
+		on("pgdown", by(1, 0)).as("scroll"),
+		on("esc", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }).as("close"),
+	}
+}
+
+func (h *helpScreen) hints() []hintLine {
+	return []hintLine{hintsFor(h.keys(), "esc", "up", "down", "pgup", "pgdown")}
 }
 
 func (helpScreen) paste(string)           {}
@@ -147,27 +169,52 @@ type moveInput struct {
 }
 
 func (in *moveInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-	if cmd, ok := in.intercept(m, msg); ok {
-		return cmd
-	}
-	switch msg.String() {
-	case "esc", "ctrl+c":
-		m.showModal(nil)
-	case "enter":
+	return in.promptKey(m, msg, in.keys(), &in.group)
+}
+
+func (in *moveInput) keys() []boundKey {
+	return promptKeys("move", func(m *Model) tea.Cmd {
 		m.showModal(nil)
 		return m.moveTo(in.alias, in.group.String())
-	default:
-		in.group.key(msg)
-	}
-	return nil
+	}, nil)
 }
+
+func (in *moveInput) hints() []hintLine { return []hintLine{in.promptHints(in.keys())} }
 
 func (in *moveInput) paste(text string) { in.group.paste(text) }
 
 func (in *moveInput) status() (string, bool) {
-	help := "Enter move · 0 or empty for none · Esc cancel"
-	if in.swallowed {
-		help = "move prompt open: Esc to cancel"
+	return fmt.Sprintf("move %s to group: %s  %s  (0 or empty for none)", in.alias, in.group.withCursor(), in.promptHints(in.keys())), true
+}
+
+// promptKeys are the keys of a status-line prompt: Enter runs done, named
+// doneName, and Esc or Ctrl+C go back to back (nil closes the prompt).
+func promptKeys(doneName string, done func(*Model) tea.Cmd, back modal) []boundKey {
+	cancel := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(back); return nil }
+	return []boundKey{
+		on("enter", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return done(m) }).as(doneName),
+		on("esc", cancel).as("cancel"),
+		on("ctrl+c", cancel),
 	}
-	return fmt.Sprintf("move %s to group: %s  %s", in.alias, in.group.withCursor(), help), true
+}
+
+// promptKey runs msg from keys, or else types it into text.
+func (g *prefixGate) promptKey(m *Model, msg tea.KeyPressMsg, keys []boundKey, text *line) tea.Cmd {
+	if cmd, ok := g.intercept(m, msg); ok {
+		return cmd
+	}
+	if bk, ok := findKey(keys, msg.String()); ok {
+		return bk.run(m, msg)
+	}
+	text.key(msg)
+	return nil
+}
+
+// promptHints is a prompt's hint line: Enter and Esc, or only Esc after a
+// swallowed prefix command, to say how to leave.
+func (g *prefixGate) promptHints(keys []boundKey) hintLine {
+	if g.swallowed {
+		return hintsFor(keys, "esc")
+	}
+	return hintsFor(keys, "enter", "esc")
 }

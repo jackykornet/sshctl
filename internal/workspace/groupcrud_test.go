@@ -24,7 +24,7 @@ func newGroupModel(t *testing.T) (*Model, *fakeCatalog) {
 func TestDeleteOnAGroupHeaderAsksThenUngroupsItsMembers(t *testing.T) {
 	m, f := newGroupModel(t)
 	press(m, text("d")...)
-	want := "Delete group web? 4 connections become ungrouped. (y/n)"
+	want := "Delete group web? 4 connections become ungrouped."
 	if m.confirm() == nil || m.confirm().question != want {
 		t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 	}
@@ -112,7 +112,7 @@ func TestTheFormOffersToCreateANewGroup(t *testing.T) {
 			press(m, text("e")...)
 			fill(m, "", "dev")
 			press(m, keyCtrlS)
-			if want := "Create group dev? (y/n)"; m.confirm() == nil || m.confirm().question != want {
+			if want := "Create group dev?"; m.confirm() == nil || m.confirm().question != want {
 				t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 			}
 			press(m, text(answer)...)
@@ -208,7 +208,7 @@ func TestTheMovePromptOffersToCreateANewGroup(t *testing.T) {
 			m.st.SetCursor("alpha")
 			press(m, keyPrefix, text("m")[0], keyClear)
 			press(m, append(text("dev"), keyEnter)...)
-			if want := "Create group dev? (y/n)"; m.confirm() == nil || m.confirm().question != want {
+			if want := "Create group dev?"; m.confirm() == nil || m.confirm().question != want {
 				t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 			}
 			press(m, text(answer)...)

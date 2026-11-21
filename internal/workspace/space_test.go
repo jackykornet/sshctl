@@ -180,7 +180,7 @@ func TestReloadOpensTheSavedSpaceWhenTheActiveOneIsGone(t *testing.T) {
 	f.spaceGroups[0].Space = "acme-corp"
 	f.entries[len(f.entries)-1].Space = "acme-corp"
 	f.activeSpace = "acme-corp"
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	if got := m.st.Space(); got != "acme-corp" {
 		t.Errorf("after the reload, active Space = %q, want acme-corp", got)
 	}

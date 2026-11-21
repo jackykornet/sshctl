@@ -270,9 +270,6 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.prefix = true
 		return nil
 	}
-	if cmd, ok := m.runBinding(inAny, msg); ok {
-		return cmd
-	}
 	if m.filtering() {
 		m.filterKey(msg)
 		return nil
@@ -292,7 +289,9 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if m.scrolling() && r != nil {
-		m.scrollKey(r, msg.String())
+		if bk, ok := findKey(m.scrollKeys(), msg.String()); ok {
+			bk.run(m, msg)
+		}
 		return nil
 	}
 	if s.Ended {
@@ -306,23 +305,40 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) scrollKey(r *runner, k string) {
+// scrollKeys are scroll mode's keys, which act on the current tab's runner.
+func (m *Model) scrollKeys() []boundKey {
 	_, h := m.paneSize()
-	switch k {
-	case "up", "k":
-		m.scrollBy(r, 1)
-	case "down", "j":
-		m.scrollBy(r, -1)
-	case "pgup":
-		m.scrollBy(r, h)
-	case "pgdown", "ctrl+f", "space":
-		m.scrollBy(r, -h)
-	case "g", "home":
-		m.scrollBy(r, r.term.ScrollbackLen())
-	case "G", "end", "q", "esc":
-		r.scroll = 0
-		m.stopScroll()
+	by := func(n func(r *runner) int) action {
+		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+			if _, r := m.currentRunner(); r != nil {
+				m.scrollBy(r, n(r))
+			}
+			return nil
+		}
 	}
+	lines := func(n int) action { return by(func(*runner) int { return n }) }
+	top := by(func(r *runner) int { return r.term.ScrollbackLen() })
+	exit := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if _, r := m.currentRunner(); r != nil {
+			r.scroll = 0
+		}
+		m.stopScroll()
+		return nil
+	}
+	return []boundKey{
+		on("up", lines(1)).as("scroll"), on("k", lines(1)),
+		on("down", lines(-1)).as("scroll"), on("j", lines(-1)),
+		on("pgup", lines(h)).as("scroll"),
+		on("pgdown", lines(-h)).as("scroll"), on("ctrl+f", lines(-h)), on("space", lines(-h)),
+		on("g", top).as("top"), on("home", top),
+		on("G", exit).as("bottom"), on("end", exit),
+		on("q", exit).as("exit"), on("esc", exit),
+	}
+}
+
+// scrollHints is scroll mode's hint line.
+func (m *Model) scrollHints() hintLine {
+	return hintsFor(m.scrollKeys(), "up", "down", "pgup", "pgdown", "g", "G", "q")
 }
 
 func (m *Model) scrollBy(r *runner, n int) {
@@ -361,7 +377,7 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	p := keyHint(m.opts.PrefixKey)
-	return m.setStatus(fmt.Sprintf("unknown command %s %s (%s ? for help)", p, msg.String(), p), true)
+	return m.setStatus(fmt.Sprintf("unknown command %s %s · %s", p, msg.String(), m.hint(inPrefix, "?")), true)
 }
 
 func (m *Model) selectTab(delta int) {
@@ -547,7 +563,7 @@ func (m *Model) closeTab() tea.Cmd {
 	if sess.Ended {
 		return doClose(m)
 	}
-	m.ask(fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), doClose)
+	m.ask(fmt.Sprintf("Close %s %d?", c.Alias, sess.N), doClose)
 	return nil
 }
 
@@ -560,7 +576,7 @@ func (m *Model) quit() tea.Cmd {
 	if n == 1 {
 		noun = "session"
 	}
-	m.ask(fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun), func(*Model) tea.Cmd { return tea.Quit })
+	m.ask(fmt.Sprintf("%d live %s will be closed. Quit?", n, noun), func(*Model) tea.Cmd { return tea.Quit })
 	return nil
 }
 
