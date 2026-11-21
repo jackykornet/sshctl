@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/sshctl/sshctl/internal/config"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // spacePicker lists every Space number in the pane, one row each with its
@@ -123,7 +123,7 @@ func (p *spacePicker) status() (string, bool) {
 func (m *Model) shiftSpace(p *spacePicker, delta int) tea.Cmd {
 	t, ok := p.target(m)
 	to := t.Number + delta
-	if !ok || t.Free() || t.Number == 0 || to < 1 || to > config.MaxSpaces {
+	if !ok || t.Free() || t.Number == 0 || to < 1 || to > catalog.MaxSpaces {
 		return nil
 	}
 	if err := m.opts.Catalog.MoveSpace(t.Name, to); err != nil {

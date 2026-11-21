@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
-	"github.com/sshctl/sshctl/internal/config"
 )
 
 type commandCall struct {
@@ -87,10 +86,9 @@ func (f *fakeCatalog) number() {
 	}
 	f.numbered = true
 	all := slices.Insert(slices.Clone(f.spaces), f.defaultAt, Space{Default: true, Number: f.defaultNumber})
-	cfg := &config.Config{Spaces: all}
 	for i := range all {
 		if all[i].Number == 0 {
-			all[i].Number = cfg.FreeSpaceNumber()
+			all[i].Number = catalog.Snapshot{Spaces: all}.FreeSpaceNumber()
 		}
 	}
 	f.spaces = nil
@@ -111,9 +109,15 @@ func (f *fakeCatalog) allSpaces() []Space {
 	if name == "" {
 		name = "default"
 	}
-	cfg := &config.Config{Spaces: append([]Space{{Name: name, Number: f.defaultNumber, Default: true}}, f.spaces...)}
-	cfg.SortSpaces()
-	return cfg.Spaces
+	all := append([]Space{{Name: name, Number: f.defaultNumber, Default: true}}, f.spaces...)
+	order := func(s Space) int {
+		if s.Number == 0 {
+			return catalog.MaxSpaces + 1
+		}
+		return s.Number
+	}
+	slices.SortStableFunc(all, func(a, b Space) int { return order(a) - order(b) })
+	return all
 }
 
 // spaceIndex returns the index in spaces of the Space name, or -1 (also for
@@ -135,12 +139,11 @@ func (f *fakeCatalog) numberOf(name string) *int {
 	return nil
 }
 
-// numbered returns the number pointer of the Space with number n, or nil.
+// numberedSpace returns the number pointer of the Space with number n, or
+// nil.
 func (f *fakeCatalog) numberedSpace(n int) *int {
-	for _, s := range f.allSpaces() {
-		if s.Number == n {
-			return f.numberOf(s.Name)
-		}
+	if s, ok := (catalog.Snapshot{Spaces: f.allSpaces()}).SpaceNumbered(n); ok {
+		return f.numberOf(s.Name)
 	}
 	return nil
 }
@@ -150,7 +153,7 @@ func (f *fakeCatalog) AddSpace(name string) error {
 	if err := f.spaceOp("add " + name); err != nil {
 		return err
 	}
-	n := (&config.Config{Spaces: f.allSpaces()}).FreeSpaceNumber()
+	n := catalog.Snapshot{Spaces: f.allSpaces()}.FreeSpaceNumber()
 	if n == 0 {
 		return catalog.ErrSpacesFull
 	}
@@ -218,7 +221,7 @@ func (f *fakeCatalog) MoveSpace(name string, n int) error {
 		return err
 	}
 	num := f.numberOf(name)
-	if num == nil || n < 1 || n > config.MaxSpaces {
+	if num == nil || n < 1 || n > catalog.MaxSpaces {
 		return errors.New("bad space move")
 	}
 	if other := f.numberedSpace(n); other != nil {
