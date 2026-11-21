@@ -585,24 +585,6 @@ func (c *Catalog) Delete(alias string) error {
 	return c.saveConfig(c.configPath, cfg)
 }
 
-// ErrNoMetadata is returned by DeleteMetadata when alias has no sshctl metadata.
-var ErrNoMetadata = errors.New("no sshctl metadata")
-
-// DeleteMetadata removes alias's description, group and Space, which
-// leaves it in the default Space, and nothing else: its Host block, even
-// one sshctl manages, and its History stay.
-func (c *Catalog) DeleteMetadata(alias string) error {
-	cfg, err := config.Load(c.configPath, c.legacy)
-	if err != nil {
-		return err
-	}
-	if _, ok := cfg.Connections[alias]; !ok {
-		return fmt.Errorf("%s: %w", alias, ErrNoMetadata)
-	}
-	delete(cfg.Connections, alias)
-	return c.saveConfig(c.configPath, cfg)
-}
-
 // rename is the rename rule: old's metadata and History follow it to alias.
 func rename(cfg *config.Config, old, alias string) {
 	if m, ok := cfg.Connections[old]; ok {

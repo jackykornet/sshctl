@@ -32,9 +32,9 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 sshctl
 sshctl list [--space <space>]
 sshctl connect <alias> [--claude]
-sshctl add <alias>
-sshctl edit <alias>
-sshctl remove <alias>
+sshctl add <alias> [--<field> <value>]...
+sshctl edit <alias> [--<field> <value>]...
+sshctl remove <alias> [--yes]
 sshctl space list
 sshctl space add <name> [<number>]
 sshctl space rename <space> <new>
@@ -62,7 +62,16 @@ sshctl experimental enable|disable <feature>
 sshctl config show
 ```
 
-Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(missing)`. `add` and `edit` prompt for a description and group; an empty answer keeps the current value, and a Connection with neither keeps no metadata. The group must already exist: `add` and `edit` refuse an unknown one and tell you to run `sshctl group add`. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(missing)`. `add` and `edit` set the same fields as the Workspace's add/edit form, and save them the same way: the Host block (HostName, User, Port, Identity file) goes to `~/.ssh/sshctl_config`, and the description, Space and group are sshctl metadata.
+
+```sh
+sshctl add web01 --host 203.0.113.10 --user deploy --port 2222 --identity ~/.ssh/id_ed25519 \
+    --group web --space work --description "public site"
+sshctl edit web01 --port 22
+sshctl edit web01 --alias web02
+```
+
+`add` creates a new Connection, and refuses an alias that already exists anywhere in ssh_config; `edit` changes an existing one, and `--alias` renames it. With flags, only the fields given change (`--user ""` clears one); without flags, both prompt for each field in turn and an empty answer keeps the current value. `--space` and `--group` take a name or number as everywhere else, and `--group 0` is ungrouped; a Space change without `--group` leaves the Connection ungrouped. The group must already exist: an unknown one is refused with the `sshctl group add` command that creates it. An invalid value (a port outside 1-65535, a hostname with spaces) is refused and nothing is written. For a Connection whose Host block is your own, `edit` changes only its description, Space and group, says so, and refuses Host fields. The first time sshctl writes a Host block it asks to add `Include sshctl_config` to your `~/.ssh/config`, as the Workspace does. `remove` does what the Workspace's delete does: it deletes the Host block if sshctl wrote it and the sshctl metadata, after asking (`--yes` skips the question); a Host block in your own ssh_config stays. A Connection with neither description, Space nor group keeps no metadata. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
 
 `key list` lists public keys and certificates found in `~/.ssh` and registered external key paths. `key add` registers a key path; `key use` selects the identity used by sshctl. `agent ensure` inspects `ssh-add -l` and asks before adding the selected key. It does not start an agent automatically, and does not perform a signing challenge to inspect loaded keys. On Windows, use the OpenSSH Authentication Agent service and start it yourself if unavailable; normal connections do not require elevation.
 
@@ -163,7 +172,7 @@ The list shows one Space at a time, the active Space: its groups and connections
 
 `a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). `Ctrl+S` saves it; for a new connection, `Ctrl+O` saves it and then runs Bootstrap in its own tab. A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
 
-`e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
+`e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. `sshctl edit` and `sshctl remove` do the same from the command line. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
 
 ### Groups
 

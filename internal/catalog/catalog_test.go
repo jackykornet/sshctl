@@ -256,25 +256,6 @@ func TestDeleteUnmanagedConnectionRemovesOnlyMetadata(t *testing.T) {
 	}
 }
 
-func TestDeleteMetadataKeepsTheManagedHostBlock(t *testing.T) {
-	tr := renamable(t)
-	if err := tr.cat.DeleteMetadata("api"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := tr.config(t).Connections["api"]; ok {
-		t.Error("api's metadata should be deleted")
-	}
-	if h, ok := tr.hosts(t)["api"]; !ok || h.HostName != "h" {
-		t.Errorf("Host blocks = %+v, want api's kept", tr.hosts(t))
-	}
-	if !slices.Equal(tr.config(t).History, []string{"api"}) {
-		t.Errorf("History = %v, want [api]", tr.config(t).History)
-	}
-	if err := tr.cat.DeleteMetadata("api"); !errors.Is(err, ErrNoMetadata) {
-		t.Errorf("deleting again: err = %v, want ErrNoMetadata", err)
-	}
-}
-
 // unchanged fails unless tr still holds what renamable wrote.
 func (tr *tree) unchanged(t *testing.T) {
 	t.Helper()
