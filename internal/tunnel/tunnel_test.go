@@ -123,3 +123,54 @@ func TestRemove(t *testing.T) {
 		t.Error("Remove changed its argument")
 	}
 }
+
+func TestParseList(t *testing.T) {
+	panel := Tunnel{Name: "panel", LocalPort: 8083, RemoteHost: "localhost", RemotePort: 8083}
+	cockpit := Tunnel{Name: "cockpit", LocalPort: 9090, RemoteHost: "localhost", RemotePort: 9090}
+	db := Tunnel{LocalPort: 5433, RemoteHost: "10.0.0.5", RemotePort: 5432}
+	for _, tc := range []struct {
+		text string
+		want []Tunnel
+		err  error
+	}{
+		{"", nil, nil},
+		{"  ", nil, nil},
+		{"panel=8083, cockpit=9090", []Tunnel{panel, cockpit}, nil},
+		{"panel=8083,5433:10.0.0.5:5432,", []Tunnel{panel, db}, nil},
+		{"panel=8083, 70000", nil, ErrSpec},
+		{"8083, panel=8083", nil, ErrDuplicate},
+		{"panel=8083, panel=9090", nil, ErrDuplicate},
+	} {
+		got, err := ParseList(tc.text)
+		if !errors.Is(err, tc.err) || !slices.Equal(got, tc.want) {
+			t.Errorf("ParseList(%q) = %v, %v; want %v, %v", tc.text, got, err, tc.want, tc.err)
+		}
+	}
+}
+
+func TestJoinRoundTrips(t *testing.T) {
+	const text = "panel=8083, 5433:10.0.0.5:5432"
+	list, err := ParseList(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Join(list); got != text {
+		t.Errorf("Join = %q, want %q", got, text)
+	}
+	if got := Join(nil); got != "" {
+		t.Errorf("Join(nil) = %q", got)
+	}
+}
+
+func TestCheck(t *testing.T) {
+	a := Tunnel{LocalPort: 8083, RemoteHost: "localhost", RemotePort: 8083}
+	if err := Check([]Tunnel{a, {Name: "b", LocalPort: 9000, RemoteHost: "localhost", RemotePort: 80}}); err != nil {
+		t.Errorf("Check = %v, want nil", err)
+	}
+	if err := Check([]Tunnel{a, a}); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("Check(duplicate) = %v, want ErrDuplicate", err)
+	}
+	if err := Check([]Tunnel{{LocalPort: 0, RemoteHost: "localhost", RemotePort: 80}}); !errors.Is(err, ErrSpec) {
+		t.Errorf("Check(port 0) = %v, want ErrSpec", err)
+	}
+}

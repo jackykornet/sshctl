@@ -157,3 +157,52 @@ func Remove(list []Tunnel, ref string) ([]Tunnel, Tunnel, error) {
 	}
 	return slices.Delete(slices.Clone(list), i, i+1), list[i], nil
 }
+
+// ParseList reads a comma-separated list of specs, as the connection form
+// holds them ("panel=8083, cockpit=9090"); empty entries are skipped. It
+// refuses a bad spec (ErrSpec) and a local port or name used twice
+// (ErrDuplicate).
+func ParseList(text string) ([]Tunnel, error) {
+	var list []Tunnel
+	for spec := range strings.SplitSeq(text, ",") {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		t, err := Parse(spec)
+		if err != nil {
+			return nil, err
+		}
+		if list, err = Add(list, t); err != nil {
+			return nil, err
+		}
+	}
+	return list, nil
+}
+
+// Join writes list as ParseList reads it.
+func Join(list []Tunnel) string {
+	specs := make([]string, len(list))
+	for i, t := range list {
+		specs[i] = t.String()
+	}
+	return strings.Join(specs, ", ")
+}
+
+// Check returns an error unless every Tunnel in list is one Parse could
+// return and no two share a local port or name.
+func Check(list []Tunnel) error {
+	var seen []Tunnel
+	for _, t := range list {
+		if p, err := Parse(t.String()); err != nil {
+			return err
+		} else if p != t {
+			return fmt.Errorf("%w %q", ErrSpec, t.String())
+		}
+		var err error
+		if seen, err = Add(seen, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
