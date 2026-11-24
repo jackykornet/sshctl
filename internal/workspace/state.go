@@ -214,6 +214,25 @@ func (s *State) SpaceName(ref string) string {
 	return ""
 }
 
+// OtherSpaceNumber returns the Space number of the Space alias is in, or of
+// last for an alias no longer listed, when that is not the active Space;
+// otherwise 0.
+func (s *State) OtherSpaceNumber(alias, last string) int {
+	space := last
+	if c := s.conns[alias]; c != nil {
+		space = c.Space
+	}
+	if space == s.space {
+		return 0
+	}
+	for _, sp := range s.spaces {
+		if spaceRef(sp) == space {
+			return sp.Number
+		}
+	}
+	return 0
+}
+
 // SpaceTab is a Space as the Space bar and picker show it, or a free Space
 // number (SpaceSlots), which has no Name.
 type SpaceTab struct {

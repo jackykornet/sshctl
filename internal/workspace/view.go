@@ -219,7 +219,7 @@ func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
 		pointer = "›"
 	}
 	name := r.run.alias
-	if n := m.tunnelSpaceNumber(r.run); n > 0 {
+	if n := m.st.OtherSpaceNumber(r.run.alias, r.run.space); n > 0 {
 		name = dimStyle.Render(fmt.Sprintf("%d·", n)) + name
 	}
 	if r.forward.Name != "" {
@@ -236,24 +236,6 @@ func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
 		name = ansi.Truncate(name, max(room, 1), "…")
 	}
 	return fit(left+name+right+detail, w)
-}
-
-// tunnelSpaceNumber is the Space number of r's Connection when that is not
-// the active Space, or 0.
-func (m *Model) tunnelSpaceNumber(r *tunnelRun) int {
-	space := r.space
-	if c := m.st.Get(r.alias); c != nil {
-		space = c.Space
-	}
-	if space == m.st.Space() {
-		return 0
-	}
-	for _, t := range m.st.SpaceTabs() {
-		if t.Ref == space {
-			return t.Number
-		}
-	}
-	return 0
 }
 
 // spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
