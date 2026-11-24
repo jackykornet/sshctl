@@ -36,6 +36,8 @@ func (r *tunnelRun) failed() bool { return r.err != "" }
 type tunnelProc struct {
 	cmd    *exec.Cmd
 	stderr *tailBuffer
+	// exited is closed once the process has exited.
+	exited chan struct{}
 }
 
 // tunnelEndedMsg says a tunnel's process exited.
@@ -173,6 +175,7 @@ func tunnelError(stderr string, code int) string {
 // wait sends tunnelEndedMsg when proc exits.
 func (t *tunnels) wait(r *tunnelRun, proc *tunnelProc) {
 	err := proc.cmd.Wait()
+	close(proc.exited)
 	code := -1
 	if proc.cmd.ProcessState != nil {
 		code = proc.cmd.ProcessState.ExitCode()
@@ -189,7 +192,7 @@ func startTunnelProc(argv []string) (*tunnelProc, error) {
 		return nil, errors.New("no command to run")
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
-	p := &tunnelProc{cmd: cmd, stderr: &tailBuffer{}}
+	p := &tunnelProc{cmd: cmd, stderr: &tailBuffer{}, exited: make(chan struct{})}
 	cmd.Stderr = p.stderr
 	// A killed ssh's children could hold stderr open; don't wait for them.
 	cmd.WaitDelay = time.Second

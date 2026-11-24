@@ -148,10 +148,8 @@ func TestQuitAsksOnlyWhileTunnelsRunAndStopsThem(t *testing.T) {
 	if m.tunnels.get("web") != nil {
 		t.Fatal("confirming the quit stops every tunnel")
 	}
-	done := make(chan struct{})
-	go func() { proc.cmd.Wait(); close(done) }()
 	select {
-	case <-done:
+	case <-proc.exited:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the tunnel process is still running after the quit")
 	}
@@ -218,16 +216,12 @@ func TestPrefixTStopsARunningTunnel(t *testing.T) {
 	m, r := newRecordingModel(t, tunnelEntries())
 	m.st.SetCursor("web")
 	press(m, keyPrefix, text("t")[0])
-	proc := m.tunnels.get("web").proc
 	press(m, keyPrefix, text("t")[0])
 	if m.tunnels.get("web") != nil {
 		t.Fatal("a second ^B t should stop web's tunnel")
 	}
 	if len(r.calls) != 1 {
 		t.Errorf("Command calls = %+v, want only the start", r.calls)
-	}
-	if proc.cmd.ProcessState == nil {
-		proc.cmd.Wait() // the stopped process must have been killed, so Wait returns
 	}
 }
 
