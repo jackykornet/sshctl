@@ -2,9 +2,11 @@ package workspace
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
 )
 
@@ -87,6 +89,14 @@ func (p *spacePicker) keys() []boundKey {
 		m.openModal(in)
 		return nil
 	}
+	color := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if t, ok := p.target(m); ok && !t.Free() {
+			in := &colorInput{space: t.Ref, name: t.Name, back: p}
+			in.cursor = max(0, slices.Index(colorChoices, t.Color))
+			m.openModal(in)
+		}
+		return nil
+	}
 	rename := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if t, ok := p.target(m); ok && !t.Free() {
 			m.openModal(&spaceInput{back: p, old: t.Name, name: newLine(t.Name)})
@@ -99,6 +109,7 @@ func (p *spacePicker) keys() []boundKey {
 		on("a", add).as("add"),
 		on("e", rename).as("rename"),
 		on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteSpace(p) }).as("delete"),
+		on("C", color).as("color"),
 		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)),
 		on("shift+down", shift(1)).as("move"), on("J", shift(1)),
 		on("up", move(-1)), on("k", move(-1)),
@@ -111,7 +122,7 @@ func (p *spacePicker) hints() []hintLine {
 	if p.swallowed {
 		return []hintLine{hintsFor(p.keys(), "esc")}
 	}
-	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "shift+up", "shift+down", "esc")}
+	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "shift+up", "shift+down", "esc", "C")}
 }
 
 // target is the row under the cursor: a Space, or a free Space number.
@@ -187,7 +198,7 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 
 // render draws the picker in the w by h pane: a row per Space number,
 // [2] acme, or [3] empty dimmed when it is free, then each Space without a
-// number.
+// number. A Space's name is in its Indicator color, if it has one.
 func (p *spacePicker) render(m *Model, w, h int) []string {
 	lines := []string{fit(" "+boldStyle.Render("Spaces"), w)}
 	for i, t := range m.st.SpaceSlots() {
@@ -200,9 +211,12 @@ func (p *spacePicker) render(m *Model, w, h int) []string {
 			number = fmt.Sprintf("[%d]", t.Number)
 		}
 		var row string
+		color, colored := indicator(t.Color, lipgloss.NewStyle())
 		switch {
 		case t.Free():
 			row = dimStyle.Render(number + " empty")
+		case colored:
+			row = dimStyle.Render(number) + " " + color.Bold(t.Active).Faint(!t.Active && !t.Live).Render(t.Name)
 		case t.Active:
 			row = dimStyle.Render(number) + " " + spaceActiveStyle.Render(t.Name)
 		case !t.Live:

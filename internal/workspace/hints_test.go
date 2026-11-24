@@ -51,6 +51,8 @@ var hintSites = []struct {
 	{"rename group prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("e")...) })},
 	{"space picker", modalSite(func(m *Model) { press(m, text("P")...) })},
 	{"new space prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("a")...) })},
+	{"group color prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("C")...) })},
+	{"space color prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("C")...) })},
 }
 
 // statusKeys is every key the status line may hint at: the list's bare keys

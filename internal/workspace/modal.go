@@ -15,11 +15,13 @@ import (
 //   - confirmation: every key answers it (y or Y is yes, anything else no).
 //   - helpScreen: ↑/↓ and PgUp/PgDn scroll it; every other key closes it.
 //   - spacePicker: its own keys (see its status line); Esc, q or P close it.
-//     It opens spaceInput and confirmations, which return to it.
+//     It opens spaceInput, colorInput and confirmations, which return to it.
 //   - historyPicker: ↑/↓, Enter and Esc (or Ctrl+C); every other key edits
 //     its filter.
-//   - connForm, moveInput, groupInput, spaceInput, spacePicker and
-//     historyPicker: the prefix key arms a prefix of their own
+//   - colorInput: ←/→ (or h/l) choose an Indicator color, Enter sets it,
+//     Esc (or Ctrl+C) leaves; every other key is ignored.
+//   - connForm, moveInput, groupInput, spaceInput, colorInput, spacePicker
+//     and historyPicker: the prefix key arms a prefix of their own
 //     (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the
 //     modal on no). Every other prefix command is swallowed: it would act

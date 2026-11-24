@@ -151,7 +151,8 @@ var bindings = []binding{
 	},
 	{
 		keys: both(crud...),
-		help: "add / edit / delete the cursor's connection or group",
+		// Color shares the line so the help screen fits 80x24.
+		help: "add / edit / delete connection or group / group color",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24. r and x
@@ -237,8 +238,9 @@ func digitKeys() []boundKey {
 	return out
 }
 
-// crud is the add, edit and delete keys, a list action. They act on the
-// Group whose header is under the cursor, otherwise on a Connection.
+// crud is the add, edit, delete and color keys, a list action. The first
+// three act on the Group whose header is under the cursor, otherwise on a
+// Connection.
 var crud = []boundKey{
 	on("a", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.headerTarget(); ok {
@@ -259,6 +261,9 @@ var crud = []boundKey{
 		}
 		return m.deleteConnection()
 	}).as("delete"),
+	// C sets the Indicator color of the Group under the cursor, or of the
+	// Active connection's Group from the pane; ungrouped, its Space's.
+	on("C", colorKey).as("color"),
 }
 
 // digits are the keys 1 to 9, for Spaces 1 to 9.

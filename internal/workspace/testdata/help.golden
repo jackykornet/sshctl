@@ -14,7 +14,7 @@
   ^B g                 open the connection's group as tabs                      
   ^B m                 move a connection to a group (or drag it)                
   t  ^B t              start / stop the connection's tunnels                    
-  a/e/d  ^B a/e/d      add / edit / delete the cursor's connection or group     
+  a/e/d/C  ^B a/e/d/C  add / edit / delete connection or group / group color    
   ^B w  r/x            close tab (ended tab, tunnel row: r reconnect, x close)  
   ^B Tab               move focus between list and terminal                     
   ^B s                 scroll back (mouse wheel also scrolls)                   

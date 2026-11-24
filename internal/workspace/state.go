@@ -466,6 +466,20 @@ func (s *State) Color(ref, group string) string {
 	return s.catalogData().Color(ref, group)
 }
 
+// OwnColor returns the Indicator color the Space ref, or with group its
+// Group, carries itself, not resolved: "" when it has none.
+func (s *State) OwnColor(ref, group string) string {
+	if group == "" {
+		return s.Color(ref, "")
+	}
+	for _, g := range s.allGroups {
+		if g.Space == ref && g.Name == group {
+			return g.Color
+		}
+	}
+	return ""
+}
+
 // ActiveColor returns the Indicator color the pane is framed in: the Active
 // connection's, or with none active, the active Space's.
 func (s *State) ActiveColor() string {
