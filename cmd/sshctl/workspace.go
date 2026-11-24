@@ -41,8 +41,8 @@ func (a *app) runWorkspace() error {
 // sshctl binary's own command for alias ("sshctl bootstrap -- <alias>"), which
 // reads the config itself. Otherwise it builds ssh using alias's Selected
 // identity (its Space's own, or else the global one) as it is now, so a
-// change made with "sshctl key use" applies to the next tab; Claude runs
-// claude on the remote host. A Tunnel launch runs alias's Tunnels as the
+// change made with "sshctl key use" applies to the next tab; LaunchClaude runs
+// claude on the remote host. LaunchTunnel runs alias's Tunnels as the
 // config holds them now, with BatchMode, since it has no terminal to prompt in.
 func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error) {
 	if l.Action != "" {
@@ -58,11 +58,11 @@ func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error)
 	}
 	a.cfg = cfg
 	conn := cfg.Connections[alias]
-	if l.Tunnel {
+	if l.Kind == workspace.LaunchTunnel {
 		if len(conn.Tunnels) == 0 {
 			return nil, fmt.Errorf("%s has no Tunnels", alias)
 		}
 		return openssh.TunnelArgs(alias, cfg.IdentityFor(conn.Space), conn.Tunnels, true), nil
 	}
-	return openssh.ConnectArgs(alias, cfg.IdentityFor(cfg.Connections[alias].Space), l.Claude), nil
+	return openssh.ConnectArgs(alias, cfg.IdentityFor(conn.Space), l.Kind == workspace.LaunchClaude), nil
 }

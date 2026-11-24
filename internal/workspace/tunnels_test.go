@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-var tunnelLaunch = Launch{Tunnel: true}
+var tunnelLaunch = Launch{Kind: LaunchTunnel}
 
 // newTunnelLayoutModel returns a w×h Workspace with no processes, whose
 // prod-web and db-main (default Space) and vps (Space 2) have Tunnels, and
@@ -53,7 +53,7 @@ func TestTunnelsLayoutGolden(t *testing.T) {
 	t.Run("failed", func(t *testing.T) {
 		m := newTunnelLayoutModel(t, 80, 12)
 		run := m.tunnels.get("prod-web")
-		m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255, stderr: "prod-web: Permission denied (publickey).\n"})
+		m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255, stderr: "prod-web: Permission denied (publickey).\n"})
 		golden(t, "tunnels-failed", m)
 	})
 }
@@ -64,7 +64,7 @@ func TestTunnelStatusCountsRunningTunnels(t *testing.T) {
 		t.Fatalf("status should count 3 running tunnels:\n%s", s)
 	}
 	run := m.tunnels.get("prod-web")
-	m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255})
+	m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255})
 	m.status = ""
 	if s := screen(m); !strings.Contains(s, "⇄ 2 tunnels") {
 		t.Fatalf("a failed tunnel is not counted:\n%s", s)
@@ -81,7 +81,7 @@ func newTunnelProcessModel(t *testing.T, s script) *Model {
 	m, err := New(Options{
 		Catalog: &fakeCatalog{entries: tunnelEntries()},
 		Command: func(alias string, l Launch) ([]string, error) {
-			if !l.Tunnel {
+			if l.Kind != LaunchTunnel {
 				t.Errorf("Command(%s, %+v), want a tunnel launch", alias, l)
 			}
 			return s.argv(alias), nil
@@ -97,13 +97,13 @@ func newTunnelProcessModel(t *testing.T, s script) *Model {
 
 func TestAFailedTunnelShowsSshsErrorUntilRestarted(t *testing.T) {
 	m := newTunnelProcessModel(t, script{
-		sh:  `echo "$1: Permission denied (publickey)." >&2; exit 255`,
-		cmd: `echo {alias}: Permission denied (publickey).>&2& exit 255`,
+		sh:  `echo "$1: Permission denied (publickey,password)." >&2; exit 255`,
+		cmd: `echo {alias}: Permission denied (publickey,password).>&2& exit 255`,
 	})
 	startTunnels(m, "web")
 	run := m.tunnels.get("web")
 	pump(t, m, func() bool { return run.failed() })
-	for _, want := range []string{"✕", "web tunnel failed: web: Permission denied (publickey)."} {
+	for _, want := range []string{"✕", "web tunnel failed: web: Permission denied (publickey,password)."} {
 		if !strings.Contains(screen(m), want) {
 			t.Errorf("screen lacks %q:\n%s", want, screen(m))
 		}
@@ -122,12 +122,36 @@ func TestAFailedTunnelShowsSshsErrorUntilRestarted(t *testing.T) {
 	}
 }
 
+// The BatchMode hint is for a tunnel that needed a prompt, not for a key the
+// server rejected.
+func TestATunnelFailureHintsOnlyAtAPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		stderr string
+		hint   bool
+	}{
+		{"web: Permission denied (publickey).", false},
+		{"web: Permission denied (publickey,password).", true},
+		{"web: Permission denied (publickey,keyboard-interactive).", true},
+		{"Host key verification failed.", true},
+		{"Load key \"/home/me/.ssh/id_ed25519\": incorrect passphrase supplied to decrypt private key", true},
+		{"bind [127.0.0.1]:8083: Address already in use", false},
+	} {
+		m, _ := newRecordingModel(t, tunnelEntries())
+		startTunnels(m, "web")
+		run := m.tunnels.get("web")
+		m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255, stderr: tc.stderr + "\n"})
+		if got := strings.Contains(run.err, batchHint); got != tc.hint {
+			t.Errorf("%q: error %q, hint %v, want %v", tc.stderr, run.err, got, tc.hint)
+		}
+	}
+}
+
 func TestAStoppedTunnelIsNotReportedAsFailed(t *testing.T) {
 	m := newTunnelProcessModel(t, script{sh: `exec sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
 	startTunnels(m, "web")
 	run := m.tunnels.get("web")
 	press(m, keyPrefix, text("t")[0])
-	m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: -1})
+	m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: -1})
 	if m.statusErr || run.failed() {
 		t.Errorf("a stopped tunnel's exit is no failure: status %q", m.status)
 	}
@@ -283,6 +307,34 @@ func TestXOnATunnelRowStopsItAndRRestartsIt(t *testing.T) {
 	}
 	if c := m.st.Cursor(); c == nil || c.Alias != "web" {
 		t.Errorf("cursor on %v, want web", c)
+	}
+}
+
+// r cannot restart a tunnel whose Connection was renamed or deleted, so it
+// says so and leaves the row for x to stop.
+func TestRRefusesATunnelWhoseConnectionIsGone(t *testing.T) {
+	m, r := newRecordingModel(t, tunnelEntries())
+	startTunnels(m, "web")
+	r.entries = []Entry{{Alias: "web2", Tunnels: []Tunnel{panelTunnel}}, {Alias: "db"}}
+	m.reload("", "")
+	m.st.SetCursor("web2")
+	press(m, text("j")...)
+	if alias, ok := m.tunnelTarget(); !ok || alias != "web" {
+		t.Fatalf("cursor on tunnel row %q, want web's", alias)
+	}
+	proc := m.tunnels.get("web").proc
+	press(m, text("r")...)
+	if run := m.tunnels.get("web"); run == nil || run.proc != proc {
+		t.Fatal("r must leave web's tunnel as it is")
+	}
+	if len(r.calls) != 1 {
+		t.Errorf("Command calls = %+v, want only the first start", r.calls)
+	}
+	if !m.statusErr || !strings.Contains(m.status, "web is no longer in the connection list") {
+		t.Errorf("status %q (error %v), want it to say web is gone", m.status, m.statusErr)
+	}
+	if alias, ok := m.tunnelTarget(); !ok || alias != "web" {
+		t.Errorf("the cursor left web's tunnel row, now %q", alias)
 	}
 }
 

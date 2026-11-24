@@ -9,4 +9,4 @@
  ⇄ 2·vps panel :8084 ●      │                                                   
  ⇄ prod-web panel :8083 ✕ p…│                                                   
  ⇄ db-main :5433 ●          │                                                   
- prod-web tunnel failed: prod-web: Permission denied (publickey). (needs a pass…
+ prod-web tunnel failed: prod-web: Permission denied (publickey).     ^B ? help 

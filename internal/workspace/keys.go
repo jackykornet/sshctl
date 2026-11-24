@@ -112,7 +112,7 @@ var bindings = []binding{
 		help: "previous / next open connection in the Space",
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(false))), on("c", followCursor(newTab(true)))),
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))), on("c", followCursor(newTab(LaunchClaude)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
@@ -130,7 +130,7 @@ var bindings = []binding{
 		help: "move a connection to a group (or drag it)",
 	},
 	{
-		keys: merge(keysIn(inPrefix, tunnelKey, "t"), each(inTunnels, on("x", tunnelRowKey(stopTunnel)), on("r", tunnelRowKey(restartTunnel)))),
+		keys: merge(keysIn(inPrefix, tunnelKey, "t"), each(inTunnels, on("x", tunnelRowKey((*Model).stopTunnel)), on("r", tunnelRowKey((*Model).startTunnel)))),
 		help: "start / stop tunnels (tunnel row: x stop, r restart)",
 	},
 	{
@@ -244,9 +244,6 @@ func tunnelKey(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	})(m, msg)
 }
 
-func stopTunnel(m *Model, alias string) tea.Cmd    { return m.stopTunnel(alias) }
-func restartTunnel(m *Model, alias string) tea.Cmd { return m.startTunnel(alias) }
-
 // tunnelRowKey runs run on the alias of the tunnel row under the cursor.
 func tunnelRowKey(run func(m *Model, alias string) tea.Cmd) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -256,6 +253,7 @@ func tunnelRowKey(run func(m *Model, alias string) tea.Cmd) action {
 		return nil
 	}
 }
+
 func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.quit() }
 
 func moveCursor(delta int) action {
@@ -298,8 +296,8 @@ func collapse(collapsed bool) action {
 }
 
 // newTab opens a Session for the Active connection, or the one under the
-// cursor, running claude when claude is set.
-func newTab(claude bool) action {
+// cursor, running kind.
+func newTab(kind LaunchKind) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		target := m.st.Active()
 		if target == nil {
@@ -308,7 +306,7 @@ func newTab(claude bool) action {
 		if target == nil {
 			return nil
 		}
-		return m.open(target.Alias, Launch{Claude: claude})
+		return m.open(target.Alias, Launch{Kind: kind})
 	}
 }
 

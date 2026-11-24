@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 var (
@@ -46,8 +48,8 @@ func TestAddTunnelRefusesDuplicatesAndUnknownConnections(t *testing.T) {
 	}
 	samePort := db
 	samePort.LocalPort = panel.LocalPort
-	if err := tr.cat.AddTunnel("web", samePort); !errors.Is(err, ErrDuplicateTunnel) {
-		t.Errorf("same local port: err = %v, want ErrDuplicateTunnel", err)
+	if err := tr.cat.AddTunnel("web", samePort); !errors.Is(err, tunnel.ErrDuplicate) {
+		t.Errorf("same local port: err = %v, want tunnel.ErrDuplicate", err)
 	}
 	if err := tr.cat.AddTunnel("nope", db); !errors.Is(err, ErrUnknownConnection) {
 		t.Errorf("unknown alias: err = %v, want ErrUnknownConnection", err)
@@ -67,8 +69,8 @@ func TestRemoveTunnelByNameOrPortAndDropsEmptyMetadata(t *testing.T) {
 	if got, err := tr.cat.RemoveTunnel("web", "panel"); err != nil || got != panel {
 		t.Fatalf("RemoveTunnel(panel) = %+v, %v", got, err)
 	}
-	if _, err := tr.cat.RemoveTunnel("web", "panel"); !errors.Is(err, ErrNoTunnel) {
-		t.Errorf("removing again: err = %v, want ErrNoTunnel", err)
+	if _, err := tr.cat.RemoveTunnel("web", "panel"); !errors.Is(err, tunnel.ErrNoTunnel) {
+		t.Errorf("removing again: err = %v, want tunnel.ErrNoTunnel", err)
 	}
 	if got, err := tr.cat.RemoveTunnel("web", "5433"); err != nil || got != db {
 		t.Fatalf("RemoveTunnel(5433) = %+v, %v", got, err)
@@ -118,23 +120,28 @@ func TestTunnelsRefusesAnUnknownConnection(t *testing.T) {
 	}
 }
 
-// DeleteMetadata removes the description, group and Space, and nothing else.
-func TestDeleteMetadataKeepsTunnels(t *testing.T) {
+// DeleteMetadata removes Tunnels with the rest of the metadata, as Delete
+// does, and a Connection whose only metadata is Tunnels has metadata.
+func TestDeleteMetadataDeletesTunnels(t *testing.T) {
 	tr := newTree(t, false, "Host web\n")
-	if err := tr.cat.Save("web", Spec{Alias: "web", Description: "front"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := tr.cat.AddTunnel("web", panel); err != nil {
 		t.Fatal(err)
 	}
 	if err := tr.cat.DeleteMetadata("web"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("DeleteMetadata(web) with only a Tunnel: %v", err)
 	}
-	if m := tr.config(t).Connections["web"]; m.Description != "" || !slices.Equal(m.Tunnels, []Tunnel{panel}) {
-		t.Errorf("web = %+v, want only its Tunnel", m)
+	if m, ok := tr.config(t).Connections["web"]; ok {
+		t.Errorf("web = %+v, want no metadata", m)
 	}
 	if err := tr.cat.DeleteMetadata("web"); !errors.Is(err, ErrNoMetadata) {
 		t.Errorf("again: err = %v, want ErrNoMetadata", err)
+	}
+}
+
+func TestRemoveTunnelRefusesAnUnknownConnection(t *testing.T) {
+	tr := newTree(t, false, "Host web\n")
+	if _, err := tr.cat.RemoveTunnel("nope", "panel"); !errors.Is(err, ErrUnknownConnection) {
+		t.Errorf("RemoveTunnel(nope) err = %v, want ErrUnknownConnection", err)
 	}
 }
 
@@ -164,8 +171,8 @@ func TestSaveRefusesBadTunnelsAndChangesNothing(t *testing.T) {
 	dup := panel
 	dup.Name = "other"
 	err := tr.cat.Save("", Spec{Alias: "api", Managed: true, Host: Host{HostName: "h"}, Tunnels: []Tunnel{panel, dup}})
-	if !errors.Is(err, ErrDuplicateTunnel) {
-		t.Fatalf("err = %v, want ErrDuplicateTunnel", err)
+	if !errors.Is(err, tunnel.ErrDuplicate) {
+		t.Fatalf("err = %v, want tunnel.ErrDuplicate", err)
 	}
 	if len(tr.hosts(t)) != 0 {
 		t.Error("no Host block should be written")

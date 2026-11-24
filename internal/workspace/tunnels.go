@@ -20,8 +20,8 @@ type tunnelRun struct {
 	// space is the Connection's Space when the tunnel started, for a
 	// Connection that has since left the list.
 	space string
-	// forwards are the Tunnels the process was started with.
-	forwards []Tunnel
+	// tunnels are the Tunnels the process was started with.
+	tunnels []Tunnel
 	// err is set when the process exited without being stopped: ssh's
 	// error, which the Tunnels section shows after ✕.
 	err  string
@@ -40,8 +40,8 @@ type tunnelProc struct {
 	exited chan struct{}
 }
 
-// tunnelEndedMsg says a tunnel's process exited.
-type tunnelEndedMsg struct {
+// tunnelExitedMsg says a tunnel's process exited.
+type tunnelExitedMsg struct {
 	run    *tunnelRun
 	proc   *tunnelProc
 	code   int
@@ -73,12 +73,12 @@ func (t *tunnels) running(alias string) bool {
 	return r != nil && !r.failed()
 }
 
-// count is how many Tunnels (forwards) are running.
+// count is how many Tunnels are running.
 func (t *tunnels) count() int {
 	n := 0
 	for _, r := range t.runs {
 		if !r.failed() {
-			n += len(r.forwards)
+			n += len(r.tunnels)
 		}
 	}
 	return n
@@ -95,7 +95,7 @@ func (t *tunnels) start(c *Connection) error {
 	}
 	var proc *tunnelProc
 	if t.command != nil {
-		argv, err := t.command(c.Alias, Launch{Tunnel: true})
+		argv, err := t.command(c.Alias, Launch{Kind: LaunchTunnel})
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.Alias, err)
 		}
@@ -110,7 +110,7 @@ func (t *tunnels) start(c *Connection) error {
 	} else {
 		r.proc.kill()
 	}
-	r.space, r.forwards, r.err, r.proc = c.Space, slices.Clone(c.Tunnels), "", proc
+	r.space, r.tunnels, r.err, r.proc = c.Space, slices.Clone(c.Tunnels), "", proc
 	if proc != nil {
 		go t.wait(r, proc)
 	}
@@ -136,10 +136,10 @@ func (t *tunnels) stopAll() {
 	t.runs = nil
 }
 
-// ended records that a tunnel's process exited. It fails the tunnel only
+// exited records that a tunnel's process exited. It fails the tunnel only
 // when proc is still its process, so a process replaced by a restart or
-// ended by stop is ignored, and returns the failed tunnel.
-func (t *tunnels) ended(msg tunnelEndedMsg) *tunnelRun {
+// killed by stop is ignored, and returns the failed tunnel.
+func (t *tunnels) exited(msg tunnelExitedMsg) *tunnelRun {
 	if !slices.Contains(t.runs, msg.run) || msg.run.proc != msg.proc {
 		return nil
 	}
@@ -152,7 +152,10 @@ func (t *tunnels) ended(msg tunnelEndedMsg) *tunnelRun {
 const batchHint = "needs a password or host-key confirmation: connect once in a tab, or Bootstrap"
 
 // tunnelError is the error a tunnel shows for ssh's stderr and exit code:
-// ssh's last line, with batchHint when ssh wanted to prompt.
+// ssh's last line, with batchHint when ssh wanted to prompt: for a password
+// or keyboard-interactive answer (which "Permission denied (…)" lists among
+// the methods left), a key's passphrase, or a host key. A plain
+// "Permission denied (publickey)" is a rejected key, with nothing to ask.
 func tunnelError(stderr string, code int) string {
 	msg := ""
 	for _, l := range strings.Split(strings.TrimSpace(stderr), "\n") {
@@ -164,7 +167,7 @@ func tunnelError(stderr string, code int) string {
 		msg = fmt.Sprintf("ssh exited (exit %d)", code)
 	}
 	lower := strings.ToLower(stderr)
-	for _, s := range []string{"permission denied", "host key verification failed", "passphrase", "password"} {
+	for _, s := range []string{"password", "keyboard-interactive", "passphrase", "host key verification failed"} {
 		if strings.Contains(lower, s) {
 			return msg + " (" + batchHint + ")"
 		}
@@ -172,7 +175,7 @@ func tunnelError(stderr string, code int) string {
 	return msg
 }
 
-// wait sends tunnelEndedMsg when proc exits.
+// wait sends tunnelExitedMsg when proc exits.
 func (t *tunnels) wait(r *tunnelRun, proc *tunnelProc) {
 	err := proc.cmd.Wait()
 	close(proc.exited)
@@ -182,7 +185,7 @@ func (t *tunnels) wait(r *tunnelRun, proc *tunnelProc) {
 	} else if err == nil {
 		code = 0
 	}
-	t.ev.ch <- tunnelEndedMsg{run: r, proc: proc, code: code, stderr: proc.stderr.String()}
+	t.ev.ch <- tunnelExitedMsg{run: r, proc: proc, code: code, stderr: proc.stderr.String()}
 }
 
 // startTunnelProc starts argv with no terminal: no stdin, output dropped,
@@ -242,25 +245,22 @@ func (m *Model) toggleTunnel(alias string) tea.Cmd {
 		return m.stopTunnel(alias)
 	}
 	if c := m.st.Get(alias); c != nil && len(c.Tunnels) == 0 && !c.Orphaned {
-		m.tunnels.stop(alias) // a failed tunnel whose Tunnels were all removed
-		m.fixTunnelCursor()
+		m.dropTunnel(alias) // a failed tunnel whose Tunnels were all removed
 		return m.startEditAt(fieldTunnels)
 	}
 	return m.startTunnel(alias)
 }
 
-// startTunnel starts, or restarts, alias's Tunnels as they are saved now.
+// startTunnel starts, or restarts, alias's Tunnels as they are saved now. It
+// refuses a Connection that was renamed or deleted, or has no Tunnels left,
+// and leaves its tunnel as it is, for x to stop.
 func (m *Model) startTunnel(alias string) tea.Cmd {
 	c := m.st.Get(alias)
 	if c == nil {
-		m.tunnels.stop(alias)
-		m.fixTunnelCursor()
-		return m.setStatus(alias+" is no longer in the connection list", true)
+		return m.setStatus(alias+" is no longer in the connection list; x stops its tunnel", true)
 	}
 	if len(c.Tunnels) == 0 {
-		m.tunnels.stop(alias)
-		m.fixTunnelCursor()
-		return m.setStatus(alias+" has no Tunnels", true)
+		return m.setStatus(alias+" has no Tunnels; x stops its tunnel", true)
 	}
 	if err := m.tunnels.start(c); err != nil {
 		if errors.Is(err, ErrOrphaned) {
@@ -268,21 +268,20 @@ func (m *Model) startTunnel(alias string) tea.Cmd {
 		}
 		return m.setStatus(err.Error(), true)
 	}
-	return m.setStatus(fmt.Sprintf("%s: started %s", alias, countTunnels(len(c.Tunnels))), false)
+	return m.setStatus(fmt.Sprintf("%s: started %s", alias, plural(len(c.Tunnels), "tunnel")), false)
 }
 
 // stopTunnel stops alias's tunnel.
 func (m *Model) stopTunnel(alias string) tea.Cmd {
-	m.tunnels.stop(alias)
-	m.fixTunnelCursor()
+	m.dropTunnel(alias)
 	return m.setStatus(alias+": tunnel stopped", false)
 }
 
-func countTunnels(n int) string {
-	if n == 1 {
-		return "1 tunnel"
-	}
-	return fmt.Sprintf("%d tunnels", n)
+// dropTunnel stops alias's tunnel and drops its rows from the Tunnels
+// section, keeping the cursor on a row that is left.
+func (m *Model) dropTunnel(alias string) {
+	m.tunnels.stop(alias)
+	m.fixTunnelCursor()
 }
 
 // fixTunnelCursor keeps the cursor on a row of the Tunnels section, or puts
@@ -299,19 +298,19 @@ func (m *Model) fixTunnelCursor() {
 	m.tunnelCursor = min(m.tunnelCursor, n-1)
 }
 
-// tunnelRow is one row of the Tunnels section: one forward of a tunnel.
+// tunnelRow is one row of the Tunnels section: one Tunnel of a running tunnel.
 type tunnelRow struct {
-	run     *tunnelRun
-	forward Tunnel
+	run    *tunnelRun
+	tunnel Tunnel
 }
 
-// tunnelRows are the Tunnels section's rows, one per forward of every
+// tunnelRows are the Tunnels section's rows, one per Tunnel of every
 // tunnel, in the order the tunnels started.
 func (m *Model) tunnelRows() []tunnelRow {
 	var rows []tunnelRow
 	for _, r := range m.tunnels.runs {
-		for _, f := range r.forwards {
-			rows = append(rows, tunnelRow{r, f})
+		for _, t := range r.tunnels {
+			rows = append(rows, tunnelRow{r, t})
 		}
 	}
 	return rows

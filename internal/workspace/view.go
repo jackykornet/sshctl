@@ -127,21 +127,18 @@ func (m *Model) renderList(w, h int) []string {
 		if len(lines) == h {
 			break
 		}
-		pointer := " "
-		if m.focus == focusList && m.tunnelCursor < 0 && offset+i == cursor {
-			pointer = "›"
-		}
+		mark := pointer(m.focus == focusList && m.tunnelCursor < 0 && offset+i == cursor)
 		var line string
 		highlight := false
 		if r.Header() {
-			line = pointer + m.headerLabel(r.Group)
+			line = mark + m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
 			space := ""
 			if m.st.CrossSpace() {
 				space = m.st.SpaceName(r.Conn.Space)
 			}
-			line = pointer + connLabel(r.Conn, grouped && space == "", space, m.tunnels.running(r.Conn.Alias))
+			line = mark + connLabel(r.Conn, grouped && space == "", space, m.tunnels.running(r.Conn.Alias))
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
@@ -173,87 +170,52 @@ func (m *Model) renderList(w, h int) []string {
 // row of the Tunnels section.
 const tunnelMarker = "⇄"
 
-// tunnelSectionHeight is how many lines the Tunnels section takes at the
-// bottom of the list: a title and a row per forward, at most half the list.
-// It is 0 while no tunnel is listed.
-func (m *Model) tunnelSectionHeight() int {
-	n := len(m.tunnelRows())
-	if n == 0 {
-		return 0
-	}
-	return min(1+n, max(2, (m.h-1)/2))
-}
-
 // tunnelSection is the Tunnels section's lines, w columns wide: a title,
-// then one row per forward of every tunnel, from every Space, scrolled to
+// then one row per Tunnel of every tunnel, from every Space, scrolled to
 // keep the cursor's row in view.
 func (m *Model) tunnelSection(w int) []string {
-	height := m.tunnelSectionHeight()
-	if height == 0 {
+	s := m.tunnelLayout()
+	if s.height == 0 {
 		return nil
 	}
-	rows := m.tunnelRows()
 	title := "─ Tunnels "
 	lines := []string{dimStyle.Render(fit(title+strings.Repeat("─", max(0, w-len([]rune(title)))), w))}
-	first := m.tunnelOffset(height - 1)
-	for i, r := range rows[first:min(len(rows), first+height-1)] {
-		lines = append(lines, m.tunnelLine(r, first+i == m.tunnelCursor && m.focus == focusList, w))
+	for i, r := range s.rows[s.first:min(len(s.rows), s.first+s.height-1)] {
+		lines = append(lines, m.tunnelLine(r, s.first+i == m.tunnelCursor && m.focus == focusList, w))
 	}
 	return lines
 }
 
-// tunnelOffset is the first tunnel row shown in n row lines.
-func (m *Model) tunnelOffset(n int) int {
-	if m.tunnelCursor >= n {
-		return m.tunnelCursor - n + 1
+// pointer starts a list or Tunnels section row: › on the cursor's row.
+func pointer(cursor bool) string {
+	if cursor {
+		return "›"
 	}
-	return 0
+	return " "
 }
 
 // tunnelLine is one row of the Tunnels section, such as
 // ⇄ prod-web panel :8083 ●, or ⇄ 2·vps panel :8084 ● for a Connection in
 // another Space. A failed tunnel ends in ✕ and ssh's error.
 func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
-	pointer := " "
-	if cursor {
-		pointer = "›"
-	}
 	name := r.run.alias
-	if n := m.tunnelSpaceNumber(r.run); n > 0 {
+	if n := m.st.OtherSpaceNumber(r.run.alias, r.run.space); n > 0 {
 		name = dimStyle.Render(fmt.Sprintf("%d·", n)) + name
 	}
-	if r.forward.Name != "" {
-		name += " " + r.forward.Name
+	if r.tunnel.Name != "" {
+		name += " " + r.tunnel.Name
 	}
 	state, detail := openStyle.Render("●"), ""
 	if r.run.failed() {
 		state, detail = errStyle.Render("✕"), " "+dimStyle.Render(r.run.err)
 	}
-	right := fmt.Sprintf(" :%d %s", r.forward.LocalPort, state)
-	left := pointer + tunnelMarker + " "
+	right := fmt.Sprintf(" :%d %s", r.tunnel.LocalPort, state)
+	left := pointer(cursor) + tunnelMarker + " "
 	room := w - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if ansi.StringWidth(name) > room {
 		name = ansi.Truncate(name, max(room, 1), "…")
 	}
 	return fit(left+name+right+detail, w)
-}
-
-// tunnelSpaceNumber is the Space number of r's Connection when that is not
-// the active Space, or 0.
-func (m *Model) tunnelSpaceNumber(r *tunnelRun) int {
-	space := r.space
-	if c := m.st.Get(r.alias); c != nil {
-		space = c.Space
-	}
-	if space == m.st.Space() {
-		return 0
-	}
-	for _, t := range m.st.SpaceTabs() {
-		if t.Ref == space {
-			return t.Number
-		}
-	}
-	return 0
 }
 
 // spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
@@ -434,7 +396,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 		switch {
 		case s.Action != "":
 			label += " " + string(s.Action)
-		case s.Claude:
+		case s.Kind == LaunchClaude:
 			label += " claude"
 		}
 		marker, style := tabState(s)
@@ -633,7 +595,7 @@ func (m *Model) sessionStatus() string {
 	}
 	space := ""
 	if n := m.tunnels.count(); n > 0 {
-		space = tunnelMarker + " " + countTunnels(n) + " · "
+		space = tunnelMarker + " " + plural(n, "tunnel") + " · "
 	}
 	if m.st.SeveralSpaces() {
 		space += m.st.ActiveSpaceName() + " · "

@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/openssh"
 	"github.com/sshctl/sshctl/internal/tunnel"
 )
@@ -33,7 +32,7 @@ func (a *app) tunnelRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	printTunnels(a.out, tunnels, nil)
+	printTunnels(a.out, withAlias(alias, tunnels), false)
 	fmt.Fprintln(a.out, "Press Ctrl-C to stop.")
 	// Ctrl-C reaches ssh too, which stops; sshctl waits for it so it can
 	// return ssh's exit status rather than die first.
@@ -75,40 +74,51 @@ func (a *app) tunnelList(args []string) error {
 		if err != nil {
 			return err
 		}
-		printTunnels(a.out, tunnels, nil)
+		printTunnels(a.out, withAlias(args[0], tunnels), false)
 		return nil
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
 	}
-	var tunnels []catalog.Tunnel
-	var aliases []string
+	var tunnels []aliasTunnel
 	for _, e := range snap.Entries {
 		for _, t := range e.Tunnels {
-			tunnels = append(tunnels, t)
-			aliases = append(aliases, e.Alias)
+			tunnels = append(tunnels, aliasTunnel{e.Alias, t})
 		}
 	}
-	printTunnels(a.out, tunnels, aliases)
+	printTunnels(a.out, tunnels, true)
 	return nil
 }
 
-// printTunnels prints a line per Tunnel, "label  http://localhost:port →
-// host:port", in aligned columns; aliases, when set, starts each line with
-// the Tunnel's Connection.
-func printTunnels(w io.Writer, tunnels []tunnel.Tunnel, aliases []string) {
-	aliasWidth, labelWidth := 0, 0
+// aliasTunnel is a Tunnel and the alias of its Connection.
+type aliasTunnel struct {
+	alias string
+	tunnel.Tunnel
+}
+
+// withAlias pairs each of alias's Tunnels with alias.
+func withAlias(alias string, tunnels []tunnel.Tunnel) []aliasTunnel {
+	out := make([]aliasTunnel, len(tunnels))
 	for i, t := range tunnels {
-		labelWidth = max(labelWidth, len(t.Label()))
-		if aliases != nil {
-			aliasWidth = max(aliasWidth, len(aliases[i]))
-		}
+		out[i] = aliasTunnel{alias, t}
 	}
-	for i, t := range tunnels {
+	return out
+}
+
+// printTunnels prints a line per Tunnel, "label  http://localhost:port →
+// host:port", in aligned columns; showAlias starts each line with the
+// Tunnel's Connection.
+func printTunnels(w io.Writer, tunnels []aliasTunnel, showAlias bool) {
+	aliasWidth, labelWidth := 0, 0
+	for _, t := range tunnels {
+		labelWidth = max(labelWidth, len(t.Label()))
+		aliasWidth = max(aliasWidth, len(t.alias))
+	}
+	for _, t := range tunnels {
 		var b strings.Builder
-		if aliases != nil {
-			fmt.Fprintf(&b, "%-*s  ", aliasWidth, aliases[i])
+		if showAlias {
+			fmt.Fprintf(&b, "%-*s  ", aliasWidth, t.alias)
 		}
 		fmt.Fprintf(&b, "%-*s  http://localhost:%d → %s:%d", labelWidth, t.Label(), t.LocalPort, t.RemoteHost, t.RemotePort)
 		fmt.Fprintln(w, b.String())
