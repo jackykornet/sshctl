@@ -44,6 +44,7 @@ sshctl space add <name> [<number>]
 sshctl space rename <space> <new>
 sshctl space delete <space>
 sshctl space move <space> <number>
+sshctl space color <space> <color|none>
 sshctl space dotfiles <space> [<url|none> | --unset]
 sshctl group [--space <space>] list
 sshctl group [--space <space>] add <name>
@@ -51,6 +52,7 @@ sshctl group [--space <space>] rename <group> <new>
 sshctl group [--space <space>] delete <group> [--yes]
 sshctl group [--space <space>] move <group> <position>
 sshctl group [--space <space>] connect <group>
+sshctl group [--space <space>] color <group> <color|none>
 sshctl history
 sshctl key list
 sshctl key use [--space <space>] <key-path|none>

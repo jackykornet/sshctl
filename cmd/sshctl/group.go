@@ -128,8 +128,8 @@ func findStoredGroup(snap catalog.Snapshot, space spaceOption, arg string) (ref,
 	return ref, name, err
 }
 
-// groupList prints each Group's number, name, member count and dotfiles
-// setting, Space by Space. With --space it lists that Space's Groups; with
+// groupList prints each Group's number, name, member count, dotfiles
+// setting and Indicator color, if any, Space by Space. With --space it lists that Space's Groups; with
 // several Spaces and no --space, each line starts with the Space's name.
 func (a *app) groupList(space spaceOption, in input) error {
 	args := in.args
@@ -141,9 +141,9 @@ func (a *app) groupList(space spaceOption, in input) error {
 		return err
 	}
 	spaces := space.spaces(snap)
-	dotfiles := map[groupKey]string{}
+	records := map[groupKey]catalog.Group{}
 	for _, g := range snap.Groups {
-		dotfiles[groupKey{g.Space, g.Name}] = g.Dotfiles
+		records[groupKey{g.Space, g.Name}] = g
 	}
 	members := memberCounts(snap)
 	for _, s := range spaces {
@@ -153,7 +153,8 @@ func (a *app) groupList(space spaceOption, in input) error {
 		}
 		for i, name := range snap.GroupNames(s.ref) {
 			k := groupKey{s.ref, name}
-			fmt.Fprintf(a.out, "%s%-2d %-20s %-2d %s\n", prefix, i+1, name, members[k], describeDotfiles(dotfiles[k]))
+			g := records[k]
+			fmt.Fprintf(a.out, "%s%-2d %-20s %-2d %s%s\n", prefix, i+1, name, members[k], describeDotfiles(g.Dotfiles), colorTag(g.Color))
 		}
 	}
 	return nil

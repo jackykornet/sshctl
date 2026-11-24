@@ -24,6 +24,9 @@ type Space struct {
 	// Connections whose Group sets none, DotfilesNone to refuse Provision
 	// for them, or "" when unset, so the global Provision.Dotfiles applies.
 	Dotfiles string `json:"dotfiles,omitempty"`
+	// Color is the Space's Indicator color (ADR-0009), one of Colors, or ""
+	// for none. A Group's own color wins over it.
+	Color string `json:"color,omitempty"`
 }
 
 // MaxSpaces is how many Space numbers there are, and so how many Spaces.

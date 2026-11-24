@@ -130,7 +130,7 @@ func (a *app) spaceDotfiles(in input) error {
 
 // spaceList prints each Space's number, name, Group count and Connection
 // count, Orphaned ones included, marking the default Space, then the
-// dotfiles repo and Selected identity it sets, if any. Spaces come in number
+// Indicator color, dotfiles repo and Selected identity it sets, if any. Spaces come in number
 // order, so free numbers leave gaps; a Space without a number (beyond the
 // ninth in an older config) comes last, shown as -.
 func (a *app) spaceList(in input) error {
@@ -159,6 +159,7 @@ func (a *app) spaceList(in input) error {
 		if s.Default {
 			tag = "  (default)"
 		}
+		tag += colorTag(s.Color)
 		if s.Dotfiles != "" {
 			tag += "  dotfiles " + describeDotfiles(s.Dotfiles)
 		}
