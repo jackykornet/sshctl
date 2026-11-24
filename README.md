@@ -26,6 +26,19 @@ go install ./cmd/sshctl
 
 You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on `PATH`.
 
+### Shell completion
+
+`sshctl completion <shell>` prints a completion script for bash, zsh, fish or PowerShell. It completes commands, subcommands and options, Connection aliases where an alias goes (the first word, after `-c`, and for `add`, `edit`, `remove`, `bootstrap`, `provision` and `tunnel`), Space names after `--space` and Group names after `--group`. The script asks sshctl for the aliases each time, so they are the ones `sshctl list` shows. Enable it in your shell's startup file:
+
+| Shell | Add this |
+| --- | --- |
+| bash (`~/.bashrc`) | `eval "$(sshctl completion bash)"` |
+| zsh (`~/.zshrc`, after `compinit`) | `source <(sshctl completion zsh)` |
+| fish | run once: `sshctl completion fish > ~/.config/fish/completions/sshctl.fish` |
+| PowerShell (`$PROFILE`) | `sshctl completion powershell \| Out-String \| Invoke-Expression` |
+
+The scripts complete the command named `sshctl` (and `sshctl.exe` in PowerShell); if you renamed the downloaded executable, rename it to `sshctl`.
+
 ## Commands
 
 ```text
@@ -67,6 +80,7 @@ sshctl provision default [<url|none> | --unset] [--group <name>]
 sshctl experimental list
 sshctl experimental enable|disable <feature>
 sshctl config show
+sshctl completion bash|zsh|fish|powershell
 ```
 
 `sshctl <alias>` connects: it runs `ssh <alias>`. A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults. `sshctl <alias> -- <command>...` runs the command on the host instead, as `ssh <alias> <command>...` does, and sshctl exits with the command's exit code. A first word that is a built-in command is always the command ([ADR-0011](docs/adr/0011-bare-alias-connects.md)): an alias named `list` or `key` is reached with `sshctl -c <alias>` (`--connect`), which scripts should use, since a later sshctl may add a command with the name of your alias. `list` marks such an alias with `(sshctl -c <alias>)`, and the Workspace's add and edit form warns about it. A bare word that is neither a command nor a Connection is refused, so a mistyped command is not sent to ssh; `-c` connects to any name ssh accepts.
@@ -181,7 +195,7 @@ Each row of the list has a dot for its Sessions: green `●` open, yellow `●` 
 
 Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Above the tabs, the pane's header shows the active connection as `alias · user@host[:port]`, as `ssh -G` resolves it (the alias alone if that fails). A tab shows its number, what it runs (`ssh` or the action's name) and a dot: green while live, yellow once ended. A tab with output you have not seen is bold and marked `•`. Click a tab to show it, or `[+]` for a new tab. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
 
-The status bar shows the active connection as `group / alias` and the key it uses, and on the right the most important keys where the focus is (the list or the terminal). On a short terminal the rules under the Space bar and above the status bar, then the pane's header, make room for the Session.
+Focus is on the list or on the Session pane; prefix `Tab` moves it (with no Session open it stays on the list and says so). While the list has focus its cursor row is drawn cyan; while the pane has focus the current tab is cyan, and the list keeps a dim `›` where prefix `Tab` will land. The status bar starts with a cyan `LIST` or `SESSION` tag for the focus (left out while a form, prompt or filter shows its own status), then shows the active connection as `group / alias` and the key it uses, and on the right the most important keys where the focus is; on a narrow terminal those keys go first. On a short terminal the rules under the Space bar and above the status bar, then the pane's header, make room for the Session.
 
 Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session). One rule ([ADR-0007](docs/adr/0007-one-rule-for-workspace-keys.md)) decides where a key works: list actions work bare while the list has focus and after the prefix from anywhere (the table writes these as `/`, prefix `/`); the terminal takes only prefixed commands, except the `r` and `x` of an ended tab; and a key means the same thing everywhere. Hint lines name keys as `key action · key action`, with the prefix shown as `^B`.
 
@@ -195,6 +209,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `{`/`}`, prefix `{`/`}` | Previous / next open connection in the active Space |
 | `1`–`9`, prefix `1`–`9` | Switch to Space 1–9 |
 | `P` / `S`, prefix `P` / `S` | Open the Space picker / show every Space's number and name under the Space bar |
+| `H`, prefix `H` | Open the History picker: the 20 most recently opened connections from every Space, most recent first. Type to filter by alias, description, group or Space; `Enter` opens the connection or switches to it, making its Space active; a `(missing)` connection does not open; `Esc` closes it |
 | `a` / `e` / `d`, prefix `a` / `e` / `d` | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
 | `t`, prefix `t` | Start / stop the connection's [Tunnels](#tunnels-in-the-workspace) in the background; with none saved, opens the edit form on its Tunnels field |
 | `q` (or `Ctrl+C` in the list), prefix `q` | Quit |

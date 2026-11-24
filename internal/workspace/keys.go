@@ -122,6 +122,11 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
+		keys:       both(on("H", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openHistory() }).as("history")),
+		help:       "History picker: open a recent connection from any Space",
+		tunnelRows: true,
+	},
+	{
 		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab")),
 		help: "new tab for the active connection",
 	},
@@ -161,9 +166,12 @@ var bindings = []binding{
 	},
 	{
 		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			if m.focus == focusList && m.st.Active() != nil {
+			switch {
+			case m.focus == focusList && m.st.Active() == nil:
+				return m.setStatus("no open session — press Enter on a connection", false)
+			case m.focus == focusList:
 				m.focus = focusPane
-			} else {
+			default:
 				m.focus = focusList
 			}
 			return nil
@@ -181,12 +189,10 @@ var bindings = []binding{
 		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b"),
-		help: "hide or show the connection list",
-	},
-	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R"),
-		help: "refresh connections from ssh_config",
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b"),
+			keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R")),
+		help: "hide or show the list / refresh from ssh_config",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.

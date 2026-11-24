@@ -14,6 +14,8 @@ type Catalog interface {
 	Snapshot() (Snapshot, error)
 	// RecordOpen records in History that alias was opened.
 	RecordOpen(alias string) error
+	// History returns the aliases opened, most recent first.
+	History() ([]string, error)
 	// SetGroup saves alias's group ("" for none).
 	SetGroup(alias, group string) error
 	// SetCollapsed saves every group the list shows collapsed.

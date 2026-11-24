@@ -1,8 +1,8 @@
  [1] default  [2] acme  [5] idle                                                
  ▾ 1 data ●1                │ db                                                
-   ● db                     │ [1 ssh ●] [+]                                     
+›  ● db                     │ [1 ssh ●] [+]                                     
                             │                                                   
                             │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- data / db · key: id_ed25519             ^B Tab list · ^B n new tab · ^B ? help 
+ SESSION data / db · key: id_ed25519     ^B Tab list · ^B n new tab · ^B ? help 

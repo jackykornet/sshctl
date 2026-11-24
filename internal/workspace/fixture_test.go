@@ -23,7 +23,8 @@ type commandCall struct {
 // their Groups; SetActiveSpace records and changes activeSpace. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
-// the deleted alias) on the next Snapshot. Snapshot reports include, the
+// the deleted alias) on the next Snapshot. RecordOpen puts the alias first
+// in history, which History returns. Snapshot reports include, the
 // Include ssh_config lacks, until AddInclude is called. ProvisionRepo fails
 // with provision[alias], or returns a repo. The catalog's own rules are
 // tested in internal/catalog.
@@ -44,6 +45,7 @@ type fakeCatalog struct {
 	failGroup      bool
 	include        *IncludeError
 	provision      map[string]error // ProvisionRepo's error per alias
+	history        []string         // History, most recent first
 	// off lists the Experimental features Snapshot reports off; every
 	// other one is on, so tests of Bootstrap and Provision need not turn
 	// them on.
@@ -293,8 +295,11 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 
 func (f *fakeCatalog) RecordOpen(alias string) error {
 	f.opened = append(f.opened, alias)
+	f.history = append([]string{alias}, slices.DeleteFunc(f.history, func(a string) bool { return a == alias })...)
 	return nil
 }
+
+func (f *fakeCatalog) History() ([]string, error) { return slices.Clone(f.history), nil }
 
 func (f *fakeCatalog) SetGroup(alias, group string) error {
 	if f.failGroup {
@@ -437,7 +442,13 @@ func endSession(m *Model, sess *Session, code int) {
 // that exits at once on every platform. Command fails for the aliases in fail.
 func newRecordingModel(t *testing.T, entries []Entry, fail ...string) (*Model, *recorder) {
 	t.Helper()
-	r := &recorder{fakeCatalog: &fakeCatalog{entries: entries}}
+	return newRecordingCatalogModel(t, &fakeCatalog{entries: entries}, fail...)
+}
+
+// newRecordingCatalogModel is newRecordingModel over the catalog f.
+func newRecordingCatalogModel(t *testing.T, f *fakeCatalog, fail ...string) (*Model, *recorder) {
+	t.Helper()
+	r := &recorder{fakeCatalog: f}
 	m, err := New(Options{
 		Catalog: r.fakeCatalog,
 		Command: func(alias string, l Launch) ([]string, error) {

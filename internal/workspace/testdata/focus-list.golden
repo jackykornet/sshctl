@@ -1,0 +1,10 @@
+ ▾ 1 web ●1                 │ prod-web                                          
+›  ● prod-web public site   │ [1 ssh ●] [+]                                     
+   ○ staging                │                                                   
+ ▾ ungrouped                │                                                   
+   ○ db-main postgres       │                                                   
+   ○ old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ LIST web / prod-web · key: id_ed25519        Enter open · / filter · ^B ? help 
