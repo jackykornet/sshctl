@@ -393,11 +393,8 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	styles := make([]lipgloss.Style, len(c.Sessions))
 	for i, s := range c.Sessions {
 		label := fmt.Sprintf("%s %d", c.Alias, s.N)
-		switch {
-		case s.Action != "":
+		if s.Action != "" {
 			label += " " + string(s.Action)
-		case s.Kind == LaunchClaude:
-			label += " claude"
 		}
 		marker, style := tabState(s)
 		labels[i] = " " + label + marker + " "

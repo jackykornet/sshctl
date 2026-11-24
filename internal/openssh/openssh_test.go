@@ -139,18 +139,15 @@ func TestExpandIncludePath(t *testing.T) {
 
 func TestConnectArgs(t *testing.T) {
 	tests := []struct {
-		key    string
-		claude bool
-		want   []string
+		key  string
+		want []string
 	}{
-		{"", false, []string{"ssh", "web"}},
-		{"/k/id", false, []string{"ssh", "-i", "/k/id", "web"}},
-		{"", true, []string{"ssh", "-t", "web", "claude"}},
-		{"/k/id", true, []string{"ssh", "-t", "-i", "/k/id", "web", "claude"}},
+		{"", []string{"ssh", "web"}},
+		{"/k/id", []string{"ssh", "-i", "/k/id", "web"}},
 	}
 	for _, tt := range tests {
-		if got := ConnectArgs("web", tt.key, tt.claude); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("ConnectArgs(web, %q, %v) = %v, want %v", tt.key, tt.claude, got, tt.want)
+		if got := ConnectArgs("web", tt.key); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("ConnectArgs(web, %q) = %v, want %v", tt.key, got, tt.want)
 		}
 	}
 }
