@@ -13,9 +13,15 @@ var hintSites = []struct {
 	name string
 	open func(t *testing.T) (*Model, []hintLine, []boundKey)
 }{
-	{"status line", func(t *testing.T) (*Model, []hintLine, []boundKey) {
-		m := newTestModel(t, 100, 10)
-		return m, m.statusHints(), m.contextKeys(inPrefix)
+	{"status line, list focus", func(t *testing.T) (*Model, []hintLine, []boundKey) {
+		m := newTestModel(t, 140, 10)
+		return m, m.statusHints(), statusKeys(m)
+	}},
+	{"status line, pane focus", func(t *testing.T) (*Model, []hintLine, []boundKey) {
+		m := newTestModel(t, 140, 10)
+		m.st.SetCursor("db-main")
+		press(m, keyEnter)
+		return m, m.statusHints(), statusKeys(m)
 	}},
 	{"ended banner", func(t *testing.T) (*Model, []hintLine, []boundKey) {
 		m, sess := newPaneModel(t, "$ ")
@@ -40,6 +46,20 @@ var hintSites = []struct {
 	{"rename group prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("e")...) })},
 	{"space picker", modalSite(func(m *Model) { press(m, text("P")...) })},
 	{"new space prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("a")...) })},
+}
+
+// statusKeys is every key the status line may hint at: the list's bare keys
+// while the list has focus, and the prefix commands, each as "^B key".
+func statusKeys(m *Model) []boundKey {
+	var out []boundKey
+	if m.focus == focusList {
+		out = m.contextKeys(inList)
+	}
+	for _, bk := range m.contextKeys(inPrefix) {
+		bk.key = keyHint(m.opts.PrefixKey) + " " + bk.key
+		out = append(out, bk)
+	}
+	return out
 }
 
 // modalSite opens a modal with open, in a Workspace with web under the cursor.
@@ -78,7 +98,7 @@ func TestHintsNameOnlyBoundKeys(t *testing.T) {
 				}
 				for _, it := range l.items {
 					for _, k := range it.keys {
-						if !bound(table, k, it.name) {
+						if !bound(table, it.lead+k, it.name) {
 							t.Errorf("hint %q names %q, which is not bound to %q here", l, k, it.name)
 						}
 					}

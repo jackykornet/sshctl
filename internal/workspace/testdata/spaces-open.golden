@@ -1,8 +1,8 @@
- [1][2][3][4][5][6][7][8][9]│ db 1                                              
- ▾ 1 data 1 ●1              │                                                   
-   ● db                     │                                                   
+ [1] default  [2] acme  [5] idle                                                
+ ▾ 1 data ●1                │ db                                                
+   ● db                     │ [1 ssh ●] [+]                                     
                             │                                                   
                             │                                                   
                             │                                                   
-                            │                                                   
- acme · db · tab 1/1 · connected · key: id_ed25519                    ^B ? help 
+────────────────────────────┴───────────────────────────────────────────────────
+ data / db · key: id_ed25519             ^B Tab list · ^B n new tab · ^B ? help 

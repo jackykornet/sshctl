@@ -22,8 +22,9 @@ func TestSShowsTheSpaceNamesUntilTheNextKey(t *testing.T) {
 	m := newSpaceModel(t, 100, 10) // 1 default, 2 acme, 5 idle
 	press(m, text("S")...)
 	lines := listText(m)
-	if want := " 1 default · 2 acme · 5 idle"; len(lines) < 2 || lines[1] != want {
-		t.Fatalf("list after S:\n%s\nwant line 2 %q", strings.Join(lines, "\n"), want)
+	// Under the Space bar and its rule.
+	if want := " 1 default · 2 acme · 5 idle"; len(lines) < 3 || lines[2] != want {
+		t.Fatalf("list after S:\n%s\nwant line 3 %q", strings.Join(lines, "\n"), want)
 	}
 	press(m, keyDown)
 	if lines := listText(m); strings.Contains(strings.Join(lines, "\n"), "2 acme") {
@@ -57,8 +58,8 @@ func TestTheSpaceNoteWrapsBetweenSpacesInANarrowList(t *testing.T) {
 	m.opts.ListWidth = 16
 	press(m, text("S")...)
 	lines := listText(m)
-	if want := []string{" 1 default ·", " 2 acme · 5 idle"}; len(lines) < 3 || lines[1] != want[0] || lines[2] != want[1] {
-		t.Fatalf("list after S:\n%s\nwant lines 2-3 %q", strings.Join(lines, "\n"), want)
+	if want := []string{" 1 default ·", " 2 acme · 5 idle"}; len(lines) < 4 || lines[2] != want[0] || lines[3] != want[1] {
+		t.Fatalf("list after S:\n%s\nwant lines 3-4 %q", strings.Join(lines, "\n"), want)
 	}
 	golden(t, "space-note", m)
 }

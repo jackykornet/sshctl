@@ -1,5 +1,6 @@
- ● alpha                    │ alpha 1                                           
-   beta                     │first line                                         
+ ● alpha                    │ alpha                                             
+ ○ beta                     │ [1 ssh ●] [+]                                     
+                            │first line                                         
                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                             │second line                                        
                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -10,6 +11,5 @@
                             │                                                   
                             │                                                   
                             │                                                   
-                            │                                                   
-                            │                                                   
- copied 22 characters                     ^B ? help · ^B n new tab · ^B w close 
+────────────────────────────┴───────────────────────────────────────────────────
+ copied 22 characters       ^B Tab list · ^B n new tab · ^B w close · ^B ? help 

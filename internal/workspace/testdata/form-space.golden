@@ -1,7 +1,9 @@
- [1][2][3][4][5][6][7][8][9]│                                                   
- ▾ 1 web 2                  │  Add connection                                   
-     prod-web public site   │                                                   
-›    staging                │    Alias          name used with ssh              
+ [1] default  [2] acme  [5] idle                                                
+────────────────────────────┬───────────────────────────────────────────────────
+ ▾ 1 web                    │                                                   
+   ○ prod-web public site   │  Add connection                                   
+›  ○ staging                │                                                   
+                            │    Alias          name used with ssh              
                             │    HostName       host or IP address              
                             │    User           OpenSSH default                 
                             │    Port           22                              
@@ -12,7 +14,5 @@
                             │    Group          web                             
                             │                   0 none · 1 web                  
                             │    Tunnels        panel=8083, cockpit=9090        
-                            │                                                   
-                            │  ^S save · Tab/Shift+Tab move · Esc cancel        
-                            │  ^O save and Bootstrap                            
- default · no active connection · key: id_ed25519                     ^B ? help 
+────────────────────────────┴───────────────────────────────────────────────────
+ no active connection · key: id_ed25519       Enter open · / filter · ^B ? help 

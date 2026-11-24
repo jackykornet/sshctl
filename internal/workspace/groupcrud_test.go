@@ -145,17 +145,17 @@ func TestHeadersShowGroupNumbers(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := headers(), []string{"1 web 4", "2 batch 1", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 web", "2 batch", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("headers = %q, want %q", got, want)
 	}
 	press(m, tea.KeyPressMsg{Code: 'J', Text: "J"}) // web down below batch
-	if got, want := headers(), []string{"1 batch 1", "2 web 4", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 batch", "2 web", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after reorder headers = %q, want %q", got, want)
 	}
 	m.st.SetCursorGroup("batch")
 	press(m, text("d")...)
 	press(m, text("y")...)
-	if got, want := headers(), []string{"1 web 4", "ungrouped 2"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 web", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after delete headers = %q, want %q", got, want)
 	}
 }

@@ -181,8 +181,8 @@ func TestQuitAsksOnlyWhileTunnelsRunAndStopsThem(t *testing.T) {
 
 func TestAClickSelectsATunnelRow(t *testing.T) {
 	m := newTunnelLayoutModel(t, 80, 12)
-	m.Update(click(3, 10, tea.MouseLeft)) // db-main's row; see tunnels.golden
-	m.Update(release(3, 10))
+	m.Update(click(3, 9, tea.MouseLeft)) // db-main's row; see tunnels.golden
+	m.Update(release(3, 9))
 	if alias, ok := m.tunnelTarget(); !ok || alias != "db-main" || m.tunnelCursor != 2 {
 		t.Fatalf("clicked tunnel row %d (%s), want db-main's", m.tunnelCursor, alias)
 	}

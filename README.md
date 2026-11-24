@@ -144,9 +144,26 @@ The first time you provision with no repo set, sshctl asks for one (`Dotfiles re
 
 ## Workspace
 
-Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the tabs of the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
+Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
 
-Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Open connections are marked green and keep their place in the list. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
+```
+ [1] homelab  [2] customer1  [3] prive
+────────────────────────────┬───────────────────────────────────────────
+ ▾ 1 web ●1                 │ prod-web · deploy@10.0.0.5:2222
+   ● prod-web public site   │ [1 ssh ●] [2 provision ●] [+]
+   ○ staging                │ deploy@prod-web:~$
+ ▸ 2 batch 3                │
+ ▾ ungrouped                │
+   ○ db-main postgres       │
+────────────────────────────┴───────────────────────────────────────────
+ web / prod-web · key: id_ed25519     ^B Tab list · ^B n new tab · ^B ? help
+```
+
+Each row of the list has a dot for its Sessions: green `●` open, yellow `●` when all its tabs have ended, dim `○` not open. Open connections keep their place in the list, and the active connection has a bar across the list. A group header shows its member count only while it is collapsed (`▸`).
+
+Each tab is a Session: an `ssh <alias>` process in its own pseudo-terminal, started with the selected identity at the moment the tab opens. Above the tabs, the pane's header shows the active connection as `alias · user@host[:port]`, as `ssh -G` resolves it (the alias alone if that fails). A tab shows its number, what it runs (`ssh` or the action's name) and a dot: green while live, yellow once ended. A tab with output you have not seen is bold and marked `•`. Click a tab to show it, or `[+]` for a new tab. A tab whose `ssh` has exited stays open with its exit code; press `r` to reconnect or `x` to close it. Quitting with live Sessions asks first and then ends them.
+
+The status bar shows the active connection as `group / alias` and the key it uses, and on the right the most important keys where the focus is (the list or the terminal). On a short terminal the rules under the Space bar and above the status bar, then the pane's header, make room for the Session.
 
 Keys go to the remote session. Workspace commands start with the prefix key (`Ctrl+B` by default; press it twice to send it to the session). One rule ([ADR-0007](docs/adr/0007-one-rule-for-workspace-keys.md)) decides where a key works: list actions work bare while the list has focus and after the prefix from anywhere (the table writes these as `/`, prefix `/`); the terminal takes only prefixed commands, except the `r` and `x` of an ended tab; and a key means the same thing everywhere. Hint lines name keys as `key action · key action`, with the prefix shown as `^B`.
 
@@ -176,7 +193,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 
 ### Spaces
 
-The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. Each Space has a fixed number from 1 to 9, which it keeps until you change it: deleting a Space leaves its number free, and no other Space is renumbered. With more than one Space, a Space bar above the list shows all nine numbers, `[1] [2] [3] … [9]`: the active Space in the accent colour, a Space with a live session in normal text, an idle one dimmed, and a free number fainter still (the gaps close up, `[1][2][3]`, when the list is too narrow). The status bar starts with the active Space's name (`customer1 · web01 · …`). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. A free number switches nothing, and the status line says so (`no Space 3`). The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it.
+The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. Each Space has a fixed number from 1 to 9, which it keeps until you change it: deleting a Space leaves its number free, and no other Space is renumbered. With more than one Space, a Space bar across the top shows each Space as `[1] homelab  [2] customer1`: the active Space in the accent colour, a Space with a live session in normal text, an idle one dimmed. When the names do not fit, it shows all nine numbers instead, `[1] [2] [3] … [9]`, a free number fainter still (the gaps close up, `[1][2][3]`, when even that is too wide). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. A free number switches nothing, and the status line says so (`no Space 3`). The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it.
 
 `P` in the list opens the Space picker in the right-hand pane: one row per number, `[2] customer1`, with a free number shown dimmed as `[3] empty`. Spaces without a number, from an older config with ten or more, are listed below the nine rows. `Enter` switches to the Space under the cursor. `a` adds a Space: on a free row it takes that row's number, on a row in use the lowest free number. `e` renames the Space, and `d` deletes it (only an empty Space other than the default Space, asking first) and leaves its row empty. `Shift+↑`/`Shift+↓` (or `K`/`J`) moves the Space to the next number up or down, swapping with the Space there if the number is taken. Manage Spaces from the command line with `sshctl space`.
 
@@ -194,7 +211,7 @@ Background tunnels run with `BatchMode=yes`, so one that needs a password, passp
 
 ### Groups
 
-Once any group exists, the list shows each group in the order you set (empty ones too, marked `(empty)`), with `ungrouped` last. Each header shows the group's number (its position, counting from 1, for example `1 prod`), its member count, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Numbers change when groups are reordered or deleted. Collapsed groups are remembered between runs.
+Once any group exists, the list shows each group in the order you set (empty ones too, marked `(empty)`), with `ungrouped` last. Each header shows the group's number (its position, counting from 1, for example `1 prod`), its member count while collapsed, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Numbers change when groups are reordered or deleted. Collapsed groups are remembered between runs.
 
 The move prompt (prefix `m`) and the form's group field take a group number or a name; `0` means no group. The form lists the numbers under its group field (`0 none · 1 prod · 2 staging`), since it covers the headers. A new name in the move prompt asks `Create group X?` and, on yes, creates the group and moves the connection there.
 

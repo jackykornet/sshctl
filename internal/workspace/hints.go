@@ -7,15 +7,15 @@ import "strings"
 // from the keys bound where it shows (ADR-0007), so it cannot name a key
 // that does nothing there.
 type hintLine struct {
-	// lead is written before each item's keys: the prefix key, such as
-	// "^B ", for keys after the prefix, or "".
-	lead      string
 	prefixKey string
 	items     []hintItem
 }
 
 // A hintItem is one action of a hint line and the keys that run it.
 type hintItem struct {
+	// lead is written before the item's keys: the prefix key, such as
+	// "^B ", for keys after the prefix, or "".
+	lead string
 	keys []string
 	name string
 }
@@ -46,8 +46,23 @@ func (m *Model) hint(ctx keyContext, keys ...string) hintLine {
 	l := hintsFor(m.contextKeys(ctx), keys...)
 	l.prefixKey = m.opts.PrefixKey
 	if ctx == inPrefix {
-		l.lead = keyHint(m.opts.PrefixKey) + " "
+		for i := range l.items {
+			l.items[i].lead = keyHint(m.opts.PrefixKey) + " "
+		}
 	}
+	return l
+}
+
+// first is l with its first n items.
+func (l hintLine) first(n int) hintLine {
+	l.items = l.items[:min(n, len(l.items)):min(n, len(l.items))]
+	return l
+}
+
+// and is l followed by o's items, so one line can join keys of two
+// contexts, such as the list's and the prefix's.
+func (l hintLine) and(o hintLine) hintLine {
+	l.items = append(append([]hintItem{}, l.items...), o.items...)
 	return l
 }
 
@@ -69,7 +84,7 @@ func (m *Model) contextKeys(ctx keyContext) []boundKey {
 func (l hintLine) String() string {
 	parts := make([]string, len(l.items))
 	for i, it := range l.items {
-		parts[i] = l.lead + keyNames(it.keys, l.prefixKey) + " " + it.name
+		parts[i] = it.lead + keyNames(it.keys, l.prefixKey) + " " + it.name
 	}
 	return strings.Join(parts, " · ")
 }
