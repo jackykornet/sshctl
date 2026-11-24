@@ -252,6 +252,8 @@ type SpaceTab struct {
 	Active bool
 	// Live is set when one of the Space's Connections has a live Session.
 	Live bool
+	// Color is the Space's own Indicator color, "" for none.
+	Color string
 }
 
 // Free reports whether t is a free Space number rather than a Space.
@@ -269,7 +271,7 @@ func (s *State) SpaceTabs() []SpaceTab {
 	tabs := make([]SpaceTab, len(s.spaces))
 	for i, sp := range s.spaces {
 		ref := spaceRef(sp)
-		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref]}
+		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref], Color: s.Color(ref, "")}
 	}
 	return tabs
 }
@@ -452,6 +454,21 @@ func (s *State) ResolveGroupIn(ref, input string) (group string, ok bool) {
 // catalog's lookups read them.
 func (s *State) catalogData() catalog.Snapshot {
 	return catalog.Snapshot{Spaces: s.spaces, Groups: s.allGroups}
+}
+
+// Color returns the Indicator color of the Space ref's Group group ("" for
+// ungrouped), resolved Group → Space → none by catalog.Snapshot.Color.
+func (s *State) Color(ref, group string) string {
+	return s.catalogData().Color(ref, group)
+}
+
+// ActiveColor returns the Indicator color the pane is framed in: the Active
+// connection's, or with none active, the active Space's.
+func (s *State) ActiveColor() string {
+	if c := s.Active(); c != nil {
+		return s.Color(c.Space, c.Group)
+	}
+	return s.Color(s.space, "")
 }
 
 // SpaceGroups returns the stored Groups of the Space ref ("" for the

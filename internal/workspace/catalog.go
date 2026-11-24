@@ -52,6 +52,12 @@ type Catalog interface {
 	// MoveSpace gives a Space the Space number n, swapping numbers with
 	// the Space that has it.
 	MoveSpace(name string, n int) error
+	// SetGroupColor saves the Indicator color of space's Group group, one of
+	// catalog.Colors or "" for none (ADR-0009).
+	SetGroupColor(space, group, color string) error
+	// SetSpaceColor saves the Indicator color of the Space space, one of
+	// catalog.Colors or "" for none.
+	SetSpaceColor(space, color string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
