@@ -592,16 +592,17 @@ var ErrNoMetadata = errors.New("no sshctl metadata")
 
 // DeleteMetadata removes alias's description, group and Space, which
 // leaves it in the default Space, and nothing else: its Host block, even
-// one sshctl manages, and its History stay.
+// one sshctl manages, its Tunnels and its History stay. It returns
+// ErrNoMetadata when there is none of the three to remove.
 func (c *Catalog) DeleteMetadata(alias string) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return err
 	}
-	if _, ok := cfg.Connections[alias]; !ok {
+	if m := cfg.Connections[alias]; m.Description == "" && m.Group == "" && m.Space == "" {
 		return fmt.Errorf("%s: %w", alias, ErrNoMetadata)
 	}
-	delete(cfg.Connections, alias)
+	cfg.SetMetadata(alias, "", "", "")
 	return c.saveConfig(c.configPath, cfg)
 }
 

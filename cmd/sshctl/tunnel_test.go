@@ -135,3 +135,12 @@ func TestTunnelWithNoTunnelsSaysHowToAddOne(t *testing.T) {
 		t.Errorf("ran %v, want no ssh", r.calls)
 	}
 }
+
+func TestTunnelRefusesAnUnknownConnection(t *testing.T) {
+	a, _ := cliTree(t, "Host web\n", config.New(), "")
+	for _, args := range [][]string{{"tunnel", "nope"}, {"tunnel", "list", "nope"}} {
+		if err := a.execute(args); err == nil || !strings.Contains(err.Error(), `no such connection "nope"`) {
+			t.Errorf("%v: err = %v, want no such connection", args, err)
+		}
+	}
+}

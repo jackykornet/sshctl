@@ -92,8 +92,8 @@ func TestRenameCarriesTunnelsAndAnOrphanKeepsThem(t *testing.T) {
 	if got := tr.tunnels(t, "api2"); !slices.Equal(got, []Tunnel{panel}) {
 		t.Errorf("api2 Tunnels = %+v, want panel carried over", got)
 	}
-	if got := tr.tunnels(t, "api"); len(got) != 0 {
-		t.Errorf("api Tunnels = %+v, want none", got)
+	if _, err := tr.cat.Tunnels("api"); !errors.Is(err, ErrUnknownConnection) {
+		t.Errorf("api after the rename: err = %v, want ErrUnknownConnection", err)
 	}
 	// Losing its Host block leaves an Orphaned connection with its Tunnels.
 	if err := tr.ssh.DeleteHost("api2"); err != nil {
@@ -105,5 +105,35 @@ func TestRenameCarriesTunnelsAndAnOrphanKeepsThem(t *testing.T) {
 	}
 	if e, ok := snap.Entry("api2"); !ok || !e.Orphaned || !slices.Equal(e.Tunnels, []Tunnel{panel}) {
 		t.Errorf("api2 = %+v, %v; want an Orphaned connection with its Tunnel", e, ok)
+	}
+}
+
+func TestTunnelsRefusesAnUnknownConnection(t *testing.T) {
+	tr := newTree(t, false, "Host web\n")
+	if got, err := tr.cat.Tunnels("web"); err != nil || len(got) != 0 {
+		t.Errorf("Tunnels(web) = %v, %v; want none", got, err)
+	}
+	if _, err := tr.cat.Tunnels("nope"); !errors.Is(err, ErrUnknownConnection) {
+		t.Errorf("Tunnels(nope) err = %v, want ErrUnknownConnection", err)
+	}
+}
+
+// DeleteMetadata removes the description, group and Space, and nothing else.
+func TestDeleteMetadataKeepsTunnels(t *testing.T) {
+	tr := newTree(t, false, "Host web\n")
+	if err := tr.cat.Save("web", Spec{Alias: "web", Description: "front"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.AddTunnel("web", panel); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.DeleteMetadata("web"); err != nil {
+		t.Fatal(err)
+	}
+	if m := tr.config(t).Connections["web"]; m.Description != "" || !slices.Equal(m.Tunnels, []Tunnel{panel}) {
+		t.Errorf("web = %+v, want only its Tunnel", m)
+	}
+	if err := tr.cat.DeleteMetadata("web"); !errors.Is(err, ErrNoMetadata) {
+		t.Errorf("again: err = %v, want ErrNoMetadata", err)
 	}
 }

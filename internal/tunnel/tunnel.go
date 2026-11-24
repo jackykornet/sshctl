@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Tunnel is a local forward: LocalPort on this machine to RemoteHost:RemotePort
@@ -63,8 +64,12 @@ func Parse(spec string) (Tunnel, error) {
 		return Tunnel{}, fmt.Errorf("%w %q: want %s", ErrSpec, spec, SpecSyntax)
 	}
 	host := target[:i]
-	if host == "" || strings.ContainsFunc(host, isSpace) {
+	if host == "" || strings.ContainsFunc(host, unicode.IsSpace) {
 		return Tunnel{}, fmt.Errorf("%w %q: the remote host is missing or has spaces", ErrSpec, spec)
+	}
+	// ssh -L reads an IPv6 address only in brackets.
+	if strings.Contains(host, ":") && (!strings.HasPrefix(host, "[") || !strings.HasSuffix(host, "]")) {
+		return Tunnel{}, fmt.Errorf("%w %q: put an IPv6 address in brackets, as in 8080:[::1]:80", ErrSpec, spec)
 	}
 	if t.RemotePort, err = parsePort(target[i+1:]); err != nil {
 		return Tunnel{}, err
@@ -77,19 +82,21 @@ func checkName(name string) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("%w: the name before = is empty", ErrSpec)
-	case strings.Trim(name, "0123456789") == "":
+	case allDigits(name):
 		return fmt.Errorf("%w name %q: it is only digits, which stand for ports", ErrSpec, name)
-	case strings.ContainsFunc(name, isSpace) || strings.ContainsAny(name, "=:"):
+	case strings.ContainsFunc(name, unicode.IsSpace) || strings.ContainsAny(name, "=:"):
 		return fmt.Errorf("%w name %q: it may not hold spaces, = or :", ErrSpec, name)
 	}
 	return nil
 }
 
-func isSpace(r rune) bool { return r == ' ' || r == '\t' || r == '\n' || r == '\r' }
+// allDigits reports whether s is a number with no sign, which stands for a
+// port wherever a Tunnel is named.
+func allDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 
 func parsePort(s string) (int, error) {
 	n, err := strconv.Atoi(s)
-	if err != nil || n < 1 || n > 65535 || strings.Trim(s, "0123456789") != "" {
+	if err != nil || !allDigits(s) || n < 1 || n > 65535 {
 		return 0, fmt.Errorf("%w port %q: want a number from 1 to 65535", ErrSpec, s)
 	}
 	return n, nil
@@ -139,11 +146,9 @@ func Add(list []Tunnel, t Tunnel) ([]Tunnel, error) {
 // when ref is only digits) and that Tunnel. It returns ErrNoTunnel when none
 // matches. list is not changed.
 func Remove(list []Tunnel, ref string) ([]Tunnel, Tunnel, error) {
-	port, err := strconv.Atoi(ref)
-	byPort := err == nil
 	i := slices.IndexFunc(list, func(t Tunnel) bool {
-		if byPort {
-			return t.LocalPort == port
+		if allDigits(ref) {
+			return strconv.Itoa(t.LocalPort) == strings.TrimLeft(ref, "0")
 		}
 		return ref != "" && t.Name == ref
 	})

@@ -23,10 +23,14 @@ var (
 	ErrNoTunnel = tunnel.ErrNoTunnel
 )
 
-// Tunnels returns alias's Tunnels as the config holds them now.
+// Tunnels returns alias's Tunnels as the config holds them now. It refuses
+// an alias that is no Connection (ErrUnknownConnection).
 func (c *Catalog) Tunnels(alias string) ([]Tunnel, error) {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
+		return nil, err
+	}
+	if err := c.requireConnection(cfg, alias); err != nil {
 		return nil, err
 	}
 	return cfg.Connections[alias].Tunnels, nil
@@ -37,7 +41,7 @@ func (c *Catalog) Tunnels(alias string) ([]Tunnel, error) {
 // has (ErrDuplicateTunnel).
 func (c *Catalog) AddTunnel(alias string, t Tunnel) error {
 	return c.update(func(cfg *config.Config) error {
-		if err := c.known(cfg, alias); err != nil {
+		if err := c.requireConnection(cfg, alias); err != nil {
 			return err
 		}
 		tunnels, err := tunnel.Add(cfg.Connections[alias].Tunnels, t)
@@ -66,9 +70,9 @@ func (c *Catalog) RemoveTunnel(alias, ref string) (Tunnel, error) {
 	return removed, err
 }
 
-// known returns ErrUnknownConnection unless alias is in ssh_config or has
-// sshctl metadata.
-func (c *Catalog) known(cfg *config.Config, alias string) error {
+// requireConnection returns ErrUnknownConnection unless alias is in
+// ssh_config or has sshctl metadata.
+func (c *Catalog) requireConnection(cfg *config.Config, alias string) error {
 	if _, ok := cfg.Connections[alias]; ok {
 		return nil
 	}

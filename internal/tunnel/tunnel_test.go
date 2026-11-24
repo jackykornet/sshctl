@@ -33,6 +33,8 @@ func TestParse(t *testing.T) {
 		{spec: "123=8080", err: true},
 		{spec: "my panel=8080", err: true},
 		{spec: "a:b=8080", err: true},
+		{spec: "8080:::1:80", err: true},
+		{spec: "8080:[::1:80", err: true},
 	} {
 		t.Run(tc.spec, func(t *testing.T) {
 			got, err := Parse(tc.spec)
@@ -112,7 +114,7 @@ func TestRemove(t *testing.T) {
 			t.Errorf("Remove(%q) = %v, %+v, %v; want %v", tc.ref, got, removed, err, tc.want)
 		}
 	}
-	for _, ref := range []string{"db", "9000", ""} {
+	for _, ref := range []string{"db", "9000", "", "+8080"} {
 		if _, _, err := Remove(list, ref); !errors.Is(err, ErrNoTunnel) {
 			t.Errorf("Remove(%q) err = %v, want ErrNoTunnel", ref, err)
 		}

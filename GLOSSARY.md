@@ -5,7 +5,7 @@ sshctl manages metadata about OpenSSH host aliases and gives a workspace for ope
 ## Connections and sessions
 
 **Connection**:
-One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. sshctl's metadata never defines how to reach the host; only a Host block does. Renaming a Connection carries its metadata and History to the new alias. A Connection with no description, group, Space or Tunnel has no sshctl metadata.
+One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description, group and Tunnels. sshctl's metadata never defines how to reach the host; only a Host block does. Renaming a Connection carries its metadata and History to the new alias. A Connection with no description, group, Space or Tunnel has no sshctl metadata.
 _Avoid_: Server, host, profile
 
 **Managed connection**:
