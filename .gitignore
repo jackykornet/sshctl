@@ -1,4 +1,5 @@
-# Claude history snapshot for a one-time devcontainer migration
+# Claude and atlas snapshots for a one-time devcontainer migration
 .devcontainer/.claude-snapshot.tgz
+.devcontainer/.atlas-snapshot.tgz
 /sshctl
 /sshctl.exe
