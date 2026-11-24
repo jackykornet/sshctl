@@ -152,7 +152,10 @@ func (t *tunnels) ended(msg tunnelEndedMsg) *tunnelRun {
 const batchHint = "needs a password or host-key confirmation: connect once in a tab, or Bootstrap"
 
 // tunnelError is the error a tunnel shows for ssh's stderr and exit code:
-// ssh's last line, with batchHint when ssh wanted to prompt.
+// ssh's last line, with batchHint when ssh wanted to prompt: for a password
+// or keyboard-interactive answer (which "Permission denied (…)" lists among
+// the methods left), a key's passphrase, or a host key. A plain
+// "Permission denied (publickey)" is a rejected key, with nothing to ask.
 func tunnelError(stderr string, code int) string {
 	msg := ""
 	for _, l := range strings.Split(strings.TrimSpace(stderr), "\n") {
@@ -164,7 +167,7 @@ func tunnelError(stderr string, code int) string {
 		msg = fmt.Sprintf("ssh exited (exit %d)", code)
 	}
 	lower := strings.ToLower(stderr)
-	for _, s := range []string{"permission denied", "host key verification failed", "passphrase", "password"} {
+	for _, s := range []string{"password", "keyboard-interactive", "passphrase", "host key verification failed"} {
 		if strings.Contains(lower, s) {
 			return msg + " (" + batchHint + ")"
 		}

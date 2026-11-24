@@ -97,13 +97,13 @@ func newTunnelProcessModel(t *testing.T, s script) *Model {
 
 func TestAFailedTunnelShowsSshsErrorUntilRestarted(t *testing.T) {
 	m := newTunnelProcessModel(t, script{
-		sh:  `echo "$1: Permission denied (publickey)." >&2; exit 255`,
-		cmd: `echo {alias}: Permission denied (publickey).>&2& exit 255`,
+		sh:  `echo "$1: Permission denied (publickey,password)." >&2; exit 255`,
+		cmd: `echo {alias}: Permission denied (publickey,password).>&2& exit 255`,
 	})
 	startTunnels(m, "web")
 	run := m.tunnels.get("web")
 	pump(t, m, func() bool { return run.failed() })
-	for _, want := range []string{"✕", "web tunnel failed: web: Permission denied (publickey)."} {
+	for _, want := range []string{"✕", "web tunnel failed: web: Permission denied (publickey,password)."} {
 		if !strings.Contains(screen(m), want) {
 			t.Errorf("screen lacks %q:\n%s", want, screen(m))
 		}
@@ -119,6 +119,30 @@ func TestAFailedTunnelShowsSshsErrorUntilRestarted(t *testing.T) {
 	press(m, text("r")...)
 	if run.failed() {
 		t.Fatal("r should restart the failed tunnel")
+	}
+}
+
+// The BatchMode hint is for a tunnel that needed a prompt, not for a key the
+// server rejected.
+func TestATunnelFailureHintsOnlyAtAPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		stderr string
+		hint   bool
+	}{
+		{"web: Permission denied (publickey).", false},
+		{"web: Permission denied (publickey,password).", true},
+		{"web: Permission denied (publickey,keyboard-interactive).", true},
+		{"Host key verification failed.", true},
+		{"Load key \"/home/me/.ssh/id_ed25519\": incorrect passphrase supplied to decrypt private key", true},
+		{"bind [127.0.0.1]:8083: Address already in use", false},
+	} {
+		m, _ := newRecordingModel(t, tunnelEntries())
+		startTunnels(m, "web")
+		run := m.tunnels.get("web")
+		m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255, stderr: tc.stderr + "\n"})
+		if got := strings.Contains(run.err, batchHint); got != tc.hint {
+			t.Errorf("%q: error %q, hint %v, want %v", tc.stderr, run.err, got, tc.hint)
+		}
 	}
 }
 
