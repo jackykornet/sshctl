@@ -28,6 +28,11 @@ var (
 	// spaceActiveStyle is the accent colour of the active Space in the
 	// Space bar.
 	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// focusStyle is the accent colour of the side with focus: the current
+	// tab while the pane has it, and the status bar's LIST or SESSION tag.
+	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// focusRowStyle is the list's cursor row while the list has focus.
+	focusRowStyle = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Cyan)
 	// spaceFreeStyle is a free Space number in the Space bar, fainter than
 	// an idle Space. The picker draws its free rows in dimStyle.
 	spaceFreeStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Faint(true)
@@ -145,7 +150,8 @@ func (m *Model) renderList(w, h int) []string {
 		if len(lines) == h {
 			break
 		}
-		mark := pointer(m.focus == focusList && m.tunnelCursor < 0 && offset+i == cursor)
+		onCursor := m.tunnelCursor < 0 && offset+i == cursor
+		mark := m.pointer(onCursor)
 		var line string
 		highlight := false
 		if r.Header() {
@@ -166,11 +172,13 @@ func (m *Model) renderList(w, h int) []string {
 			line = dimStyle.Render(ansi.Strip(line))
 		case d != nil && d.moving && d.ok && r.Group == d.target:
 			line = dropStyle.Render(ansi.Strip(line))
-		case highlight:
+		case onCursor && m.listFocused():
 			// The bar runs to the list's edge; the cursor's › stays apart.
+			line = focusRowStyle.Render(ansi.Strip(line))
+		case highlight:
 			line = activeRow.Render(ansi.Strip(line))
 		}
-		lines = append(lines, fit(mark, 1)+line)
+		lines = append(lines, mark+line)
 	}
 	if len(rows) == 0 && len(lines) < h {
 		msg := "no hosts in ssh_config"
@@ -200,18 +208,29 @@ func (m *Model) tunnelSection(w int) []string {
 	title := "─ Tunnels "
 	lines := []string{dimStyle.Render(fit(title+strings.Repeat("─", max(0, w-len([]rune(title)))), w))}
 	for i, r := range s.rows[s.first:min(len(s.rows), s.first+s.height-1)] {
-		lines = append(lines, m.tunnelLine(r, s.first+i == m.tunnelCursor && m.focus == focusList, w))
+		lines = append(lines, m.tunnelLine(r, s.first+i == m.tunnelCursor, w))
 	}
 	return lines
 }
 
-// pointer starts a list or Tunnels section row: › on the cursor's row.
-func pointer(cursor bool) string {
-	if cursor {
-		return "›"
+// pointer starts a list or Tunnels section row: › on the cursor's row, in
+// the accent colour while the list has focus and dim while it has not, so
+// it shows where ^B Tab lands.
+func (m *Model) pointer(cursor bool) string {
+	switch {
+	case !cursor:
+		return " "
+	case m.listFocused():
+		return focusStyle.Render("›")
 	}
-	return " "
+	return dimStyle.Render("›")
 }
+
+// listFocused reports whether keys go to the list rather than the pane.
+func (m *Model) listFocused() bool { return !m.paneFocused() }
+
+// paneFocused reports whether keys go to the Active connection's pane.
+func (m *Model) paneFocused() bool { return m.focus == focusPane && m.st.Active() != nil }
 
 // tunnelLine is one row of the Tunnels section, such as
 // ⇄ prod-web panel :8083 ●, or ⇄ 2·vps panel :8084 ● for a Connection in
@@ -229,12 +248,16 @@ func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
 		state, detail = errStyle.Render("✕"), " "+dimStyle.Render(r.run.err)
 	}
 	right := fmt.Sprintf(" :%d %s", r.tunnel.LocalPort, state)
-	left := pointer(cursor) + tunnelMarker + " "
-	room := w - ansi.StringWidth(left) - ansi.StringWidth(right)
+	left := tunnelMarker + " "
+	room := w - 1 - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if ansi.StringWidth(name) > room {
 		name = ansi.Truncate(name, max(room, 1), "…")
 	}
-	return fit(left+name+right+detail, w)
+	line := fit(left+name+right+detail, w-1)
+	if cursor && m.listFocused() {
+		line = focusRowStyle.Render(ansi.Strip(line))
+	}
+	return m.pointer(cursor) + line
 }
 
 // spaceBar is the Workspace's top row: every Space as [1] homelab, the
@@ -432,7 +455,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	labels := make([]string, len(c.Sessions))
 	plain := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
-		labels[i], plain[i] = tabLabel(s, i == c.Current)
+		labels[i], plain[i] = tabLabel(s, i == c.Current, m.paneFocused())
 	}
 	// Grow a window of tabs around the current one while it fits, leaving
 	// room for ‹ and › and for the [+].
@@ -484,8 +507,9 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 
 // tabLabel is a tab, [1 ssh ●]: its number, what it runs and a dot, green
 // while live and yellow once ended. Unseen activity makes it bold and adds
-// •. The current tab is in reverse video. plain is the label unstyled.
-func tabLabel(s *Session, current bool) (label, plain string) {
+// •. The current tab is in the accent colour while the pane has focus, and
+// in reverse video while it has not. plain is the label unstyled.
+func tabLabel(s *Session, current, focused bool) (label, plain string) {
 	what := "ssh"
 	if s.Action != "" {
 		what = string(s.Action)
@@ -501,7 +525,10 @@ func tabLabel(s *Session, current bool) (label, plain string) {
 		plain += " " + unseenMarker
 	}
 	plain += "]"
-	if current {
+	switch {
+	case current && focused:
+		return focusStyle.Render(plain), plain
+	case current:
 		return activeRow.Render(plain), plain
 	}
 	style := lipgloss.NewStyle()
@@ -646,10 +673,19 @@ func (m *Model) renderStatus(w int) string {
 	case m.scrolling():
 		left = "scroll mode · " + m.scrollHints().String()
 		if _, r := m.currentRunner(); r != nil {
-			left = fmt.Sprintf("scroll: %d/%d lines back · %s", r.scroll, r.term.ScrollbackLen(), m.scrollHints())
+			left = fmt.Sprintf("%d/%d lines back · %s", r.scroll, r.term.ScrollbackLen(), m.scrollHints())
 		}
 	default:
 		left = m.sessionStatus()
+	}
+	// The tag says which side has focus; a modal's or the filter's own
+	// status says where you are instead.
+	if m.mode.modal == nil && !m.filtering() {
+		tag := "LIST"
+		if m.paneFocused() {
+			tag = "SESSION"
+		}
+		left = focusStyle.Render(tag) + " " + left
 	}
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
@@ -662,7 +698,10 @@ func (m *Model) renderStatus(w int) string {
 			break
 		}
 	}
-	return barStyle.Render(fit(line, w))
+	// The bar's reverse video carries on after each styled part, such as
+	// the focus tag, ends.
+	open := strings.TrimSuffix(barStyle.Render("x"), "x\x1b[m")
+	return barStyle.Render(strings.ReplaceAll(fit(line, w), "\x1b[m", "\x1b[m"+open))
 }
 
 // statusHints are the hint lines for the status line's right side, for the
@@ -670,7 +709,7 @@ func (m *Model) renderStatus(w int) string {
 // that fits. Each drops the last key but help from the one before.
 func (m *Model) statusHints() []hintLine {
 	var keys hintLine
-	if m.focus == focusPane && m.st.Active() != nil {
+	if m.paneFocused() {
 		keys = m.hint(inPrefix, "tab", "n", "w", "[", "]", "s")
 	} else {
 		keys = m.hint(inList, "enter", "/", "a", "e", "d")

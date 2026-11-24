@@ -54,7 +54,7 @@ func TestScrolledBackViewStaysAsOutputArrives(t *testing.T) {
 			if r.scroll != back+5 {
 				t.Fatalf("scroll = %d, want %d", r.scroll, back+5)
 			}
-			want := fmt.Sprintf("scroll: %d/%d lines back", back+5, r.term.ScrollbackLen())
+			want := fmt.Sprintf("SESSION %d/%d lines back", back+5, r.term.ScrollbackLen())
 			if !strings.Contains(screen(m), want) {
 				t.Fatalf("status should say %q:\n%s", want, screen(m))
 			}

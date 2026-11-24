@@ -1,5 +1,5 @@
  ▾ 1 web ●1                 │ prod-web                                          
-   ● prod-web public site   │ [1 ssh ●] [2 ssh ●] [+]                           
+›  ● prod-web public site   │ [1 ssh ●] [2 ssh ●] [+]                           
    ○ staging                │                                                   
  ▾ ungrouped                │                                                   
    ○ db-main postgres       │                                                   
@@ -7,4 +7,4 @@
                             │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- web / prod-web · key: id_ed25519        ^B Tab list · ^B n new tab · ^B ? help 
+ SESSION web / prod-web · key: id_ed25519               ^B Tab list · ^B ? help 

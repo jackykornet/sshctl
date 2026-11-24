@@ -161,9 +161,12 @@ var bindings = []binding{
 	},
 	{
 		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			if m.focus == focusList && m.st.Active() != nil {
+			switch {
+			case m.focus == focusList && m.st.Active() == nil:
+				return m.setStatus("no open session — press Enter on a connection", false)
+			case m.focus == focusList:
 				m.focus = focusPane
-			} else {
+			default:
 				m.focus = focusList
 			}
 			return nil
