@@ -208,10 +208,11 @@ func (a *app) completeEndpoint(ctx context.Context, e catalog.Entry) (catalog.En
 	return e, nil
 }
 
-// saveEndpoint writes e's Host block, keeping its description and group.
+// saveEndpoint writes e's Host block, keeping its description, group and
+// Tunnels.
 // SaveHost writes an IdentityFile under the home directory as ~/ (ADR-0004).
 func (a *app) saveEndpoint(e catalog.Entry) error {
-	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: true, Host: e.Host})
+	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: true, Host: e.Host, Tunnels: e.Tunnels})
 }
 
 // home is the user's home directory, as SaveHost sees it.

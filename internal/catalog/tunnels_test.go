@@ -86,7 +86,7 @@ func TestRenameCarriesTunnelsAndAnOrphanKeepsThem(t *testing.T) {
 	if err := tr.cat.AddTunnel("api", panel); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.Save("api", Spec{Alias: "api2", Description: "API", Managed: true, Host: Host{HostName: "h"}}); err != nil {
+	if err := tr.cat.Save("api", Spec{Alias: "api2", Description: "API", Managed: true, Host: Host{HostName: "h"}, Tunnels: []Tunnel{panel}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := tr.tunnels(t, "api2"); !slices.Equal(got, []Tunnel{panel}) {
@@ -135,5 +135,42 @@ func TestDeleteMetadataKeepsTunnels(t *testing.T) {
 	}
 	if err := tr.cat.DeleteMetadata("web"); !errors.Is(err, ErrNoMetadata) {
 		t.Errorf("again: err = %v, want ErrNoMetadata", err)
+	}
+}
+
+// Save replaces the Connection's Tunnels with the Spec's, in the same write
+// as the rest of its metadata.
+func TestSaveReplacesTunnels(t *testing.T) {
+	tr := newTree(t, true, "Host mine\n")
+	if err := tr.cat.AddTunnel("mine", panel); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop", Tunnels: []Tunnel{db}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.tunnels(t, "mine"); !slices.Equal(got, []Tunnel{db}) {
+		t.Errorf("Tunnels = %+v, want only db", got)
+	}
+	if err := tr.cat.Save("mine", Spec{Alias: "mine", Description: "laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.tunnels(t, "mine"); len(got) != 0 {
+		t.Errorf("Tunnels = %+v, want none", got)
+	}
+}
+
+func TestSaveRefusesBadTunnelsAndChangesNothing(t *testing.T) {
+	tr := newTree(t, true, "")
+	dup := panel
+	dup.Name = "other"
+	err := tr.cat.Save("", Spec{Alias: "api", Managed: true, Host: Host{HostName: "h"}, Tunnels: []Tunnel{panel, dup}})
+	if !errors.Is(err, ErrDuplicateTunnel) {
+		t.Fatalf("err = %v, want ErrDuplicateTunnel", err)
+	}
+	if len(tr.hosts(t)) != 0 {
+		t.Error("no Host block should be written")
+	}
+	if _, ok := tr.config(t).Connections["api"]; ok {
+		t.Error("no metadata should be saved")
 	}
 }

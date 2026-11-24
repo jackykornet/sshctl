@@ -422,3 +422,19 @@ func TestBootstrapUsesTheSpacesSelectedIdentity(t *testing.T) {
 		}
 	}
 }
+
+// Bootstrap rewrites the Host block through catalog.Save, which replaces
+// Tunnels: it keeps the Connection's own.
+func TestBootstrapKeepsTunnels(t *testing.T) {
+	a, out, _ := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	if err := a.execute([]string{"tunnel", "add", "web", "panel=8083"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if got := load(t, a).Connections["web"].Tunnels; len(got) != 1 || got[0].Name != "panel" {
+		t.Errorf("Tunnels = %+v, want panel kept", got)
+	}
+}

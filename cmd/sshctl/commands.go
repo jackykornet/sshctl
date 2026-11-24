@@ -446,8 +446,8 @@ func (a *app) metadata(args []string, edit bool) error {
 		c.Group = strings.TrimSpace(group)
 	}
 	// Saving under the same alias without Managed changes only the
-	// description and group, never a Host block.
-	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Space: c.Space, Group: c.Group})
+	// description and group, never a Host block or the Tunnels.
+	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Space: c.Space, Group: c.Group, Tunnels: c.Tunnels})
 	if errors.Is(err, catalog.ErrUnknownGroup) {
 		return fmt.Errorf("no group %q; create it first with: sshctl group add %s", c.Group, c.Group)
 	}

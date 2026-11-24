@@ -12,6 +12,7 @@ import (
 
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 // Host is how OpenSSH reaches a Managed connection.
@@ -46,6 +47,9 @@ type Spec struct {
 	// and group are saved.
 	Managed bool
 	Host    Host
+	// Tunnels replace the Connection's Tunnels; nil leaves it none. A
+	// caller that does not edit them passes the Entry's.
+	Tunnels []Tunnel
 }
 
 // Entry is one Connection as listed from ssh_config and sshctl metadata.
@@ -479,14 +483,14 @@ func (c *Catalog) update(change func(*config.Config) error) error {
 // A Host block is written to sshctl's ssh_config file whenever s is Managed
 // or the alias is new or renamed; openssh.SaveHost enforces ADR-0002, and
 // a Connection whose Host block is the user's cannot be renamed. Then the
-// description and group are saved under the new alias, and History follows
-// a rename.
+// description, group and Tunnels are saved under the new alias, and History
+// follows a rename.
 //
 // Nothing is changed when Save fails: the sshctl config is read before the
 // Host block is written, and the Host block is put back when the config
 // cannot be written. Save returns an *IncludeError when ssh_config must
-// first Include sshctl's file, and refuses an unknown Space
-// (ErrUnknownSpace), a Group name config.CheckGroupName refuses and, with
+// first Include sshctl's file, and refuses Tunnels tunnel.Check refuses, an
+// unknown Space (ErrUnknownSpace), a Group name config.CheckGroupName refuses and, with
 // ErrUnknownGroup, a Group the Space has no record of (AddGroup creates
 // one).
 func (c *Catalog) Save(old string, s Spec) error {
@@ -494,6 +498,9 @@ func (c *Catalog) Save(old string, s Spec) error {
 		if err := config.CheckGroupName(s.Group); err != nil {
 			return err
 		}
+	}
+	if err := tunnel.Check(s.Tunnels); err != nil {
+		return err
 	}
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
@@ -518,6 +525,7 @@ func (c *Catalog) Save(old string, s Spec) error {
 		rename(cfg, old, s.Alias)
 	}
 	cfg.SetMetadata(s.Alias, space, s.Description, s.Group)
+	cfg.SetTunnels(s.Alias, s.Tunnels)
 	if err := c.saveConfig(c.configPath, cfg); err != nil {
 		if uerr := undo(); uerr != nil {
 			return fmt.Errorf("%w (and restoring the Host block failed: %v)", err, uerr)
