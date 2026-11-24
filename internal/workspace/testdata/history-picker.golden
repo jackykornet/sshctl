@@ -1,0 +1,12 @@
+ [1] default  [2] acme                                                          
+────────────────────────────┬───────────────────────────────────────────────────
+›▾ 1 prod                   │ History                                           
+   ○ web public site        │   db       acme     postgres                      
+ ▾ ungrouped                │ › old-box  default  (missing)                     
+   ○ mine hand written      │   web      default  public site                   
+   ○ old-box (missing)      │   gone              (missing)                     
+                            │   mine     default  hand written                  
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ history: █  Enter open · ↑/↓ move · Esc close           Enter open · ^B ? help 

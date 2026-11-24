@@ -8,6 +8,7 @@
   [/]  ^B [/]          previous / next tab                                      
   {/}  ^B {/}          previous / next open connection in the Space             
   P/S/1-9  ^B P/S/1-9  Space picker / Space names / switch to Space 1-9         
+  H  ^B H              History picker: open a recent connection from any Space  
   ^B n                 new tab for the active connection                        
   ^B i/p               bootstrap / provision in its own tab                     
   ^B g                 open the connection's group as tabs                      
@@ -17,8 +18,7 @@
   ^B w  r/x            close tab (ended tab, tunnel row: r reconnect, x close)  
   ^B Tab               move focus between list and terminal                     
   ^B s                 scroll back (mouse wheel also scrolls)                   
-  ^B b                 hide or show the connection list                         
-  ^B R                 refresh connections from ssh_config                      
+  ^B b/R               hide or show the list / refresh from ssh_config          
   ^B ^B/?              send the prefix key to the session / show this help      
   q/^C  ^B q/^C        quit                                                     
  no active connection · key: id_ed25519       Enter open · / filter · ^B ? help 

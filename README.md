@@ -177,6 +177,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `{`/`}`, prefix `{`/`}` | Previous / next open connection in the active Space |
 | `1`–`9`, prefix `1`–`9` | Switch to Space 1–9 |
 | `P` / `S`, prefix `P` / `S` | Open the Space picker / show every Space's number and name under the Space bar |
+| `H`, prefix `H` | Open the History picker: the 20 most recently opened connections from every Space, most recent first. Type to filter by alias, description, group or Space; `Enter` opens the connection or switches to it, making its Space active; a `(missing)` connection does not open; `Esc` closes it |
 | `a` / `e` / `d`, prefix `a` / `e` / `d` | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
 | `t`, prefix `t` | Start / stop the connection's [Tunnels](#tunnels-in-the-workspace) in the background; with none saved, opens the edit form on its Tunnels field |
 | `q` (or `Ctrl+C` in the list), prefix `q` | Quit |
