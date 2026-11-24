@@ -1,0 +1,24 @@
+ no hosts in ssh_config     │                                                   
+                            │                                                   
+                            │                                                   
+                            │  No connections yet.                              
+                            │                                                   
+                            │  a add: a new connection, saved to                
+                            │  ~/.ssh/sshctl_config.                            
+                            │                                                   
+                            │  Hosts already in ~/.ssh/config show up here.     
+                            │  Saving needs Include sshctl_config at the top    
+                            │  of ~/.ssh/config; sshctl asks before adding it.  
+                            │                                                   
+                            │  P spaces: switch, add or rename Spaces.          
+                            │                                                   
+                            │  ^B ? help: every key.                            
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ LIST no active connection · key: id_ed25519  Enter open · / filter · ^B ? help 

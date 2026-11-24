@@ -23,6 +23,11 @@ var hintSites = []struct {
 		press(m, keyEnter)
 		return m, m.statusHints(), statusKeys(m)
 	}},
+	{"getting started", func(t *testing.T) (*Model, []hintLine, []boundKey) {
+		m := newEmptyModel(t, 80, 24)
+		add, spaces, help := m.gettingStartedHints()
+		return m, []hintLine{add, spaces, help}, statusKeys(m)
+	}},
 	{"ended banner", func(t *testing.T) (*Model, []hintLine, []boundKey) {
 		m, sess := newPaneModel(t, "$ ")
 		endSession(m, sess, 1)
