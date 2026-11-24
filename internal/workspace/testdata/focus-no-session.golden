@@ -1,0 +1,10 @@
+›▾ 1 web                    │                                                   
+   ○ prod-web public site   │                                                   
+   ○ staging                │                                                   
+ ▾ ungrouped                │  Select a connection and press Enter.             
+   ○ db-main postgres       │                                                   
+   ○ old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ LIST no open session — press Enter on a connection      Enter open · ^B ? help 

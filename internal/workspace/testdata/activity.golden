@@ -2,7 +2,7 @@
    ● prod-web • public site │ [1 ssh ● •] [2 ssh ●] [3 ssh ●] [+]               
    ○ staging                │                                                   
  ▾ ungrouped ●1 •           │                                                   
-   ● db-main • postgres     │                                                   
+›  ● db-main • postgres     │                                                   
    ○ old-box (missing)      │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- ungrouped / db-main · key: id_ed25519   ^B Tab list · ^B n new tab · ^B ? help 
+ SESSION ungrouped / db-main · key: id_ed25519          ^B Tab list · ^B ? help 
