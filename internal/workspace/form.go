@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 // Host is how OpenSSH reaches a Connection whose Host block sshctl manages.
@@ -15,6 +16,9 @@ type Host = catalog.Host
 
 // Spec is a Connection as entered in the connection form.
 type Spec = catalog.Spec
+
+// Tunnel is a saved local forward on a Connection (ADR-0012).
+type Tunnel = catalog.Tunnel
 
 // IncludeError is returned by Catalog.Save when the user's ssh_config does
 // not yet read sshctl's hosts file. Saving can be retried after
@@ -32,6 +36,7 @@ const (
 	fieldDescription
 	fieldSpace
 	fieldGroup
+	fieldTunnels
 )
 
 type formField struct {
@@ -63,7 +68,7 @@ func newAddForm(space, group string) *connForm {
 }
 
 func newEditForm(c *Connection) *connForm {
-	s := Spec{Alias: c.Alias, Description: c.Description, Group: c.Group, Managed: c.Managed, Host: c.Host}
+	s := catalog.SpecFor(c.Entry)
 	f := &connForm{old: c.Alias, space: c.Space, managed: c.Managed}
 	if c.Managed {
 		f.fields = managedFields(s)
@@ -71,6 +76,7 @@ func newEditForm(c *Connection) *connForm {
 		f.fields = []formField{
 			{id: fieldDescription, label: "Description", value: newLine(s.Description)},
 			{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
+			tunnelsField(s.Tunnels),
 		}
 	}
 	return f
@@ -80,6 +86,13 @@ func newEditForm(c *Connection) *connForm {
 func (f *connForm) addSpaceField(name string) {
 	i := slices.IndexFunc(f.fields, func(fl formField) bool { return fl.id == fieldGroup })
 	f.fields = slices.Insert(f.fields, i, formField{id: fieldSpace, label: "Space", placeholder: "name or number", value: newLine(name)})
+}
+
+// focusOn moves the focus to field id, if the form has it.
+func (f *connForm) focusOn(id fieldID) {
+	if i := slices.IndexFunc(f.fields, func(fl formField) bool { return fl.id == id }); i >= 0 {
+		f.focusField(i)
+	}
 }
 
 // field returns the form's field id, or nil when it has none.
@@ -130,7 +143,14 @@ func managedFields(s Spec) []formField {
 		{id: fieldIdentity, label: "Identity file", placeholder: "OpenSSH default", value: newLine(s.Host.IdentityFile)},
 		{id: fieldDescription, label: "Description", value: newLine(s.Description)},
 		{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
+		tunnelsField(s.Tunnels),
 	}
+}
+
+// tunnelsField is the Tunnels field: a comma-separated list of specs, for
+// every Connection, since Tunnels are sshctl metadata (ADR-0012).
+func tunnelsField(tunnels []Tunnel) formField {
+	return formField{id: fieldTunnels, label: "Tunnels", placeholder: "panel=8083, cockpit=9090", value: newLine(tunnel.Join(tunnels))}
 }
 
 func (f *connForm) title() string {
@@ -140,11 +160,12 @@ func (f *connForm) title() string {
 	case f.managed:
 		return "Edit " + f.old
 	default:
-		return "Edit " + f.old + " (description and group)"
+		return "Edit " + f.old + " (sshctl metadata)"
 	}
 }
 
-// spec returns the form's values with surrounding spaces trimmed.
+// spec returns the form's values with surrounding spaces trimmed, all but
+// the Tunnels, which tunnels parses.
 func (f *connForm) spec() Spec {
 	s := Spec{Alias: f.old, Space: f.space, Managed: f.managed}
 	for _, fl := range f.fields {
@@ -169,6 +190,11 @@ func (f *connForm) spec() Spec {
 	return s
 }
 
+// tunnels parses the Tunnels field, a comma-separated list of specs.
+func (f *connForm) tunnels() ([]Tunnel, error) {
+	return tunnel.ParseList(f.field(fieldTunnels).value.String())
+}
+
 func (m *Model) startAdd() tea.Cmd {
 	group := ""
 	if r, ok := m.st.CursorRow(); ok {
@@ -188,13 +214,18 @@ func (m *Model) withSpaceField(f *connForm) {
 	}
 }
 
-func (m *Model) startEdit() tea.Cmd {
+func (m *Model) startEdit() tea.Cmd { return m.startEditAt(fieldAlias) }
+
+// startEditAt opens the edit form for the target Connection with the focus
+// on field focus, or on its first field when it has no such field.
+func (m *Model) startEditAt(focus fieldID) tea.Cmd {
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
 	}
 	f := newEditForm(c)
 	m.withSpaceField(f)
+	f.focusOn(focus)
 	m.openModal(f)
 	return nil
 }
@@ -291,6 +322,13 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	}
 	f.space = space
 	s := f.spec()
+	tunnels, err := f.tunnels()
+	if err != nil {
+		f.err = err.Error()
+		f.focusOn(fieldTunnels)
+		return nil
+	}
+	s.Tunnels = tunnels
 	group, ok := m.st.ResolveGroupIn(space, s.Group)
 	if !ok {
 		f.err = "no group number " + s.Group
@@ -303,7 +341,7 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 			return nil
 		}
 	}
-	err := m.opts.Catalog.Save(f.old, s)
+	err = m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
 	if errors.As(err, &inc) {
 		m.askInclude(inc, func(m *Model) tea.Cmd {
@@ -376,10 +414,10 @@ func (m *Model) deleteConnection() tea.Cmd {
 	}
 	question := fmt.Sprintf("Delete %s from ssh_config?", c.Alias)
 	if !c.Managed {
-		if c.Description == "" && c.Group == "" {
+		if c.Description == "" && c.Group == "" && len(c.Tunnels) == 0 {
 			return m.setStatus(c.Alias+" is defined outside sshctl; edit your ssh_config to remove it", true)
 		}
-		question = fmt.Sprintf("Remove %s's description and group? Its Host block is not sshctl's.", c.Alias)
+		question = fmt.Sprintf("Remove %s's description, group and tunnels? Its Host block is not sshctl's.", c.Alias)
 	}
 	alias := c.Alias
 	m.ask(question, func(m *Model) tea.Cmd {

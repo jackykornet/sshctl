@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -317,7 +318,7 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); got != want {
+	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("edited metadata = %#v, want %#v", got, want)
 	}
 }

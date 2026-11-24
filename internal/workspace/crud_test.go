@@ -147,7 +147,7 @@ func TestEditManagedConnectionCanRename(t *testing.T) {
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("e")...)
-	if got := m.form().spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form().fields) != 7 {
+	if got := m.form().spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form().fields) != 8 {
 		t.Fatalf("form = %+v", got)
 	}
 	fill(m, "web1")
@@ -177,8 +177,8 @@ func TestEditUnmanagedConnectionOnlyChangesMetadata(t *testing.T) {
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)
-	if len(m.form().fields) != 2 {
-		t.Fatalf("fields = %d, want description and group only", len(m.form().fields))
+	if len(m.form().fields) != 3 {
+		t.Fatalf("fields = %d, want description, group and tunnels only", len(m.form().fields))
 	}
 	fill(m, "laptop", "home")
 	press(m, keyCtrlS)
@@ -197,7 +197,7 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 		question string
 	}{
 		{"web", "Delete web from ssh_config?"},
-		{"mine", "Remove mine's description and group?"},
+		{"mine", "Remove mine's description, group and tunnels?"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.alias, func(t *testing.T) {

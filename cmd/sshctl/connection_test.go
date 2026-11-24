@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -58,7 +59,7 @@ func TestAddTakesEveryFieldAsAFlag(t *testing.T) {
 	if got, ok := managedHost(t, a, "api01"); !ok || got != want {
 		t.Errorf("api01's Host block = %+v (%v), want %+v", got, ok, want)
 	}
-	if got, want := loadCLI(t, a).Connections["api01"], (config.Connection{Alias: "api01", Description: "public site", Space: "work", Group: "api"}); got != want {
+	if got, want := loadCLI(t, a).Connections["api01"], (config.Connection{Alias: "api01", Description: "public site", Space: "work", Group: "api"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("api01 = %+v, want %+v", got, want)
 	}
 	if !strings.Contains(output(a), "added api01") {
@@ -184,7 +185,7 @@ func TestAddAndEditRefuseAnUnknownGroupWithAHint(t *testing.T) {
 			if _, ok := managedHost(t, a, "new"); ok {
 				t.Error("a Host block was written for new")
 			}
-			if got := loadCLI(t, a).Connections; len(got) != len(before) || got["web01"] != before["web01"] {
+			if got := loadCLI(t, a).Connections; len(got) != len(before) || !reflect.DeepEqual(got["web01"], before["web01"]) {
 				t.Errorf("metadata = %+v, want it unchanged from %+v", got, before)
 			}
 		})
@@ -336,5 +337,30 @@ func TestRemoveLeavesAUserHostBlock(t *testing.T) {
 	}
 	if err := a.execute([]string{"remove", "nope", "--yes"}); err == nil {
 		t.Error("remove nope succeeded")
+	}
+}
+
+// Tunnels have no add or edit field: edit keeps them, and remove deletes
+// them, also from a Connection whose only metadata is Tunnels.
+func TestEditKeepsTunnelsAndRemoveDeletesThem(t *testing.T) {
+	a := connTree(t, "")
+	for _, alias := range []string{"web01", "web"} {
+		if err := a.execute([]string{"tunnel", "add", alias, "panel=8083"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.execute([]string{"edit", "web01", "--port", "2200"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadCLI(t, a).Connections["web01"].Tunnels; len(got) != 1 || got[0].Name != "panel" {
+		t.Errorf("web01's Tunnels after edit = %+v, want panel", got)
+	}
+	for _, alias := range []string{"web01", "web"} {
+		if err := a.execute([]string{"remove", alias, "--yes"}); err != nil {
+			t.Fatal(err)
+		}
+		if m, ok := loadCLI(t, a).Connections[alias]; ok {
+			t.Errorf("%s's metadata after remove = %+v, want none", alias, m)
+		}
 	}
 }

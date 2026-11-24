@@ -32,6 +32,10 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 sshctl
 sshctl list [--space <space>]
 sshctl connect <alias> [--claude]
+sshctl tunnel add <alias> <spec>
+sshctl tunnel rm <alias> <name|port>
+sshctl tunnel list [<alias>]
+sshctl tunnel <alias>
 sshctl add <alias> [--<field> <value>]...
 sshctl edit <alias> [--<field> <value>]...
 sshctl remove <alias> [--yes]
@@ -62,7 +66,7 @@ sshctl experimental enable|disable <feature>
 sshctl config show
 ```
 
-Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(missing)`. `add` and `edit` set the same fields as the Workspace's add/edit form, and save them the same way: the Host block (HostName, User, Port, Identity file) goes to `~/.ssh/sshctl_config`, and the description, Space and group are sshctl metadata.
+Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(missing)`. `add` and `edit` set the same fields as the Workspace's add/edit form except Tunnels, which `sshctl tunnel` sets and `edit` keeps, and save them the same way: the Host block (HostName, User, Port, Identity file) goes to `~/.ssh/sshctl_config`, and the description, Space and group are sshctl metadata.
 
 ```sh
 sshctl add web01 --host 203.0.113.10 --user deploy --port 2222 --identity ~/.ssh/id_ed25519 \
@@ -71,7 +75,9 @@ sshctl edit web01 --port 22
 sshctl edit web01 --alias web02
 ```
 
-`add` creates a new Connection, and refuses an alias that already exists anywhere in ssh_config; `edit` changes an existing one, and `--alias` renames it. With flags, only the fields given change (`--user ""` clears one); without flags, both prompt for each field in turn and an empty answer keeps the current value. `--space` and `--group` take a name or number as everywhere else, and `--group 0` is ungrouped; a Space change without `--group` leaves the Connection ungrouped. The group must already exist: an unknown one is refused with the `sshctl group add` command that creates it. An invalid value (a port outside 1-65535, a hostname with spaces) is refused and nothing is written. For a Connection whose Host block is your own, `edit` changes only its description, Space and group, says so, and refuses Host fields. The first time sshctl writes a Host block it asks to add `Include sshctl_config` to your `~/.ssh/config`, as the Workspace does. `remove` does what the Workspace's delete does: it deletes the Host block if sshctl wrote it and the sshctl metadata, after asking (`--yes` skips the question); a Host block in your own ssh_config stays. A Connection with neither description, Space nor group keeps no metadata. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+`add` creates a new Connection, and refuses an alias that already exists anywhere in ssh_config; `edit` changes an existing one, and `--alias` renames it. With flags, only the fields given change (`--user ""` clears one); without flags, both prompt for each field in turn and an empty answer keeps the current value. `--space` and `--group` take a name or number as everywhere else, and `--group 0` is ungrouped; a Space change without `--group` leaves the Connection ungrouped. The group must already exist: an unknown one is refused with the `sshctl group add` command that creates it. An invalid value (a port outside 1-65535, a hostname with spaces) is refused and nothing is written. For a Connection whose Host block is your own, `edit` changes only its description, Space and group, says so, and refuses Host fields. The first time sshctl writes a Host block it asks to add `Include sshctl_config` to your `~/.ssh/config`, as the Workspace does. `remove` does what the Workspace's delete does: it deletes the Host block if sshctl wrote it and the sshctl metadata, its Tunnels included, after asking (`--yes` skips the question); a Host block in your own ssh_config stays. A Connection with neither description, Space, group nor Tunnels keeps no metadata. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+
+A Tunnel is a saved SSH local forward on a Connection, for reaching a service the server does not expose publicly, such as an admin web UI. `tunnel add <alias> <spec>` saves one, written `[name=]localport[:host:remoteport]`: `8083` forwards `localhost:8083` on your machine to port 8083 on the server itself, and `panel=8080:10.0.0.5:80` is a named Tunnel to another host the server can reach. A Connection's local ports and names must differ, a name may not be only digits, and ports run from 1 to 65535. `tunnel <alias>` runs all of the Connection's Tunnels in your terminal as one `ssh -N -L … <alias>` with the same key as `connect`, prints a `http://localhost:<port>` line for each, and stops on Ctrl-C; ssh may prompt, and sshctl exits with ssh's exit status. `tunnel rm <alias> <name|port>` deletes one, and `tunnel list [<alias>]` lists them. Tunnels are stored in `config.json`, so they sync and follow a renamed Connection; the Host block is never changed (ADR-0012).
 
 `key list` lists public keys and certificates found in `~/.ssh` and registered external key paths. `key add` registers a key path; `key use` selects the identity used by sshctl. `agent ensure` inspects `ssh-add -l` and asks before adding the selected key. It does not start an agent automatically, and does not perform a signing challenge to inspect loaded keys. On Windows, use the OpenSSH Authentication Agent service and start it yourself if unavailable; normal connections do not require elevation.
 
@@ -151,6 +157,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `1`–`9`, prefix `1`–`9` | Switch to Space 1–9 |
 | `P` / `S`, prefix `P` / `S` | Open the Space picker / show every Space's number and name under the Space bar |
 | `a` / `e` / `d`, prefix `a` / `e` / `d` | Add / edit / delete the connection under the cursor; on a group header, add / rename / delete a group |
+| `t`, prefix `t` | Start / stop the connection's [Tunnels](#tunnels-in-the-workspace) in the background; with none saved, opens the edit form on its Tunnels field |
 | `q` (or `Ctrl+C` in the list), prefix `q` | Quit |
 | prefix `n` / `w` | New tab / close tab |
 | prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
@@ -161,7 +168,7 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | prefix `s` | Scroll back through the tab's history (`q` to leave; the mouse wheel also scrolls) |
 | prefix `b` / `R` | Hide the list / refresh connections from ssh_config |
 | prefix `?` | Help (`↑`/`↓` and `PgUp`/`PgDn` scroll it when it does not fit; any other key closes it) |
-| `r` / `x` (on an ended tab) | Reconnect / close the tab |
+| `r` / `x` (on an ended tab, or a tunnel row) | Reconnect / close the tab; restart / stop the tunnel |
 | `Ctrl+S` / `Ctrl+O` (in the add form) | Save the new connection / save it and Bootstrap it in its own tab (while Bootstrap is off, `Ctrl+O` saves nothing and the form says why) |
 
 ### Spaces
@@ -170,11 +177,17 @@ The list shows one Space at a time, the active Space: its groups and connections
 
 `P` in the list opens the Space picker in the right-hand pane: one row per number, `[2] customer1`, with a free number shown dimmed as `[3] empty`. Spaces without a number, from an older config with ten or more, are listed below the nine rows. `Enter` switches to the Space under the cursor. `a` adds a Space: on a free row it takes that row's number, on a row in use the lowest free number. `e` renames the Space, and `d` deletes it (only an empty Space other than the default Space, asking first) and leaves its row empty. `Shift+↑`/`Shift+↓` (or `K`/`J`) moves the Space to the next number up or down, swapping with the Space there if the number is taken. Manage Spaces from the command line with `sshctl space`.
 
+### Tunnels in the Workspace
+
+`t` in the list, or the prefix and then `t` from anywhere, starts the connection's Tunnels in the background, as one `ssh -N -L … <alias>` per connection with the same key as its tabs, and pressing it again stops them. A running tunnel is not a session: it has no tab, does not mark the connection open and does not change History. While any tunnel runs, a Tunnels section at the bottom of the list shows one row per Tunnel, such as `⇄ prod-web panel :8083 ●`, from every Space (a connection in another Space shows its number, `2·vps panel :8084 ●`), the connection's row gets a `⇄`, and the status line starts with `⇄ N tunnels`. `↓` from the list's last row (or a click) puts the cursor on a tunnel row, where `x` stops that connection's tunnel and `r` restarts it. Switching Space never stops a tunnel.
+
+Background tunnels run with `BatchMode=yes`, so one that needs a password, passphrase or host-key confirmation fails at once instead of prompting: connect once in a tab, or Bootstrap the connection. A local port that is in use fails at once too, and a dead connection is noticed within about 90 seconds. A failed tunnel stays listed with `✕` and ssh's error, which the status line also shows, until you restart or stop it; nothing reconnects by itself. Quitting with tunnels running asks `N tunnels running, quit anyway?`, and confirming stops them.
+
 ### Adding, editing and deleting connections
 
-`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description and group (the group under the cursor is filled in). `Ctrl+S` saves it; for a new connection, `Ctrl+O` saves it and then runs Bootstrap in its own tab. A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
+`a` opens a form for a new connection: alias, HostName, User, Port, identity file, description, group and Tunnels (the group under the cursor is filled in). Tunnels is a comma-separated list of Tunnel specs such as `panel=8083, cockpit=9090`; a bad one keeps the form open with the error. `Ctrl+S` saves it; for a new connection, `Ctrl+O` saves it and then runs Bootstrap in its own tab. A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
 
-`e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description and group can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description and group, after asking first. For other hosts it removes only the description and group. A connection with open tabs cannot be renamed or deleted. `sshctl edit` and `sshctl remove` do the same from the command line. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
+`e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description, group and Tunnels can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description, group and Tunnels, after asking first. For other hosts it removes only those. A connection with open tabs cannot be renamed or deleted. `sshctl edit` and `sshctl remove` do the same from the command line. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
 
 ### Groups
 

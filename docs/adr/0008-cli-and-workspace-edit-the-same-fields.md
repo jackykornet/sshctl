@@ -13,7 +13,7 @@ The Workspace's add/edit form set Alias, HostName, User, Port, Identity file, De
 - `add` creates a new Connection, as the form's `a` does, and refuses an alias that exists; adding metadata to a Connection the user defined is `edit`, as it is `e` in the Workspace.
 - Removing is the same too. `sshctl remove` used to delete only the metadata and keep even a Host block sshctl wrote, while the Workspace's `d` deleted that Host block as well. Both now call `catalog.Delete`: the Host block goes when sshctl wrote it, a Host block elsewhere in ssh_config stays, and the metadata goes. Both ask first; the CLI's `--yes` skips the question.
 
-A field added to Connections later is added to the form and to both commands together, and Space and Group lookups go through the resolver rather than each front end's own parsing.
+A field added to Connections later is added to the form and to both commands together, and Space and Group lookups go through the resolver rather than each front end's own parsing. Tunnels (ADR-0012) are the one exception on the command line: `sshctl tunnel` adds and removes them, and `add` and `edit` keep a Connection's Tunnels as they are.
 
 ## Considered options
 

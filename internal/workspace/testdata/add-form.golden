@@ -9,8 +9,8 @@
                             │    Description                                    
                             │    Group          web                             
                             │                   0 none · 1 web                  
+                            │    Tunnels        panel=8083, cockpit=9090        
                             │                                                   
                             │  ^S save · Tab/Shift+Tab move · Esc cancel        
                             │  ^O save and Bootstrap                            
-                            │                                                   
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

@@ -9,7 +9,7 @@ The Workspace's keys grew one feature at a time. Previous and next tab had three
 Every Workspace key follows one rule:
 
 1. **List actions work bare while the list has focus, and after the prefix from anywhere.** A list action is a command on the list's Connections, Groups or Spaces, or on tabs: filter, add/edit/delete, the Space keys (`P`, `S`, `1`–`9`), previous/next tab (`[`/`]`), previous/next open connection (`{`/`}`), quit. Keys that only move around the list (cursor, collapse, Group order, Enter, Esc clearing the filter) stay bare in the list.
-2. **The pane takes only prefixed Workspace commands; every other key goes to the Session.** An ended tab has no Session to take keys, so it keeps its single-key actions (`r` reconnect, `x` close).
+2. **The pane takes only prefixed Workspace commands; every other key goes to the Session.** An ended tab has no Session to take keys, so it keeps its single-key actions (`r` reconnect, `x` close). A row of the Tunnels section in the list takes the same two keys with the same meaning (`r` restarts the tunnel, `x` stops it).
 3. **A key means the same thing in every context.** For example refresh is prefix `R`, so `r` is only reconnect.
 
 A modal (the form, prompts, confirmations, the Space picker, the help screen) and scroll mode take keys before all of this and act on themselves; their own keys keep the meanings the list gives them where they overlap (`a`/`e`/`d` add, rename, delete; `Shift+↑/↓` or `K`/`J` move; Esc leaves).

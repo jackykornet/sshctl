@@ -94,7 +94,7 @@ func TestHelpScrollsAndShowsWhenMoreIsBelow(t *testing.T) {
 
 // TestBindingsDoNotOverlap checks that no key is declared twice in the same context.
 func TestBindingsDoNotOverlap(t *testing.T) {
-	for _, ctx := range []keyContext{inList, inPrefix, inEnded} {
+	for _, ctx := range []keyContext{inList, inPrefix, inEnded, inTunnels} {
 		seen := map[string]string{}
 		for _, b := range bindings {
 			for _, bk := range b.keys[ctx] {

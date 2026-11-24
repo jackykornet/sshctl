@@ -282,7 +282,7 @@ func (f *fakeCatalog) Save(old string, s Spec) error {
 		}
 	}
 	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
-	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host})
+	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host, Tunnels: s.Tunnels})
 	return nil
 }
 
