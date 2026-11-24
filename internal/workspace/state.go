@@ -346,6 +346,10 @@ func (s *State) SpaceEmpty(ref string) bool {
 	return true
 }
 
+// NoConnections reports whether the active Space has no Connections,
+// whatever the filter.
+func (s *State) NoConnections() bool { return len(s.ordered()) == 0 }
+
 // Space returns the active Space as Connections refer to it, "" for the
 // default Space.
 func (s *State) Space() string { return s.space }
