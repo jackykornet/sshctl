@@ -62,6 +62,8 @@ type Entry struct {
 	// so Host applies and the block can be edited and deleted.
 	Managed bool
 	Host    Host
+	// Tunnels are the Connection's saved local forwards (ADR-0012).
+	Tunnels []Tunnel
 }
 
 // Experimental says which Experimental features are on; see
@@ -242,7 +244,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, alias := range aliases {
 		seen[alias] = true
 		m := cfg.Connections[alias]
-		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group}
+		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels}
 		if h, ok := managed[alias]; ok {
 			e.Managed = true
 			e.Host = h.Endpoint
@@ -258,7 +260,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	sort.Strings(orphans)
 	for _, alias := range orphans {
 		m := cfg.Connections[alias]
-		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Orphaned: true})
+		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels, Orphaned: true})
 	}
 	return snap, nil
 }

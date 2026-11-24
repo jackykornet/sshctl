@@ -189,8 +189,8 @@ func TestLoadGivesEverySpaceAFixedNumber(t *testing.T) {
 			}
 			// Version 5 makes an older sshctl refuse the file rather
 			// than save it without the numbers.
-			if again.Version != 5 {
-				t.Errorf("saved version %d, want 5", again.Version)
+			if again.Version < 5 {
+				t.Errorf("saved version %d, want 5 or later", again.Version)
 			}
 		})
 	}

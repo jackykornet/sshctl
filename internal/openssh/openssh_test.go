@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
+
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 func TestAliasesIgnoresPatternsAndDuplicates(t *testing.T) {
@@ -148,6 +151,30 @@ func TestConnectArgs(t *testing.T) {
 	for _, tt := range tests {
 		if got := ConnectArgs("web", tt.key, tt.claude); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("ConnectArgs(web, %q, %v) = %v, want %v", tt.key, tt.claude, got, tt.want)
+		}
+	}
+}
+
+func TestTunnelArgs(t *testing.T) {
+	tunnels := []tunnel.Tunnel{
+		{Name: "admin", LocalPort: 8083, RemoteHost: "localhost", RemotePort: 8083},
+		{LocalPort: 8080, RemoteHost: "10.0.0.5", RemotePort: 80},
+	}
+	base := []string{"ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"}
+	forwards := []string{"-L", "8083:localhost:8083", "-L", "8080:10.0.0.5:80", "web"}
+	tests := []struct {
+		key   string
+		batch bool
+		want  []string
+	}{
+		{"", false, slices.Concat(base, forwards)},
+		{"/k/id", false, slices.Concat(base, []string{"-i", "/k/id"}, forwards)},
+		{"", true, slices.Concat(base, []string{"-o", "BatchMode=yes"}, forwards)},
+		{"/k/id", true, slices.Concat(base, []string{"-o", "BatchMode=yes", "-i", "/k/id"}, forwards)},
+	}
+	for _, tt := range tests {
+		if got := TunnelArgs("web", tt.key, tunnels, tt.batch); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("TunnelArgs(web, %q, …, %v) = %v, want %v", tt.key, tt.batch, got, tt.want)
 		}
 	}
 }

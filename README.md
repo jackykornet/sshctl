@@ -32,6 +32,10 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 sshctl
 sshctl list [--space <space>]
 sshctl connect <alias> [--claude]
+sshctl tunnel add <alias> <spec>
+sshctl tunnel rm <alias> <name|port>
+sshctl tunnel list [<alias>]
+sshctl tunnel <alias>
 sshctl add <alias>
 sshctl edit <alias>
 sshctl remove <alias>
@@ -63,6 +67,8 @@ sshctl config show
 ```
 
 Aliases come from `~/.ssh/config` and any files it pulls in with `Include` (wildcard `Host` patterns are skipped); a Connection's description and group are sshctl metadata only. `list` shows the same Connections as the Workspace: the ssh_config aliases in ssh_config order, then Orphaned connections (metadata whose alias is no longer in ssh_config) sorted by alias and marked `(orphaned)`. `add` and `edit` prompt for a description and group; an empty answer keeps the current value, and a Connection with neither keeps no metadata. The group must already exist: `add` and `edit` refuse an unknown one and tell you to run `sshctl group add`. `connect` runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults.
+
+A Tunnel is a saved SSH local forward on a Connection, for reaching a service the server does not expose publicly, such as an admin web UI. `tunnel add <alias> <spec>` saves one, written `[name=]localport[:host:remoteport]`: `8083` forwards `localhost:8083` on your machine to port 8083 on the server itself, and `panel=8080:10.0.0.5:80` names a forward to another host the server can reach. A Connection's local ports and names must differ, a name may not be only digits, and ports run from 1 to 65535. `tunnel <alias>` runs all of the Connection's Tunnels in your terminal as one `ssh -N -L … <alias>` with the same key as `connect`, prints a `http://localhost:<port>` line for each, and stops on Ctrl-C; ssh may prompt, and sshctl exits with ssh's exit status. `tunnel rm <alias> <name|port>` deletes one, and `tunnel list [<alias>]` lists them. Tunnels are stored in `config.json`, so they sync and follow a renamed Connection; the Host block is never changed (ADR-0012).
 
 `key list` lists public keys and certificates found in `~/.ssh` and registered external key paths. `key add` registers a key path; `key use` selects the identity used by sshctl. `agent ensure` inspects `ssh-add -l` and asks before adding the selected key. It does not start an agent automatically, and does not perform a signing challenge to inspect loaded keys. On Windows, use the OpenSSH Authentication Agent service and start it yourself if unavailable; normal connections do not require elevation.
 
