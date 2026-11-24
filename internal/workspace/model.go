@@ -29,7 +29,7 @@ type Options struct {
 	// It is required.
 	Catalog Catalog
 	// Command returns the command line for a new Session of alias that runs
-	// what l says: ssh, claude on the remote host, or one of sshctl's own
+	// what l says: ssh or one of sshctl's own
 	// Actions. It is called each time a tab opens or reconnects, so it can
 	// use the Selected identity at that moment. When nil, Sessions get no
 	// process (used by layout tests).

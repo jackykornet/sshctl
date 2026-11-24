@@ -122,8 +122,8 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab"), on("c", followCursor(newTab(LaunchClaude)))),
-		help: "new tab for the active connection (c runs claude)",
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab")),
+		help: "new tab for the active connection",
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.

@@ -487,11 +487,8 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 // •. The current tab is in reverse video. plain is the label unstyled.
 func tabLabel(s *Session, current bool) (label, plain string) {
 	what := "ssh"
-	switch {
-	case s.Action != "":
+	if s.Action != "" {
 		what = string(s.Action)
-	case s.Kind == LaunchClaude:
-		what = "claude"
 	}
 	head := fmt.Sprintf("[%d %s ", s.N, what)
 	dot := openStyle.Render("●")
