@@ -122,7 +122,7 @@ var connFieldOpts = []string{fieldHost, fieldUser, fieldPort, fieldIdentity, fie
 // is an alias, and -c (--connect) always names one (ADR-0011). It has no
 // name, so no word looks it up.
 var connectCommand = command{forms: []form{
-	{args: "[-c] <alias> [--claude] [-- <command>...]", opts: []string{"connect", "claude"},
+	{args: "[-c] <alias> [-- <command>...]", opts: []string{"connect"},
 		help: "Connect using OpenSSH; with a command, run it on\nthe host and exit with its exit code. Use -c\n(--connect) for an alias named like a command", run: (*app).connect},
 }}
 
@@ -476,7 +476,7 @@ func (a *app) list(in input) error {
 // connect runs ssh to an alias, the first operand or -c's value, with its
 // Selected identity, and records it in History once ssh succeeds. After --,
 // the operands are a command ssh runs on the host, and sshctl exits with
-// its exit code; --claude runs claude there instead. A bare word must be a
+// its exit code. A bare word must be a
 // Connection, so a mistyped command is not sent to ssh; -c takes any name,
 // as ssh does.
 func (a *app) connect(in input) error {
@@ -500,14 +500,14 @@ func (a *app) connect(in input) error {
 	default:
 		return errUsage
 	}
-	if alias == "" || in.flag("claude") && len(remote) > 0 {
+	if alias == "" {
 		return errUsage
 	}
 	key, err := a.identityFor(alias)
 	if err != nil {
 		return err
 	}
-	argv := append(openssh.ConnectArgs(alias, key, in.flag("claude")), remote...)
+	argv := append(openssh.ConnectArgs(alias, key), remote...)
 	if err := a.runSSH(context.Background(), argv, nil); err != nil {
 		return err
 	}

@@ -105,7 +105,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "\n  [-c] <alias> [--claude] [-- <command>...]") {
+	if !strings.Contains(out.String(), "\n  [-c] <alias> [-- <command>...]") {
 		t.Fatalf("help missing connect usage: %s", out.String())
 	}
 	if strings.Contains(out.String(), "\n  connect") {

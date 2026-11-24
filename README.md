@@ -30,7 +30,7 @@ You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on 
 
 ```text
 sshctl
-sshctl [-c] <alias> [--claude] [-- <command>...]
+sshctl [-c] <alias> [-- <command>...]
 sshctl list [--space <space>]
 sshctl tunnel add <alias> <spec>
 sshctl tunnel rm <alias> <name|port>
@@ -66,7 +66,7 @@ sshctl experimental enable|disable <feature>
 sshctl config show
 ```
 
-`sshctl <alias>` connects: it runs `ssh <alias>` (with `--claude`, `ssh -t <alias> claude`, so claude gets a remote terminal). A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults. `sshctl <alias> -- <command>...` runs the command on the host instead, as `ssh <alias> <command>...` does, and sshctl exits with the command's exit code. A first word that is a built-in command is always the command ([ADR-0011](docs/adr/0011-bare-alias-connects.md)): an alias named `list` or `key` is reached with `sshctl -c <alias>` (`--connect`), which scripts should use, since a later sshctl may add a command with the name of your alias. `list` marks such an alias with `(sshctl -c <alias>)`, and the Workspace's add and edit form warns about it. A bare word that is neither a command nor a Connection is refused, so a mistyped command is not sent to ssh; `-c` connects to any name ssh accepts.
+`sshctl <alias>` connects: it runs `ssh <alias>`. A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults. `sshctl <alias> -- <command>...` runs the command on the host instead, as `ssh <alias> <command>...` does, and sshctl exits with the command's exit code. A first word that is a built-in command is always the command ([ADR-0011](docs/adr/0011-bare-alias-connects.md)): an alias named `list` or `key` is reached with `sshctl -c <alias>` (`--connect`), which scripts should use, since a later sshctl may add a command with the name of your alias. `list` marks such an alias with `(sshctl -c <alias>)`, and the Workspace's add and edit form warns about it. A bare word that is neither a command nor a Connection is refused, so a mistyped command is not sent to ssh; `-c` connects to any name ssh accepts.
 
 Options follow the GNU convention on every OS: `--name value` or `--name=value`, anywhere after the command name (`sshctl group list --space acme` and `sshctl group --space acme list` are the same), and `--` ends the options. `-c`, `-s`, `-g`, `-y` and `-h` stand for `--connect`, `--space`, `--group`, `--yes` and `--help`; every other option is long only. `sshctl --version` prints the version.
 
@@ -164,7 +164,6 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 | `t`, prefix `t` | Start / stop the connection's [Tunnels](#tunnels-in-the-workspace) in the background; with none saved, opens the edit form on its Tunnels field |
 | `q` (or `Ctrl+C` in the list), prefix `q` | Quit |
 | prefix `n` / `w` | New tab / close tab |
-| prefix `c` | New tab running `claude` on the remote host (marked `claude` in the tab bar) |
 | prefix `i` / `p` | Bootstrap / Provision the connection in its own labelled tab (Provision asks first, and refuses at once when the connection's group is set to `none`); both refuse while the [Experimental feature](#experimental-features) is off |
 | prefix `g` | Open every closed connection in the group under the cursor as tabs (`sshctl group connect` instead opens one terminal window per connection) |
 | prefix `m` | Move the connection to a group: type a group number, an existing or new group name, or `0` or nothing to remove the connection from its group |

@@ -25,7 +25,6 @@ var options = []option{
 	{"yes", 'y', false},
 	{"help", 'h', false},
 	{"unset", 0, false},
-	{"claude", 0, false},
 	{"version", 0, false},
 	{fieldAlias, 0, true},
 	{fieldHost, 0, true},

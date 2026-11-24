@@ -7,6 +7,6 @@
   [/]  ^B [/]          previous / next tab                                      
   {/}  ^B {/}          previous / next open connection in the Space             
   P/S/1-9  ^B P/S/1-9  Space picker / Space names / switch to Space 1-9         
-  ^B n/c               new tab for the active connection (c runs claude)        
+  ^B n                 new tab for the active connection                        
   ↓ 12 more below (↓ / PgDn)                                                    
  no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 

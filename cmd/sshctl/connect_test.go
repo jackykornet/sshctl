@@ -109,7 +109,7 @@ func TestConnectUsage(t *testing.T) {
 	a, _, calls, _ := connectTree(t)
 	for _, args := range [][]string{
 		{"-c"}, {"web01", "ls"}, {"-c", "web01", "web01"}, {"web01", "--yes"},
-		{"web01", "--claude", "--", "ls"}, {"-c", "web01", "-c", "list"},
+		{"web01", "--claude"}, {"-c", "web01", "-c", "list"},
 	} {
 		if err := a.execute(args); err == nil || !strings.Contains(err.Error(), "usage: sshctl [-c] <alias>") {
 			t.Errorf("sshctl %s: err = %v, want the connect usage", strings.Join(args, " "), err)
@@ -117,16 +117,6 @@ func TestConnectUsage(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("ssh ran %v", *calls)
-	}
-}
-
-func TestConnectClaude(t *testing.T) {
-	a, _, calls, key := connectTree(t)
-	if err := a.execute([]string{"web01", "--claude"}); err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"ssh", "-t", "-i", key, "web01", "claude"}; !slices.Equal((*calls)[0], want) {
-		t.Errorf("ssh ran %v, want %v", (*calls)[0], want)
 	}
 }
 
