@@ -43,6 +43,34 @@ func fill(m *Model, values ...string) {
 	}
 }
 
+// An alias equal to a built-in sshctl command cannot be reached as
+// sshctl <alias> (ADR-0011), so the form warns, pointing to -c, but saves it.
+func TestFormWarnsAboutAnAliasThatIsACommandName(t *testing.T) {
+	f := &fakeCatalog{entries: storeEntries()}
+	m, err := New(Options{Catalog: f, CommandNames: []string{"list", "key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.closeAll)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 16})
+	m.st.SetCursor("web")
+	press(m, text("a")...)
+	press(m, text("lis")...)
+	const warning = "sshctl list is a command; use sshctl -c list"
+	if screen := ansi.Strip(m.render()); strings.Contains(screen, "sshctl -c") {
+		t.Errorf("warned about lis:\n%s", screen)
+	}
+	press(m, text("t")...)
+	if screen := ansi.Strip(m.render()); !strings.Contains(screen, warning) {
+		t.Errorf("screen missing %q:\n%s", warning, screen)
+	}
+	fill(m, "list", "10.0.0.9")
+	press(m, keyCtrlS)
+	if m.form() != nil || m.st.Get("list") == nil {
+		t.Errorf("the alias list was not saved: form %+v", m.form())
+	}
+}
+
 func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)

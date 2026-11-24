@@ -50,7 +50,7 @@ A number from 1 to 9 that a Space keeps until the user changes it (ADR-0010); th
 _Avoid_: Space ID, index
 
 **History**:
-The 20 most recently opened Connections across all Spaces, most recent first. A Connection is opened when a Workspace Session for it starts or when `sshctl connect` runs it.
+The 20 most recently opened Connections across all Spaces, most recent first. A Connection is opened when a Workspace Session for it starts or when sshctl connects to it from the command line.
 _Avoid_: Recents, log
 
 ## Setting up a host

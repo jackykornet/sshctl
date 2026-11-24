@@ -48,60 +48,34 @@ const connNote = "Fields: --host <hostname> --user <user> --port <port> --identi
 	"empty answer keeps the current value; --<field> \"\" clears it. <space> and\n" +
 	"<group> are a name or number; --group 0 is ungrouped."
 
-// parseConnArgs returns the alias and the field flags args give, by flag
-// name. It returns errUsage for anything else, a flag given twice or without
-// a value, and --alias unless rename is set.
-func parseConnArgs(args []string, rename bool) (string, map[string]string, error) {
-	var alias string
-	flags := map[string]string{}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "--") {
-			if alias != "" {
-				return "", nil, errUsage
-			}
-			alias = arg
-			continue
-		}
-		name, value, hasValue := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-		known := false
-		for _, f := range connFields {
-			known = known || f.flag == name
-		}
-		if !known || (name == fieldAlias && !rename) {
-			return "", nil, errUsage
-		}
-		if _, dup := flags[name]; dup {
-			return "", nil, errUsage
-		}
-		if !hasValue {
-			if i+1 == len(args) {
-				return "", nil, errUsage
-			}
-			i++
-			value = args[i]
-		}
-		flags[name] = value
-	}
-	if alias == "" {
+// connArgs returns the alias and the field flags in gives, by flag name.
+// It returns errUsage unless there is exactly one alias.
+func connArgs(in input) (string, map[string]string, error) {
+	if len(in.args) != 1 || in.args[0] == "" {
 		return "", nil, errUsage
 	}
-	return alias, flags, nil
+	flags := map[string]string{}
+	for _, f := range connFields {
+		if v, ok := in.value(f.flag); ok {
+			flags[f.flag] = v
+		}
+	}
+	return in.args[0], flags, nil
 }
 
 // add adds a new Connection, a Managed one whose Host block sshctl writes,
 // from flags or, without any, prompts.
-func (a *app) add(args []string) error { return a.saveConnection(args, false) }
+func (a *app) add(in input) error { return a.saveConnection(in, false) }
 
 // edit changes an existing Connection's fields, from flags or, without any,
 // prompts holding the current values.
-func (a *app) edit(args []string) error { return a.saveConnection(args, true) }
+func (a *app) edit(in input) error { return a.saveConnection(in, true) }
 
 // saveConnection is add (edit unset) and edit. Both save through
 // catalog.Save with a Spec, as the Workspace form does, and look up the
 // Space and Group with the catalog's resolver (ADR-0008).
-func (a *app) saveConnection(args []string, edit bool) error {
-	alias, flags, err := parseConnArgs(args, edit)
+func (a *app) saveConnection(in input, edit bool) error {
+	alias, flags, err := connArgs(in)
 	if err != nil {
 		return err
 	}
@@ -251,22 +225,11 @@ func (a *app) saveSpec(r *bufio.Reader, old string, s catalog.Spec) error {
 // remove deletes a Connection as the Workspace's d does: its Host block
 // when sshctl manages it, and its sshctl metadata, after asking unless
 // --yes is given. A Host block elsewhere in ssh_config is the user's.
-func (a *app) remove(args []string) error {
-	var alias string
-	yes := false
-	for _, arg := range args {
-		switch {
-		case arg == "--yes":
-			yes = true
-		case alias == "" && !strings.HasPrefix(arg, "-"):
-			alias = arg
-		default:
-			return errUsage
-		}
-	}
-	if alias == "" {
+func (a *app) remove(in input) error {
+	if len(in.args) != 1 || in.args[0] == "" {
 		return errUsage
 	}
+	alias, yes := in.args[0], in.flag("yes")
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err

@@ -432,8 +432,10 @@ func (m *Model) deleteConnection() tea.Cmd {
 // render draws the connection form in a w×h pane. Under the Space field it
 // lists spaces, the Spaces by number; under the group field the stored
 // groups of the form's Space by Group number, since the form covers their
-// headers.
-func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) []string {
+// headers. An alias equal to one of commands, sshctl's built-in commands,
+// gets a warning under the alias field: it is reached only with sshctl -c
+// (ADR-0011), but it is not refused.
+func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool, commands []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -445,6 +447,9 @@ func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) [
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))
+		if alias := strings.TrimSpace(fl.value.String()); fl.id == fieldAlias && slices.Contains(commands, alias) {
+			lines = append(lines, "    "+errStyle.Render(fmt.Sprintf("sshctl %s is a command; use sshctl -c %s", alias, alias)))
+		}
 		if fl.id == fieldSpace {
 			lines = append(lines, strings.Repeat(" ", 19)+dimStyle.Render(strings.Join(spaces, " · ")))
 		}

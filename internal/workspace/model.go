@@ -43,6 +43,10 @@ type Options struct {
 	// it is nil or returns no text, the Workspace asks the host terminal for
 	// the clipboard with OSC 52 instead.
 	ReadClipboard func() (string, error)
+	// CommandNames are sshctl's built-in commands. An alias equal to one
+	// is reached only with sshctl -c <alias> (ADR-0011), so the add/edit
+	// form warns about it.
+	CommandNames []string
 }
 
 type focus int

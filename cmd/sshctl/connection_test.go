@@ -283,7 +283,7 @@ func TestAddAndEditRefuseBadFlags(t *testing.T) {
 		{"add"}, {"add", "a", "b"}, {"add", "new", "--bogus", "x"}, {"add", "new", "--host"},
 		{"add", "new", "--alias", "x"}, {"edit", "web01", "--port", "1", "--port", "2"},
 	} {
-		if err := a.execute(args); err == nil || !strings.HasPrefix(err.Error(), "usage: sshctl "+args[0]) {
+		if err := a.execute(args); err == nil || !strings.Contains(err.Error(), "usage: sshctl "+args[0]) {
 			t.Errorf("sshctl %s: err = %v, want the usage", strings.Join(args, " "), err)
 		}
 	}
