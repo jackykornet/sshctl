@@ -12,16 +12,9 @@ import (
 // Tunnel is a saved local forward on a Connection (ADR-0012).
 type Tunnel = tunnel.Tunnel
 
-var (
-	// ErrUnknownConnection is returned for an alias that is neither in
-	// ssh_config nor has sshctl metadata.
-	ErrUnknownConnection = errors.New("no such connection")
-	// ErrDuplicateTunnel is returned by AddTunnel for a local port or name
-	// the Connection already has.
-	ErrDuplicateTunnel = tunnel.ErrDuplicate
-	// ErrNoTunnel is returned by RemoveTunnel when no Tunnel matches.
-	ErrNoTunnel = tunnel.ErrNoTunnel
-)
+// ErrUnknownConnection is returned for an alias that is neither in
+// ssh_config nor has sshctl metadata.
+var ErrUnknownConnection = errors.New("no such connection")
 
 // Tunnels returns alias's Tunnels as the config holds them now. It refuses
 // an alias that is no Connection (ErrUnknownConnection).
@@ -38,7 +31,7 @@ func (c *Catalog) Tunnels(alias string) ([]Tunnel, error) {
 
 // AddTunnel saves t as alias's last Tunnel. It refuses an alias that is no
 // Connection (ErrUnknownConnection), and a local port or name alias already
-// has (ErrDuplicateTunnel).
+// has (tunnel.ErrDuplicate).
 func (c *Catalog) AddTunnel(alias string, t Tunnel) error {
 	return c.update(func(cfg *config.Config) error {
 		if err := c.requireConnection(cfg, alias); err != nil {
@@ -53,10 +46,10 @@ func (c *Catalog) AddTunnel(alias string, t Tunnel) error {
 	})
 }
 
-// RemoveTunnel deletes alias's Tunnel ref names, by name or, when ref is only
-// digits, by local port, and returns it. It returns ErrNoTunnel when there is
-// no such Tunnel, and ErrUnknownConnection for an alias that is no
-// Connection.
+// RemoveTunnel deletes alias's Tunnel ref names, by name or, when ref is
+// only digits, by local port, and returns it. It returns tunnel.ErrNoTunnel
+// when there is no such Tunnel, and ErrUnknownConnection for an alias that
+// is no Connection.
 func (c *Catalog) RemoveTunnel(alias, ref string) (Tunnel, error) {
 	var removed Tunnel
 	err := c.update(func(cfg *config.Config) error {

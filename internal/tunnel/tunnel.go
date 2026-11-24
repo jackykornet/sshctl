@@ -163,12 +163,20 @@ func Remove(list []Tunnel, ref string) ([]Tunnel, Tunnel, error) {
 // refuses a bad spec (ErrSpec) and a local port or name used twice
 // (ErrDuplicate).
 func ParseList(text string) ([]Tunnel, error) {
-	var list []Tunnel
+	var specs []string
 	for spec := range strings.SplitSeq(text, ",") {
-		spec = strings.TrimSpace(spec)
-		if spec == "" {
-			continue
+		if spec = strings.TrimSpace(spec); spec != "" {
+			specs = append(specs, spec)
 		}
+	}
+	return parseAll(specs)
+}
+
+// parseAll parses specs into a list, refusing a bad spec (ErrSpec) and a
+// local port or name used twice (ErrDuplicate).
+func parseAll(specs []string) ([]Tunnel, error) {
+	var list []Tunnel
+	for _, spec := range specs {
 		t, err := Parse(spec)
 		if err != nil {
 			return nil, err
@@ -181,27 +189,28 @@ func ParseList(text string) ([]Tunnel, error) {
 }
 
 // Join writes list as ParseList reads it.
-func Join(list []Tunnel) string {
+func Join(list []Tunnel) string { return strings.Join(specsOf(list), ", ") }
+
+// specsOf is each Tunnel's spec.
+func specsOf(list []Tunnel) []string {
 	specs := make([]string, len(list))
 	for i, t := range list {
 		specs[i] = t.String()
 	}
-	return strings.Join(specs, ", ")
+	return specs
 }
 
 // Check returns an error unless every Tunnel in list is one Parse could
 // return and no two share a local port or name.
 func Check(list []Tunnel) error {
-	var seen []Tunnel
-	for _, t := range list {
-		if p, err := Parse(t.String()); err != nil {
-			return err
-		} else if p != t {
-			return fmt.Errorf("%w %q", ErrSpec, t.String())
-		}
-		var err error
-		if seen, err = Add(seen, t); err != nil {
-			return err
+	specs := specsOf(list)
+	parsed, err := parseAll(specs)
+	if err != nil {
+		return err
+	}
+	for i, t := range list {
+		if parsed[i] != t {
+			return fmt.Errorf("%w %q", ErrSpec, specs[i])
 		}
 	}
 	return nil
