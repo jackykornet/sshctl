@@ -114,6 +114,12 @@ var commands = []command{
 	{name: "connect", forms: []form{
 		{args: "<alias> [--claude]", help: "Connect using OpenSSH", run: (*app).connect},
 	}},
+	{name: "tunnel", forms: []form{
+		{sub: "add", args: "<alias> <spec>", help: "Save a Tunnel, [name=]localport[:host:remoteport];\nthe host defaults to localhost", run: (*app).tunnelAdd},
+		{sub: "rm", args: "<alias> <name|port>", help: "Delete a Tunnel by name or local port", run: (*app).tunnelRemove},
+		{sub: "list", args: "[<alias>]", help: "List a Connection's Tunnels, or every one's", run: (*app).tunnelList},
+		{args: "<alias>", help: "Run a Connection's Tunnels until Ctrl-C", run: (*app).tunnelRun},
+	}},
 	{name: "add", forms: []form{
 		{args: "<alias>", help: "Add or update connection metadata", run: func(a *app, args []string) error { return a.metadata(args, false) }},
 	}},
@@ -440,8 +446,10 @@ func (a *app) metadata(args []string, edit bool) error {
 		c.Group = strings.TrimSpace(group)
 	}
 	// Saving under the same alias without Managed changes only the
-	// description and group, never a Host block.
-	err = a.catalog().Save(alias, catalog.Spec{Alias: alias, Description: c.Description, Space: c.Space, Group: c.Group})
+	// description and group, never a Host block or the Tunnels.
+	s := catalog.SpecFor(c)
+	s.Alias, s.Managed = alias, false
+	err = a.catalog().Save(alias, s)
 	if errors.Is(err, catalog.ErrUnknownGroup) {
 		return fmt.Errorf("no group %q; create it first with: sshctl group add %s", c.Group, c.Group)
 	}

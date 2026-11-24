@@ -188,18 +188,24 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 	case tea.MouseWheelMsg:
 		switch mm.Button {
 		case tea.MouseWheelUp:
-			m.st.MoveCursor(-1)
+			m.moveCursor(-1)
 		case tea.MouseWheelDown:
-			m.st.MoveCursor(1)
+			m.moveCursor(1)
 		}
 	case tea.MouseClickMsg:
 		if mm.Button != tea.MouseLeft {
+			return nil
+		}
+		if i, ok := m.tunnelRowAt(mm.X, mm.Y); ok {
+			m.tunnelCursor = i
+			m.focus = focusList
 			return nil
 		}
 		row, ok := m.rowAt(mm.X, mm.Y)
 		if !ok {
 			return nil
 		}
+		m.tunnelCursor = -1
 		if row.Header() {
 			// Released where it was pressed, it toggles; see drop.
 			m.st.SetCursorGroup(row.Group)

@@ -649,3 +649,29 @@ func TestAnActiveConnectionMovedToAnotherSpaceStaysActiveThere(t *testing.T) {
 		t.Errorf("acme's Active connection = %v, want loose", c)
 	}
 }
+
+// OtherSpaceNumber numbers the Space a Connection is in, or the one it was
+// last seen in once it has left the list, only when that is not the active
+// Space.
+func TestOtherSpaceNumber(t *testing.T) {
+	s := spaced()
+	for _, tc := range []struct {
+		alias, last string
+		want        int
+	}{
+		{"loose", "", 0},
+		{"db", "", 2},
+		{"db", "nowhere", 2},
+		{"gone", "acme", 2},
+		{"gone", "", 0},
+		{"gone", "nowhere", 0},
+	} {
+		if got := s.OtherSpaceNumber(tc.alias, tc.last); got != tc.want {
+			t.Errorf("OtherSpaceNumber(%q, %q) = %d, want %d", tc.alias, tc.last, got, tc.want)
+		}
+	}
+	s.SetSpace("acme")
+	if got := s.OtherSpaceNumber("loose", ""); got != 1 {
+		t.Errorf("from acme, loose is in Space %d, want 1", got)
+	}
+}

@@ -248,7 +248,7 @@ func TestTheFormTakesAGroupNumber(t *testing.T) {
 			if !strings.Contains(screen(m), "0 none · 1 web · 2 batch") {
 				t.Fatalf("screen = \n%s\nwant the Group numbers listed", screen(m))
 			}
-			m.form().focus = len(m.form().fields) - 1
+			focusFormField(t, m, fieldGroup)
 			press(m, keyClear)
 			press(m, text(tt.typed)...)
 			press(m, keyCtrlS)
@@ -263,7 +263,7 @@ func TestTheFormRefusesANumberWithNoGroup(t *testing.T) {
 	m, f := newGroupModel(t)
 	m.st.SetCursor("alpha")
 	press(m, text("e")...)
-	m.form().focus = len(m.form().fields) - 1
+	focusFormField(t, m, fieldGroup)
 	press(m, keyClear)
 	press(m, text("7")...)
 	press(m, keyCtrlS)

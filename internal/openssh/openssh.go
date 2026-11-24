@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 type Client struct {
@@ -162,6 +164,26 @@ func ConnectArgs(alias, key string, claude bool) []string {
 	}
 	return argv
 }
+
+// TunnelArgs returns the ssh command line that runs tunnels, alias's
+// Tunnels, with no remote command (ADR-0012). ssh exits when a forward cannot
+// be set up or the server stops answering for about 90 seconds; batch also
+// makes it fail rather than prompt, for a tunnel run with no terminal. A
+// non-empty key is the Selected identity. The Host block is not changed.
+func TunnelArgs(alias, key string, tunnels []tunnel.Tunnel, batch bool) []string {
+	argv := []string{"ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"}
+	if batch {
+		argv = append(argv, "-o", "BatchMode=yes")
+	}
+	if key != "" {
+		argv = append(argv, "-i", key)
+	}
+	for _, t := range tunnels {
+		argv = append(argv, "-L", t.Forward())
+	}
+	return append(argv, alias)
+}
+
 func runInteractive(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = os.Stdin
