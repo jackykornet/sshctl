@@ -122,8 +122,12 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys:       both(on("H", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openHistory() }).as("history")),
-		help:       "History picker: open a recent connection from any Space",
+		// Both pickers share a line so the help screen fits 80x24.
+		keys: both(
+			on("H", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openHistory() }).as("history"),
+			on("I", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openKeyPicker() }).as("keys"),
+		),
+		help:       "History picker / key picker (Selected identity)",
 		tunnelRows: true,
 	},
 	{

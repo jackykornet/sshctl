@@ -16,9 +16,10 @@ import (
 //   - helpScreen: ↑/↓ and PgUp/PgDn scroll it; every other key closes it.
 //   - spacePicker: its own keys (see its status line); Esc, q or P close it.
 //     It opens spaceInput and confirmations, which return to it.
+//   - keyPicker: its own keys (see its status line); Esc, q or I close it.
 //   - historyPicker: ↑/↓, Enter and Esc (or Ctrl+C); every other key edits
 //     its filter.
-//   - connForm, moveInput, groupInput, spaceInput, spacePicker and
+//   - connForm, moveInput, groupInput, spaceInput, spacePicker, keyPicker and
 //     historyPicker: the prefix key arms a prefix of their own
 //     (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the

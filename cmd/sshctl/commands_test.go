@@ -61,17 +61,14 @@ func TestRunMovesTheOldConfigOnceWithANotice(t *testing.T) {
 // The Selected identity is read and written through the Connection catalog,
 // so a change made elsewhere since sshctl started is what the CLI sees.
 func TestSelectedIdentityGoesThroughTheCatalog(t *testing.T) {
-	home := fakeHome(t)
-	key := filepath.Join(home, ".ssh", "id_work")
-	if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	fakeHome(t)
+	a, out := cliTree(t, "", config.New(), "")
+	key := filepath.Join(a.ssh.SSHDir, "id_work")
 	for _, f := range []string{key, key + ".pub"} {
 		if err := os.WriteFile(f, []byte("k"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, out := cliTree(t, "", config.New(), "")
 	if err := a.catalog().SetIdentity(key); err != nil {
 		t.Fatal(err)
 	}

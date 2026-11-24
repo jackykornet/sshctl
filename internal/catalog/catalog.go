@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
@@ -346,6 +348,32 @@ func (c *Catalog) SetIdentity(key string) error {
 		cfg.SelectedIdentity = key
 		return nil
 	})
+}
+
+// Keys lists, sorted, the public keys and certificates in the ssh
+// directory and the private keys "sshctl key add" registered: the keys a
+// Selected identity is chosen from.
+func (c *Catalog) Keys() ([]string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	entries, _ := os.ReadDir(c.ssh.SSHDir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasSuffix(n, ".pub") && !e.IsDir() {
+			set[filepath.Join(c.ssh.SSHDir, n)] = true
+		}
+	}
+	for _, k := range cfg.Keys {
+		set[k] = true
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }
 
 // IdentityFor returns the Selected identity ssh uses for alias: its
