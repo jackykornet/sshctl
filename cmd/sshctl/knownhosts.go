@@ -11,7 +11,7 @@ import (
 )
 
 // knownHostsList prints the host field of each known host, as stored.
-func (a *app) knownHostsList(_ []string) error {
+func (a *app) knownHostsList(input) error {
 	f, err := os.Open(openssh.KnownHostsPath())
 	if os.IsNotExist(err) {
 		return nil
@@ -34,7 +34,8 @@ func (a *app) knownHostsList(_ []string) error {
 }
 
 // knownHostsRemove removes a known host with ssh-keygen -R, after asking.
-func (a *app) knownHostsRemove(args []string) error {
+func (a *app) knownHostsRemove(in input) error {
+	args := in.args
 	if len(args) != 1 {
 		return errors.New("usage: sshctl known-hosts remove <host>")
 	}

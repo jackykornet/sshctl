@@ -34,6 +34,7 @@ func (a *app) runWorkspace() error {
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 		Notice:          strings.Join(a.cfg.Notices, "; "),
 		ReadClipboard:   platform.ReadClipboard,
+		CommandNames:    commandNames,
 	})
 }
 

@@ -7,7 +7,8 @@ import (
 )
 
 // experimentalList lists the Experimental features and whether each is on.
-func (a *app) experimentalList(args []string) error {
+func (a *app) experimentalList(in input) error {
+	args := in.args
 	if len(args) != 0 {
 		return errUsage
 	}
@@ -26,7 +27,8 @@ func (a *app) experimentalList(args []string) error {
 }
 
 // experimentalSet turns an Experimental feature on (enable) or off (disable).
-func (a *app) experimentalSet(args []string) error {
+func (a *app) experimentalSet(in input) error {
+	args := in.args
 	if len(args) != 2 || (args[0] != "enable" && args[0] != "disable") {
 		return errUsage
 	}

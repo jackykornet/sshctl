@@ -105,8 +105,11 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "connect <alias>") {
+	if !strings.Contains(out.String(), "\n  [-c] <alias> [--claude] [-- <command>...]") {
 		t.Fatalf("help missing connect usage: %s", out.String())
+	}
+	if strings.Contains(out.String(), "\n  connect") {
+		t.Fatalf("help still lists the connect command: %s", out.String())
 	}
 	if err := run([]string{"not-a-command"}, strings.NewReader(""), &out, &out); err == nil {
 		t.Fatal("expected unknown command error")
@@ -161,7 +164,7 @@ func TestEveryCommandIsReachableAndInHelp(t *testing.T) {
 				if f.sub != "" {
 					call = append(call, f.sub)
 				}
-				gotC, gotF, _ := lookup(call)
+				gotC, gotF, _, _ := lookup(call)
 				if gotC != c || gotF != f {
 					t.Errorf("sshctl %s does not reach its form", strings.Join(call, " "))
 				}
@@ -175,7 +178,7 @@ func TestEveryCommandIsReachableAndInHelp(t *testing.T) {
 			}
 		}
 	}
-	if gotC, _, _ := lookup([]string{"not-a-command"}); gotC != nil {
+	if gotC, _, _, _ := lookup([]string{"not-a-command"}); gotC != &connectCommand {
 		t.Errorf("an unknown command reached %q", gotC.name)
 	}
 }
@@ -212,7 +215,7 @@ func TestReadmeListsTheCommands(t *testing.T) {
 		t.Fatal("README has no Commands block")
 	}
 	want := "sshctl\n"
-	for _, c := range commands {
+	for _, c := range append([]command{connectCommand}, commands...) {
 		for _, f := range c.forms {
 			want += "sshctl " + c.synopsis(f) + "\n"
 		}
@@ -248,7 +251,7 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
 	cfg.Connections["mid"] = config.Connection{Alias: "mid", Description: "moved"}
 	a, out := cliTree(t, "Host web\n  HostName 10.0.0.1\nHost db\n  HostName 10.0.0.2\nHost *\n  User me\n", cfg, "")
-	if err := a.list(nil); err != nil {
+	if err := a.execute([]string{"list"}); err != nil {
 		t.Fatal(err)
 	}
 	want := "" +
@@ -277,7 +280,7 @@ func TestListHintsAtAMissingInclude(t *testing.T) {
 			if err := os.WriteFile(a.ssh.ManagedPath(), []byte("Host synced\n  HostName 10.0.0.9\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.list(nil); err != nil {
+			if err := a.execute([]string{"list"}); err != nil {
 				t.Fatal(err)
 			}
 			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")

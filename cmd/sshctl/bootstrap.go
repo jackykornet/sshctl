@@ -13,22 +13,19 @@ import (
 )
 
 // bootstrapCommand runs `sshctl bootstrap <alias>`.
-func (a *app) bootstrapCommand(args []string) error {
-	alias, ok := aliasArg(args)
+func (a *app) bootstrapCommand(in input) error {
+	alias, ok := aliasArg(in)
 	if !ok {
 		return errUsage
 	}
 	return a.bootstrap(alias)
 }
 
-// aliasArg returns the one alias in args, which may follow "--" so that an
-// alias starting with "-" is not taken for an option.
-func aliasArg(args []string) (string, bool) {
-	if len(args) == 2 && args[0] == "--" && args[1] != "" {
-		return args[1], true
-	}
-	if len(args) == 1 && args[0] != "" && !strings.HasPrefix(args[0], "-") {
-		return args[0], true
+// aliasArg returns the one alias in, which may follow "--" so that an alias
+// starting with "-" is not taken for an option.
+func aliasArg(in input) (string, bool) {
+	if len(in.args) == 1 && in.args[0] != "" {
+		return in.args[0], true
 	}
 	return "", false
 }
