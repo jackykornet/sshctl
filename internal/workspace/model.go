@@ -69,9 +69,15 @@ type Model struct {
 	features catalog.Experimental
 	ev       *events
 	sessions *sessions
-	w, h     int
-	focus    focus
-	prefix   bool // armed in any mode but modal; a modal keeps its own
+	// tunnels are the Connections' Tunnels running in the background, from
+	// every Space; they are not Sessions.
+	tunnels *tunnels
+	// tunnelCursor is the row of the Tunnels section the list cursor is
+	// on, or -1 while it is on the connection list.
+	tunnelCursor int
+	w, h         int
+	focus        focus
+	prefix       bool // armed in any mode but modal; a modal keeps its own
 	// mode is list, filter, scroll, drag, select or modal; it changes only
 	// through setMode.
 	mode     mode
@@ -122,6 +128,8 @@ func New(opts Options) (*Model, error) {
 		size:       m.paneSize,
 		runners:    map[*Session]*runner{},
 	}
+	m.tunnels = &tunnels{ev: m.ev, command: opts.Command}
+	m.tunnelCursor = -1
 	if opts.Notice != "" {
 		m.status = opts.Notice
 	}
@@ -143,7 +151,11 @@ func Run(opts Options) error {
 	return err
 }
 
-func (m *Model) closeAll() { m.sessions.closeAll() }
+// closeAll ends every Session's process and stops every tunnel.
+func (m *Model) closeAll() {
+	m.sessions.closeAll()
+	m.tunnels.stopAll()
+}
 
 func (m *Model) Init() tea.Cmd { return m.ev.listen() }
 
@@ -178,6 +190,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if m.sessions.ended(msg) && msg.sess.Action != "" && msg.code == 0 {
 			// An Action may have rewritten the Connection's Host block.
 			return tea.Batch(m.reload("", string(msg.sess.Action)+" finished; connection list refreshed"), m.ev.listen())
+		}
+		return m.ev.listen()
+	case tunnelEndedMsg:
+		if r := m.tunnels.ended(msg); r != nil {
+			return tea.Batch(m.setStatus(r.alias+" tunnel failed: "+r.err, true), m.ev.listen())
 		}
 		return m.ev.listen()
 	case clipboardMsg:
@@ -280,8 +297,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if m.focus == focusPane {
 		return m.paneKey(msg)
 	}
-	cmd, _ := m.runBinding(inList, msg)
-	return cmd
+	return m.listKey(msg)
 }
 
 // paneKey handles a key while the terminal pane has focus: scroll mode keys,

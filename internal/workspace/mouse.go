@@ -188,9 +188,9 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 	case tea.MouseWheelMsg:
 		switch mm.Button {
 		case tea.MouseWheelUp:
-			m.st.MoveCursor(-1)
+			m.moveCursor(-1)
 		case tea.MouseWheelDown:
-			m.st.MoveCursor(1)
+			m.moveCursor(1)
 		}
 	case tea.MouseClickMsg:
 		if mm.Button != tea.MouseLeft {

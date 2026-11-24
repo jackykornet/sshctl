@@ -44,6 +44,10 @@ type Launch struct {
 	// labelled with the Action, and when it exits with status 0 the
 	// connection list is reloaded, since an Action may change Host blocks.
 	Action Action
+	// Tunnel runs the Connection's Tunnels (ssh -N -L …, in BatchMode) as a
+	// background process with no pseudo-terminal and no tab. It is not a
+	// Session; see tunnels.
+	Tunnel bool
 }
 
 // An Action is an sshctl command a Session can run on its Connection.

@@ -31,7 +31,7 @@ func (m *Model) paneOffset() int {
 
 // listRows returns the visible rows, the scroll offset into them, and the
 // screen row where they start (after the Space bar and the filter line,
-// when shown).
+// when shown). The Tunnels section, when shown, takes the list's last lines.
 func (m *Model) listRows() (rows []Row, offset, top int) {
 	rows = m.st.Rows()
 	if m.st.SeveralSpaces() { // the Space bar
@@ -41,7 +41,7 @@ func (m *Model) listRows() (rows []Row, offset, top int) {
 	if m.filtering() || m.st.Filter() != "" {
 		top++
 	}
-	height := m.h - 1 - top
+	height := m.h - 1 - top - m.tunnelSectionHeight()
 	cur := m.st.CursorIndex(rows)
 	if height > 0 && cur >= height {
 		offset = cur - height + 1

@@ -103,6 +103,8 @@ func (m *Model) render() string {
 }
 
 func (m *Model) renderList(w, h int) []string {
+	section := m.tunnelSection(w)
+	h -= len(section)
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
 	if bar := m.spaceBar(w); bar != "" {
@@ -126,7 +128,7 @@ func (m *Model) renderList(w, h int) []string {
 			break
 		}
 		pointer := " "
-		if m.focus == focusList && offset+i == cursor {
+		if m.focus == focusList && m.tunnelCursor < 0 && offset+i == cursor {
 			pointer = "›"
 		}
 		var line string
@@ -139,7 +141,7 @@ func (m *Model) renderList(w, h int) []string {
 			if m.st.CrossSpace() {
 				space = m.st.SpaceName(r.Conn.Space)
 			}
-			line = pointer + connLabel(r.Conn, grouped && space == "", space)
+			line = pointer + connLabel(r.Conn, grouped && space == "", space, m.tunnels.running(r.Conn.Alias))
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
@@ -164,7 +166,94 @@ func (m *Model) renderList(w, h int) []string {
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
+	return append(lines, section...)
+}
+
+// tunnelMarker flags a Connection with a running tunnel, and starts each
+// row of the Tunnels section.
+const tunnelMarker = "⇄"
+
+// tunnelSectionHeight is how many lines the Tunnels section takes at the
+// bottom of the list: a title and a row per forward, at most half the list.
+// It is 0 while no tunnel is listed.
+func (m *Model) tunnelSectionHeight() int {
+	n := len(m.tunnelRows())
+	if n == 0 {
+		return 0
+	}
+	return min(1+n, max(2, (m.h-1)/2))
+}
+
+// tunnelSection is the Tunnels section's lines, w columns wide: a title,
+// then one row per forward of every tunnel, from every Space, scrolled to
+// keep the cursor's row in view.
+func (m *Model) tunnelSection(w int) []string {
+	height := m.tunnelSectionHeight()
+	if height == 0 {
+		return nil
+	}
+	rows := m.tunnelRows()
+	title := "─ Tunnels "
+	lines := []string{dimStyle.Render(fit(title+strings.Repeat("─", max(0, w-len([]rune(title)))), w))}
+	first := m.tunnelOffset(height - 1)
+	for i, r := range rows[first:min(len(rows), first+height-1)] {
+		lines = append(lines, m.tunnelLine(r, first+i == m.tunnelCursor && m.focus == focusList, w))
+	}
 	return lines
+}
+
+// tunnelOffset is the first tunnel row shown in n row lines.
+func (m *Model) tunnelOffset(n int) int {
+	if m.tunnelCursor >= n {
+		return m.tunnelCursor - n + 1
+	}
+	return 0
+}
+
+// tunnelLine is one row of the Tunnels section, such as
+// ⇄ prod-web panel :8083 ●, or ⇄ 2·vps panel :8084 ● for a Connection in
+// another Space. A failed tunnel ends in ✕ and ssh's error.
+func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
+	pointer := " "
+	if cursor {
+		pointer = "›"
+	}
+	name := r.run.alias
+	if n := m.tunnelSpaceNumber(r.run); n > 0 {
+		name = dimStyle.Render(fmt.Sprintf("%d·", n)) + name
+	}
+	if r.forward.Name != "" {
+		name += " " + r.forward.Name
+	}
+	state, detail := openStyle.Render("●"), ""
+	if r.run.failed() {
+		state, detail = errStyle.Render("✕"), " "+dimStyle.Render(r.run.err)
+	}
+	right := fmt.Sprintf(" :%d %s", r.forward.LocalPort, state)
+	left := pointer + tunnelMarker + " "
+	room := w - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if ansi.StringWidth(name) > room {
+		name = ansi.Truncate(name, max(room, 1), "…")
+	}
+	return fit(left+name+right+detail, w)
+}
+
+// tunnelSpaceNumber is the Space number of r's Connection when that is not
+// the active Space, or 0.
+func (m *Model) tunnelSpaceNumber(r *tunnelRun) int {
+	space := r.space
+	if c := m.st.Get(r.alias); c != nil {
+		space = c.Space
+	}
+	if space == m.st.Space() {
+		return 0
+	}
+	for _, t := range m.st.SpaceTabs() {
+		if t.Ref == space {
+			return t.Number
+		}
+	}
+	return 0
 }
 
 // spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
@@ -277,8 +366,9 @@ func (m *Model) headerLabel(group string) string {
 
 // connLabel is a Connection row after the cursor pointer, indented under its
 // group header when the list is grouped. A space names the Connection's
-// Space, for a filter across every Space.
-func connLabel(c *Connection, grouped bool, space string) string {
+// Space, for a filter across every Space. tunnel adds ⇄ for a running
+// tunnel, apart from the ● of an open Connection.
+func connLabel(c *Connection, grouped bool, space string, tunnel bool) string {
 	marker, name := "  ", c.Alias
 	switch {
 	case c.AllEnded():
@@ -291,6 +381,9 @@ func connLabel(c *Connection, grouped bool, space string) string {
 	line := marker + name
 	if grouped {
 		line = "  " + line
+	}
+	if tunnel {
+		line += " " + openStyle.Render(tunnelMarker)
 	}
 	if c.Unseen() {
 		line += " " + unseenStyle.Render(unseenMarker)
@@ -539,8 +632,11 @@ func (m *Model) sessionStatus() string {
 		key = filepath.Base(k)
 	}
 	space := ""
+	if n := m.tunnels.count(); n > 0 {
+		space = tunnelMarker + " " + countTunnels(n) + " · "
+	}
 	if m.st.SeveralSpaces() {
-		space = m.st.ActiveSpaceName() + " · "
+		space += m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()
 	if c == nil {
