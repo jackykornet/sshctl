@@ -196,10 +196,16 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 		if mm.Button != tea.MouseLeft {
 			return nil
 		}
+		if i, ok := m.tunnelRowAt(mm.X, mm.Y); ok {
+			m.tunnelCursor = i
+			m.focus = focusList
+			return nil
+		}
 		row, ok := m.rowAt(mm.X, mm.Y)
 		if !ok {
 			return nil
 		}
+		m.tunnelCursor = -1
 		if row.Header() {
 			// Released where it was pressed, it toggles; see drop.
 			m.st.SetCursorGroup(row.Group)
@@ -237,6 +243,21 @@ func (m *Model) rowAt(x, y int) (Row, bool) {
 		return Row{}, false
 	}
 	return rows[i], true
+}
+
+// tunnelRowAt returns the index of the Tunnels section row at screen
+// position x, y.
+func (m *Model) tunnelRowAt(x, y int) (int, bool) {
+	height := m.tunnelSectionHeight()
+	if height == 0 || x < 0 || x >= m.listWidth() {
+		return 0, false
+	}
+	top := m.h - 1 - height + 1 // below the section's title
+	i := y - top + m.tunnelOffset(height-1)
+	if y < top || y >= m.h-1 || i >= len(m.tunnelRows()) {
+		return 0, false
+	}
+	return i, true
 }
 
 // dragOver follows a held Connection. Once it leaves its own row the list

@@ -567,16 +567,29 @@ func (m *Model) closeTab() tea.Cmd {
 	return nil
 }
 
+// quit quits, first asking while Sessions are live or tunnels run.
+// Confirming stops every tunnel before the Workspace exits.
 func (m *Model) quit() tea.Cmd {
-	n := m.st.LiveSessions()
-	if n == 0 {
-		return tea.Quit
-	}
+	n, k := m.st.LiveSessions(), m.tunnels.count()
 	noun := "sessions"
 	if n == 1 {
 		noun = "session"
 	}
-	m.ask(fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun), func(*Model) tea.Cmd { return tea.Quit })
+	var question string
+	switch {
+	case n == 0 && k == 0:
+		return tea.Quit
+	case k == 0:
+		question = fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun)
+	case n == 0:
+		question = fmt.Sprintf("%s running, quit anyway? (y/n)", countTunnels(k))
+	default:
+		question = fmt.Sprintf("%d live %s and %s running, quit anyway? (y/n)", n, noun, countTunnels(k))
+	}
+	m.ask(question, func(m *Model) tea.Cmd {
+		m.tunnels.stopAll()
+		return tea.Quit
+	})
 	return nil
 }
 

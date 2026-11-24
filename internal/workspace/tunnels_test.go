@@ -1,8 +1,10 @@
 package workspace
 
 import (
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -66,6 +68,109 @@ func TestTunnelStatusCountsRunningTunnels(t *testing.T) {
 	m.status = ""
 	if s := screen(m); !strings.Contains(s, "⇄ 2 tunnels") {
 		t.Fatalf("a failed tunnel is not counted:\n%s", s)
+	}
+}
+
+// newTunnelProcessModel returns a Workspace whose tunnels run s in place of
+// ssh, over tunnelEntries.
+func newTunnelProcessModel(t *testing.T, s script) *Model {
+	t.Helper()
+	if runtime.GOOS == "windows" && s.cmd == "" {
+		t.Skip("uses POSIX-only tools")
+	}
+	m, err := New(Options{
+		Catalog: &fakeCatalog{entries: tunnelEntries()},
+		Command: func(alias string, l Launch) ([]string, error) {
+			if !l.Tunnel {
+				t.Errorf("Command(%s, %+v), want a tunnel launch", alias, l)
+			}
+			return s.argv(alias), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.closeAll)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	return m
+}
+
+func TestAFailedTunnelShowsSshsErrorUntilRestarted(t *testing.T) {
+	m := newTunnelProcessModel(t, script{
+		sh:  `echo "$1: Permission denied (publickey)." >&2; exit 255`,
+		cmd: `echo {alias}: Permission denied (publickey).>&2& exit 255`,
+	})
+	startTunnels(m, "web")
+	run := m.tunnels.get("web")
+	pump(t, m, func() bool { return run.failed() })
+	for _, want := range []string{"✕", "web tunnel failed: web: Permission denied (publickey)."} {
+		if !strings.Contains(screen(m), want) {
+			t.Errorf("screen lacks %q:\n%s", want, screen(m))
+		}
+	}
+	if !strings.Contains(run.err, batchHint) {
+		t.Errorf("error %q lacks the BatchMode hint", run.err)
+	}
+	if m.tunnels.count() != 0 || strings.Contains(screen(m), "⇄ 2 tunnels") {
+		t.Error("a failed tunnel is not running")
+	}
+	m.st.SetCursor("web")
+	press(m, text("j")...)
+	press(m, text("r")...)
+	if run.failed() {
+		t.Fatal("r should restart the failed tunnel")
+	}
+}
+
+func TestAStoppedTunnelIsNotReportedAsFailed(t *testing.T) {
+	m := newTunnelProcessModel(t, script{sh: `exec sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
+	startTunnels(m, "web")
+	run := m.tunnels.get("web")
+	press(m, keyPrefix, text("t")[0])
+	m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: -1})
+	if m.statusErr || run.failed() {
+		t.Errorf("a stopped tunnel's exit is no failure: status %q", m.status)
+	}
+}
+
+func TestQuitAsksOnlyWhileTunnelsRunAndStopsThem(t *testing.T) {
+	m := newTunnelProcessModel(t, script{sh: `exec sleep 30`, cmd: `ping -n 30 127.0.0.1 >nul`})
+	if cmd := press(m, text("q")...); cmd == nil || m.mode.modal != nil {
+		t.Fatal("with no tunnel, q quits at once")
+	}
+	startTunnels(m, "web")
+	proc := m.tunnels.get("web").proc
+	press(m, text("q")...)
+	if s, _ := m.mode.modal.status(); !strings.Contains(s, "2 tunnels running, quit anyway?") {
+		t.Fatalf("quit asks %q", s)
+	}
+	press(m, text("y")...)
+	if m.tunnels.get("web") != nil {
+		t.Fatal("confirming the quit stops every tunnel")
+	}
+	done := make(chan struct{})
+	go func() { proc.cmd.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tunnel process is still running after the quit")
+	}
+}
+
+func TestAClickSelectsATunnelRow(t *testing.T) {
+	m := newTunnelLayoutModel(t, 80, 12)
+	m.Update(click(3, 10, tea.MouseLeft)) // db-main's row; see tunnels.golden
+	m.Update(release(3, 10))
+	if alias, ok := m.tunnelTarget(); !ok || alias != "db-main" || m.tunnelCursor != 2 {
+		t.Fatalf("clicked tunnel row %d (%s), want db-main's", m.tunnelCursor, alias)
+	}
+	m.Update(click(3, 3, tea.MouseLeft)) // staging, back in the list
+	m.Update(release(3, 3))
+	if _, ok := m.tunnelTarget(); ok {
+		t.Error("a click on the list takes the cursor out of the Tunnels section")
+	}
+	if c := m.st.Cursor(); c == nil || c.Alias != "staging" {
+		t.Errorf("cursor on %v, want staging", c)
 	}
 }
 
