@@ -1,13 +1,13 @@
- [1][2][3][4][5][6][7][8][9]│ Spaces                                            
-›▾ 1 data 1                 │   [1] default                                     
-     db                     │   [2] acme                                        
+ [1] default  [2] acme  [5] idle                                                
+────────────────────────────┬───────────────────────────────────────────────────
+›▾ 1 data                   │ Spaces                                            
+   ○ db                     │   [1] default                                     
+                            │   [2] acme                                        
                             │ › [3] empty                                       
                             │   [4] empty                                       
                             │   [5] idle                                        
                             │   [6] empty                                       
                             │   [7] empty                                       
                             │   [8] empty                                       
-                            │   [9] empty                                       
-                            │                                                   
-                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
  Enter switch · a add · e rename · d delete · Shift+↑/↓ move · Esc close        

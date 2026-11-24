@@ -33,10 +33,10 @@ func TestTabBarMarksClaudeSession(t *testing.T) {
 	press(m, keyPrefix, text("c")[0]) // alpha 2: claude on the Active connection
 	bar, _ := m.tabBar(60)
 	bar = ansi.Strip(bar)
-	if !strings.Contains(bar, " alpha 1 ") || strings.Contains(bar, "alpha 1 claude") {
+	if !strings.Contains(bar, "[1 ssh ●]") {
 		t.Errorf("plain tab should not be marked: %q", bar)
 	}
-	if !strings.Contains(bar, " alpha 2 claude ") {
+	if !strings.Contains(bar, "[2 claude ●]") {
 		t.Errorf("claude tab should be marked: %q", bar)
 	}
 }
@@ -51,12 +51,12 @@ func TestTabBarCombinesClaudeMarkerWithSessionState(t *testing.T) {
 	endSession(m, c.Sessions[0], 255)
 	m.st.MarkActivity(c.Sessions[1])
 	bar, spans := m.tabBar(80)
-	want := " alpha 1 claude ✕  alpha 2 claude •  alpha 3 "
+	want := " [1 claude ●] [2 claude ● •] [3 ssh ●] [+]"
 	if got := strings.TrimRight(ansi.Strip(bar), " "); got != strings.TrimRight(want, " ") {
 		t.Errorf("tab bar = %q, want %q", got, want)
 	}
-	if len(spans) != 3 {
-		t.Fatalf("spans = %v, want 3 tabs", spans)
+	if len(spans) != 4 || spans[3].index != newTabSpan {
+		t.Fatalf("spans = %v, want 3 tabs and [+]", spans)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestReconnectKeepsClaudeKind(t *testing.T) {
 	if len(r.calls) != 2 || r.calls[0] != want[0] || r.calls[1] != want[1] {
 		t.Fatalf("Command calls = %v, want %v", r.calls, want)
 	}
-	if bar, _ := m.tabBar(60); !strings.Contains(ansi.Strip(bar), "alpha 1 claude") {
+	if bar, _ := m.tabBar(60); !strings.Contains(ansi.Strip(bar), "[1 claude ●]") {
 		t.Fatalf("reconnected tab lost its marker: %q", ansi.Strip(bar))
 	}
 }

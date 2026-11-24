@@ -171,11 +171,11 @@ func TestTabBarScrollsToCurrentTab(t *testing.T) {
 	}
 	bar, spans := m.tabBar(m.w - m.paneOffset())
 	bar = ansi.Strip(bar)
-	if !strings.HasPrefix(bar, "‹") || !strings.Contains(bar, "db-main 7") {
+	if !strings.HasPrefix(bar, "‹") || !strings.Contains(bar, "[7 ssh ●]") {
 		t.Fatalf("tab bar should scroll to show tab 7: %q", bar)
 	}
-	if spans[len(spans)-1].index != 6 {
-		t.Fatalf("last visible tab = %d, want 6", spans[len(spans)-1].index)
+	if last := spans[len(spans)-2]; last.index != 6 { // the last span is [+]
+		t.Fatalf("last visible tab = %d, want 6", last.index)
 	}
 }
 

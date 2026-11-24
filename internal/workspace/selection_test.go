@@ -75,7 +75,7 @@ func paneModel(t *testing.T, opts Options, out string) (*Model, *Session, *input
 }
 
 // click presses b at screen cell x, y. In these Workspaces the pane body
-// starts at column 29, row 1.
+// starts at column 29, row 2, under the pane header and the tab line.
 func click(x, y int, b tea.MouseButton) tea.MouseClickMsg {
 	return tea.MouseClickMsg{X: x, Y: y, Button: b}
 }
@@ -134,7 +134,7 @@ func clipboardSet(cmd tea.Cmd) (string, bool) {
 
 func TestDragInPaneCopiesSelection(t *testing.T) {
 	m, _ := newPaneModel(t, "first line\nsecond line\nthird")
-	cmd := dragMouse(m, [2]int{35, 1}, [2]int{33, 3})
+	cmd := dragMouse(m, [2]int{35, 2}, [2]int{33, 4})
 	got, ok := clipboardSet(cmd)
 	if !ok || got != "line\nsecond line\nthird" {
 		t.Fatalf("clipboard = %q, %v", got, ok)
@@ -186,7 +186,7 @@ func highlightMarks(line string) string {
 
 func TestSelectionGolden(t *testing.T) {
 	m, _ := newPaneModel(t, "first line\nsecond line\nthird")
-	dragMouse(m, [2]int{35, 1}, [2]int{33, 3})
+	dragMouse(m, [2]int{35, 2}, [2]int{33, 4})
 	goldenSelection(t, "selection", m)
 }
 
@@ -197,7 +197,7 @@ func TestSelectionClears(t *testing.T) {
 		after func(m *Model, sess *Session)
 	}{
 		{"on a key press", func(m *Model, _ *Session) { press(m, text("a")...) }},
-		{"on a click", func(m *Model, _ *Session) { m.Update(click(40, 6, tea.MouseLeft)) }},
+		{"on a click", func(m *Model, _ *Session) { m.Update(click(40, 7, tea.MouseLeft)) }},
 		{"on the wheel", func(m *Model, _ *Session) { m.Update(tea.MouseWheelMsg{X: 40, Y: 5, Button: tea.MouseWheelUp}) }},
 		{"when the pane's output changes", func(m *Model, sess *Session) {
 			r := m.sessions.runner(sess)
@@ -208,7 +208,7 @@ func TestSelectionClears(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, sess := newPaneModel(t, "first line\nsecond line")
-			dragMouse(m, [2]int{29, 1}, [2]int{33, 2})
+			dragMouse(m, [2]int{29, 2}, [2]int{33, 3})
 			if !highlighted(m) {
 				t.Fatal("the drag should leave a highlighted selection")
 			}
@@ -222,7 +222,7 @@ func TestSelectionClears(t *testing.T) {
 
 func TestSelectionStaysWhenAnotherSessionWrites(t *testing.T) {
 	m, _ := newPaneModel(t, "first line")
-	dragMouse(m, [2]int{29, 1}, [2]int{33, 1})
+	dragMouse(m, [2]int{29, 2}, [2]int{33, 2})
 	w, h := m.paneSize()
 	other := &runner{term: newVterm(w, h, 0, nil)}
 	other.activity.Store(true)
@@ -235,7 +235,7 @@ func TestSelectionStaysWhenAnotherSessionWrites(t *testing.T) {
 
 func TestFullScreenProgramKeepsTheMouse(t *testing.T) {
 	m, _ := newPaneModel(t, "\x1b[?1049hvim")
-	if cmd := dragMouse(m, [2]int{29, 1}, [2]int{33, 2}); cmd != nil || m.mode.sel != nil {
+	if cmd := dragMouse(m, [2]int{29, 2}, [2]int{33, 3}); cmd != nil || m.mode.sel != nil {
 		t.Fatal("a drag over a full-screen program goes to the program, not to a selection")
 	}
 }
@@ -243,7 +243,7 @@ func TestFullScreenProgramKeepsTheMouse(t *testing.T) {
 // rightClick right-clicks the pane and delivers every message that follows
 // within a short wait, as the Bubble Tea loop would.
 func rightClick(m *Model) {
-	_, cmd := m.Update(click(40, 3, tea.MouseRight))
+	_, cmd := m.Update(click(40, 4, tea.MouseRight))
 	for _, msg := range cmdMsgs(cmd) {
 		_, next := m.Update(msg)
 		for _, msg := range cmdMsgs(next) {
@@ -295,7 +295,7 @@ func doubleClick(m *Model, x, y int) tea.Cmd {
 
 func TestDoubleClickCopiesTheWord(t *testing.T) {
 	m, _ := newPaneModel(t, "ssh deploy@web01:/srv now")
-	cmd := doubleClick(m, 29+8, 1)
+	cmd := doubleClick(m, 29+8, 2)
 	got, ok := clipboardSet(cmd)
 	if !ok || got != "deploy@web01:/srv" {
 		t.Fatalf("clipboard = %q, %v", got, ok)
@@ -312,14 +312,14 @@ func TestSlowSecondClickIsNoDoubleClick(t *testing.T) {
 	defer func(d time.Duration) { doubleClickTime = d }(doubleClickTime)
 	doubleClickTime = 0
 	m, _ := newPaneModel(t, "ssh deploy@web01:/srv now")
-	if cmd := doubleClick(m, 29+8, 1); cmd != nil || m.mode.sel != nil && !m.mode.sel.empty() {
+	if cmd := doubleClick(m, 29+8, 2); cmd != nil || m.mode.sel != nil && !m.mode.sel.empty() {
 		t.Fatal("two clicks further apart than doubleClickTime select nothing")
 	}
 }
 
 func TestDoubleClickOnABlankSelectsNothing(t *testing.T) {
 	m, _ := newPaneModel(t, "a    b")
-	if cmd := doubleClick(m, 29+3, 1); cmd != nil {
+	if cmd := doubleClick(m, 29+3, 2); cmd != nil {
 		t.Fatal("a double-click on a blank copies nothing")
 	}
 }

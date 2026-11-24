@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -34,7 +37,26 @@ func (a *app) runWorkspace() error {
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 		Notice:          strings.Join(a.cfg.Notices, "; "),
 		ReadClipboard:   platform.ReadClipboard,
+		Resolve:         resolveEndpoint,
 	})
+}
+
+// resolveTimeout bounds the "ssh -G" behind the Workspace pane's header.
+const resolveTimeout = 5 * time.Second
+
+// resolveEndpoint is the user, host and port ssh uses for alias, for the
+// Workspace pane's header.
+func resolveEndpoint(alias string) (openssh.Endpoint, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	defer cancel()
+	// Not openssh.Run: the Workspace owns the terminal, so ssh gets neither
+	// its input nor its error output.
+	quiet := func(ctx context.Context, argv []string, out io.Writer) error {
+		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+		cmd.Stdout = out
+		return cmd.Run()
+	}
+	return openssh.Resolve(ctx, quiet, alias)
 }
 
 // sessionCommand builds the command line for a new tab. An Action runs this

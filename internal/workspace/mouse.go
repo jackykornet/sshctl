@@ -59,7 +59,8 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			return m.drop(mm)
 		}
 	}
-	if mm.Y >= m.h-1 {
+	f := m.frame()
+	if mm.Y < f.mainTop || mm.Y >= f.mainEnd() {
 		return nil
 	}
 	lw := m.listWidth()
@@ -70,18 +71,12 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	if paneX < 0 {
 		return nil // the separator column
 	}
-	if mm.Y == 0 {
+	if mm.Y < f.tabRow {
+		return nil // the pane's header
+	}
+	if mm.Y == f.tabRow {
 		if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
-			_, spans := m.tabBar(m.w - m.paneOffset())
-			for _, sp := range spans {
-				if paneX >= sp.start && paneX < sp.end {
-					m.st.SelectTabIndex(sp.index)
-					m.stopScroll()
-				}
-			}
-			if m.st.Active() != nil {
-				m.focus = focusPane
-			}
+			return m.clickTab(paneX)
 		}
 		return nil
 	}
@@ -94,7 +89,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	// Full-screen programs get the mouse; otherwise the wheel scrolls history.
 	if r.term.AltScreen() && !s.Ended {
-		r.term.SendMouse(msg, paneX, mm.Y-1)
+		r.term.SendMouse(msg, paneX, mm.Y-f.bodyTop)
 		return nil
 	}
 	switch msg.(type) {
@@ -123,12 +118,37 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
+// clickTab follows a left click at column x of the tab line: it selects
+// the tab there, or opens a new one on [+] as the new-tab key does.
+func (m *Model) clickTab(x int) tea.Cmd {
+	_, spans := m.tabBar(m.w - m.paneOffset())
+	var cmd tea.Cmd
+	for _, sp := range spans {
+		if x < sp.start || x >= sp.end {
+			continue
+		}
+		if sp.index == newTabSpan {
+			m.focus = focusPane // a new tab is for the Active connection
+			if bk, ok := findKey(m.contextKeys(inPrefix), "n"); ok {
+				cmd = bk.run(m, tea.KeyPressMsg{Code: 'n', Text: "n"})
+			}
+		} else {
+			m.st.SelectTabIndex(sp.index)
+		}
+		m.stopScroll()
+	}
+	if m.st.Active() != nil {
+		m.focus = focusPane
+	}
+	return cmd
+}
+
 // panePos returns the pane body cell under the pointer, clamped to the pane.
 func (m *Model) panePos(mm tea.Mouse) pos {
 	w, h := m.paneSize()
 	return pos{
 		x: max(0, min(mm.X-m.paneOffset(), w-1)),
-		y: max(0, min(mm.Y-1, h-1)),
+		y: max(0, min(mm.Y-m.frame().bodyTop, h-1)),
 	}
 }
 
@@ -234,7 +254,7 @@ func (m *Model) listMouse(msg tea.MouseMsg, mm tea.Mouse) tea.Cmd {
 
 // rowAt returns the list row at screen position x, y.
 func (m *Model) rowAt(x, y int) (Row, bool) {
-	if x < 0 || x >= m.listWidth() || y >= m.h-1 {
+	if x < 0 || x >= m.listWidth() || y >= m.frame().mainEnd() {
 		return Row{}, false
 	}
 	rows, offset, top := m.listRows()

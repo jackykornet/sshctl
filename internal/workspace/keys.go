@@ -72,7 +72,7 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys:     keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"),
+		keys:     named(keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"), "open"),
 		help:     "open or switch to a connection, or toggle a group",
 		listOnly: true,
 	},
@@ -91,7 +91,7 @@ var bindings = []binding{
 			m.focus = focusList
 			m.startFilter()
 			return nil
-		})),
+		}).as("filter")),
 		help:       "filter the connection list",
 		tunnelRows: true,
 	},
@@ -160,24 +160,24 @@ var bindings = []binding{
 		help: "close tab (ended tab, tunnel row: r reconnect, x close)",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if m.focus == focusList && m.st.Active() != nil {
 				m.focus = focusPane
 			} else {
 				m.focus = focusList
 			}
 			return nil
-		}, "tab"),
+		}, "tab"), "list"),
 		help: "move focus between list and terminal",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if _, r := m.currentRunner(); r != nil {
 				m.setBase(mode{kind: modeScroll}) // ends typing a filter
 				m.focus = focusPane
 			}
 			return nil
-		}, "s"),
+		}, "s"), "scroll"),
 		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
@@ -206,6 +206,16 @@ var bindings = []binding{
 	},
 }
 
+// named names every key of t for hint lines.
+func named(t [numContexts][]boundKey, name string) [numContexts][]boundKey {
+	for ctx := range t {
+		for i := range t[ctx] {
+			t[ctx][i].name = name
+		}
+	}
+	return t
+}
+
 // both binds keys alike in the list and after the prefix, as ADR-0007 has
 // every list action.
 func both(keys ...boundKey) [numContexts][]boundKey {
@@ -230,19 +240,19 @@ var crud = []boundKey{
 			return nil
 		}
 		return m.startAdd()
-	})),
+	})).as("add"),
 	on("e", followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.startRenameGroup(g)
 		}
 		return m.startEdit()
-	})),
+	})).as("edit"),
 	on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		if g, ok := m.headerTarget(); ok {
 			return m.deleteGroup(g)
 		}
 		return m.deleteConnection()
-	}),
+	}).as("delete"),
 }
 
 // digits are the keys 1 to 9, for Spaces 1 to 9.
