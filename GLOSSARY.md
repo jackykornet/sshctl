@@ -49,6 +49,10 @@ _Avoid_: Workspace, project, tenant, customer
 A number from 1 to 9 that a Space keeps until the user changes it (ADR-0010); the Workspace switches to Spaces by their number. A new Space takes the lowest free number unless the user picks one, so there are at most nine Spaces. Deleting a Space leaves its number free, and moving a Space to a taken number swaps the two. Only a Space beyond the ninth in an older config has none. A Space name may not be only digits, nor contain `/`.
 _Avoid_: Space ID, index
 
+**Indicator color**:
+A color a Group or Space can carry to warn the user, such as red for production, drawn around the Active connection's pane. A Group's own color wins over its Space's.
+_Avoid_: Tag, label, theme
+
 **History**:
 The 20 most recently opened Connections across all Spaces, most recent first. A Connection is opened when a Workspace Session for it starts or when sshctl connects to it from the command line.
 _Avoid_: Recents, log
