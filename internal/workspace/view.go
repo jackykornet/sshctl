@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/openssh"
 	"path/filepath"
 	"strings"
 
@@ -152,11 +153,15 @@ func (m *Model) renderList(w, h int) []string {
 			line = m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
-			space := ""
-			if m.st.CrossSpace() {
-				space = m.st.SpaceName(r.Conn.Space)
+			cross := m.st.CrossSpace()
+			path := ""
+			if cross && r.Conn.Space != m.st.Space() {
+				path = m.st.SpaceName(r.Conn.Space)
+				if r.Conn.Group != "" {
+					path += pathSep + r.Conn.Group
+				}
 			}
-			line = connLabel(r.Conn, grouped && space == "", space, m.tunnels.running(r.Conn.Alias))
+			line = connLabel(r.Conn, grouped && !cross, path, m.tunnels.running(r.Conn.Alias), w-1)
 			highlight = r.Conn == active
 		}
 		line = fit(line, w-1)
@@ -359,9 +364,11 @@ func (m *Model) headerLabel(group string) string {
 // connLabel is a Connection row after the cursor pointer, indented under its
 // group header when the list is grouped: a dot for its Sessions (green ●
 // open, yellow ● all ended, dim ○ not open), its alias, ⇄ for a running
-// tunnel, • for unseen activity, then its description. A space names the
-// Connection's Space, for a filter across every Space.
-func connLabel(c *Connection, grouped bool, space string, tunnel bool) string {
+// tunnel, • for unseen activity, then its description, in w columns. A
+// path, Space › Group for a filter match from another Space, goes before
+// the alias; when the row is too wide the description goes first, then the
+// path is cut short, so the alias stays whole.
+func connLabel(c *Connection, grouped bool, path string, tunnel bool, w int) string {
 	dot, name := dimStyle.Render("○"), c.Alias
 	switch {
 	case c.AllEnded():
@@ -371,42 +378,52 @@ func connLabel(c *Connection, grouped bool, space string, tunnel bool) string {
 	case c.Orphaned:
 		name = dimStyle.Render(c.Alias)
 	}
-	line := dot + " " + name
+	lead := dot + " "
 	if grouped {
-		line = "  " + line
+		lead = "  " + lead
 	}
 	if tunnel {
-		line += " " + openStyle.Render(tunnelMarker)
+		name += " " + openStyle.Render(tunnelMarker)
 	}
 	if c.Unseen() {
-		line += " " + unseenStyle.Render(unseenMarker)
+		name += " " + unseenStyle.Render(unseenMarker)
 	}
-	if extra := rowDetail(c, grouped, space); extra != "" {
+	other := path != ""
+	if other {
+		path += pathSep
+		if room := w - ansi.StringWidth(lead+name); ansi.StringWidth(path) > room {
+			short := ""
+			if room >= 2 {
+				short = ansi.Truncate(strings.TrimSuffix(path, " "), room-1, "…") + " "
+			}
+			path = short
+		}
+		name = dimStyle.Render(path) + name
+	}
+	line := lead + name
+	extra := rowDetail(c, grouped || other)
+	if room := w - ansi.StringWidth(line) - 1; extra != "" && (!other || room > 0) {
+		if other {
+			extra = ansi.Truncate(extra, room, "…")
+		}
 		line += " " + dimStyle.Render(extra)
 	}
 	return line
 }
 
+// pathSep separates the Space, Group and alias of a filter match from
+// another Space: acme › prod › web01.
+const pathSep = " › "
+
 // rowDetail is a Connection's description, or (missing) when it is orphaned.
-// The group is added only when the list has no group headers to show it,
-// after the Connection's space when that is given: [space/group].
-func rowDetail(c *Connection, grouped bool, space string) string {
+// The group is added only when the list shows it nowhere else: [group].
+func rowDetail(c *Connection, grouped bool) string {
 	if c.Orphaned {
-		if space != "" {
-			return "(missing) [" + space + "]"
-		}
 		return "(missing)"
 	}
 	d := c.Description
-	where := c.Group
-	if grouped {
-		where = ""
-	}
-	if space != "" {
-		where = strings.TrimSuffix(space+"/"+where, "/")
-	}
-	if where != "" {
-		d = strings.TrimSpace(d + " [" + where + "]")
+	if !grouped && c.Group != "" {
+		d = strings.TrimSpace(d + " [" + c.Group + "]")
 	}
 	return d
 }
@@ -538,6 +555,8 @@ func (m *Model) renderPane(w int, f frameLayout) []string {
 	var body []string
 	s, r := m.currentRunner()
 	switch {
+	case s == nil && m.st.Filter() == "" && m.st.NoConnections():
+		body = m.gettingStarted(w)
 	case s == nil:
 		body = []string{"", "  " + dimStyle.Render("Select a connection and press Enter.")}
 	case r != nil:
@@ -569,6 +588,39 @@ func (m *Model) renderPane(w int, f frameLayout) []string {
 		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
+}
+
+// gettingStarted is the pane's body, w columns wide, while the active Space
+// has no Connections and no filter is typed: how to add one, where Hosts
+// already in ssh_config come from, and the Space picker and help keys.
+func (m *Model) gettingStarted(w int) []string {
+	title, where := "No connections yet.", "here"
+	if m.st.Space() != "" {
+		title = fmt.Sprintf("No connections in %s yet.", m.st.ActiveSpaceName())
+		where = "in Space " + m.st.SpaceName("")
+	}
+	add, spaces, help := m.gettingStartedHints()
+	paras := []string{
+		add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + ".",
+		"Hosts already in ~/.ssh/config show up " + where + ". Saving needs " + openssh.IncludeLine +
+			" at the top of ~/.ssh/config; sshctl asks before adding it.",
+		spaces.String() + ": switch, add or rename Spaces.",
+		help.String() + ": every key.",
+	}
+	body := []string{"", "  " + boldStyle.Render(title)}
+	for _, p := range paras {
+		body = append(body, "")
+		for _, l := range strings.Split(ansi.Wordwrap(p, max(1, w-4), ""), "\n") {
+			body = append(body, "  "+l)
+		}
+	}
+	return body
+}
+
+// gettingStartedHints are the keys the getting-started screen names: add,
+// the Space picker and help.
+func (m *Model) gettingStartedHints() (add, spaces, help hintLine) {
+	return m.hint(inList, "a"), m.hint(inList, "P"), m.hint(inPrefix, "?")
 }
 
 // paneTitle is the pane's header, alias · user@host[:port], or the alias
