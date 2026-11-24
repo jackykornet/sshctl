@@ -1,0 +1,88 @@
+name: Milestone release
+
+# Releases a version when its milestone is met. A milestone titled like a
+# version tag (v0.6.0) is met when it has closed issues and no open ones, or
+# when it is closed by hand. Once CI has passed on main's latest commit, this
+# closes the milestone, tags that commit with the milestone's title and runs
+# release.yml for the tag. A tag pushed with the workflow token would not
+# start release.yml by itself, so it is run with workflow_dispatch.
+#
+# Every trigger checks again, so whichever comes last releases: the issue
+# closed by a merge to main (CI is still running then, so it waits), or the
+# CI run on main that follows. A version whose tag exists is never released
+# again.
+
+on:
+  issues:
+    types: [closed]
+  milestone:
+    types: [closed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+concurrency:
+  group: milestone-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'issues' && github.event.issue.milestone != null) ||
+      github.event_name == 'milestone' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Release met milestones
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CLOSED_MILESTONE: ${{ github.event_name == 'milestone' && github.event.milestone.number || '' }}
+        run: |
+          set -eu
+          sha=$(git rev-parse HEAD)
+          ci=$(gh run list --workflow ci.yml --branch main --commit "$sha" --event push \
+            --json status,conclusion --jq '.[0] // {} | "\(.status) \(.conclusion)"')
+          if [ "$ci" != "completed success" ]; then
+            echo "CI on main ($sha) is '$ci', not passed; the CI run will check again."
+            exit 0
+          fi
+
+          version='^v[0-9]+\\.[0-9]+\\.[0-9]+$'  # doubled for the jq string
+          # Open milestones that are met, and the one just closed by hand.
+          met=$(gh api "repos/$GH_REPO/milestones?state=all&per_page=100" --jq "
+            .[] | select(.title | test(\"$version\"))
+                | select((.state == \"open\" and .open_issues == 0 and .closed_issues > 0)
+                         or (.number | tostring) == \"$CLOSED_MILESTONE\")
+                | \"\(.number) \(.title)\"")
+          if [ -z "$met" ]; then
+            echo "No milestone is met."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "$met" | while read -r number tag; do
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "$tag is already tagged; skipping."
+              continue
+            fi
+            echo "Releasing $tag from $sha (milestone $number)."
+            gh api -X PATCH "repos/$GH_REPO/milestones/$number" -f state=closed >/dev/null
+            git tag -a "$tag" -m "$tag" "$sha"
+            git push origin "refs/tags/$tag"
+            gh workflow run release.yml --ref main -f tag="$tag"
+          done
