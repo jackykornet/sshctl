@@ -439,6 +439,12 @@ func (m *Model) enter() tea.Cmd {
 	if c == nil {
 		return nil
 	}
+	return m.openOrSwitch(c)
+}
+
+// openOrSwitch opens c, or makes it active when it is open, after making
+// its Space the active Space (showSpaceOf).
+func (m *Model) openOrSwitch(c *Connection) tea.Cmd {
 	saved := m.showSpaceOf(c)
 	if c.Open() {
 		m.st.Activate(c.Alias)
@@ -448,9 +454,10 @@ func (m *Model) enter() tea.Cmd {
 	return tea.Batch(saved, m.open(c.Alias, Launch{}))
 }
 
-// showSpaceOf makes c's Space the active Space when the filter found c in
-// another Space, so whatever acts on c acts in its own Space: opening it,
-// a new tab or Action, its Group, the form. The cursor stays on c.
+// showSpaceOf makes c's Space the active Space when the filter or the
+// History picker found c in another Space, so whatever acts on c acts in
+// its own Space: opening it, a new tab or Action, its Group, the form. The
+// cursor stays on c.
 func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
 	if c.Space == m.st.Space() {
 		return nil
