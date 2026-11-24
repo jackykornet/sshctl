@@ -26,6 +26,19 @@ go install ./cmd/sshctl
 
 You need OpenSSH client tools (`ssh`, `ssh-add`, and `ssh-keygen`) available on `PATH`.
 
+### Shell completion
+
+`sshctl completion <shell>` prints a completion script for bash, zsh, fish or PowerShell. It completes commands, subcommands and options, Connection aliases where an alias goes (the first word, after `-c`, and for `add`, `edit`, `remove`, `bootstrap`, `provision` and `tunnel`), Space names after `--space` and Group names after `--group`. The script asks sshctl for the aliases each time, so they are the ones `sshctl list` shows. Enable it in your shell's startup file:
+
+| Shell | Add this |
+| --- | --- |
+| bash (`~/.bashrc`) | `eval "$(sshctl completion bash)"` |
+| zsh (`~/.zshrc`, after `compinit`) | `source <(sshctl completion zsh)` |
+| fish | run once: `sshctl completion fish > ~/.config/fish/completions/sshctl.fish` |
+| PowerShell (`$PROFILE`) | `sshctl completion powershell \| Out-String \| Invoke-Expression` |
+
+The scripts complete the command named `sshctl` (and `sshctl.exe` in PowerShell); if you renamed the downloaded executable, rename it to `sshctl`.
+
 ## Commands
 
 ```text
@@ -65,6 +78,7 @@ sshctl provision default [<url|none> | --unset] [--group <name>]
 sshctl experimental list
 sshctl experimental enable|disable <feature>
 sshctl config show
+sshctl completion bash|zsh|fish|powershell
 ```
 
 `sshctl <alias>` connects: it runs `ssh <alias>`. A selected sshctl key adds `-i <path>`; with no override, OpenSSH chooses identities using its normal config and defaults. `sshctl <alias> -- <command>...` runs the command on the host instead, as `ssh <alias> <command>...` does, and sshctl exits with the command's exit code. A first word that is a built-in command is always the command ([ADR-0011](docs/adr/0011-bare-alias-connects.md)): an alias named `list` or `key` is reached with `sshctl -c <alias>` (`--connect`), which scripts should use, since a later sshctl may add a command with the name of your alias. `list` marks such an alias with `(sshctl -c <alias>)`, and the Workspace's add and edit form warns about it. A bare word that is neither a command nor a Connection is refused, so a mistyped command is not sent to ssh; `-c` connects to any name ssh accepts.
