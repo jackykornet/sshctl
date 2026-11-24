@@ -50,6 +50,10 @@ Use concise imperative commit subjects (for example, `Add SSH config parsing`). 
 
 Ticket branches start from `main` and open a pull request back into it. Work spanning several tickets gets a feature branch off `main` (as `connection-bootstrap` was for #36); its ticket branches start from it and merge back into it, and the feature branch then goes to `main` as one pull request. Before handing off, merge the base branch's current tip into the ticket branch and re-run the checks.
 
+### Releases
+
+A release is a milestone titled with its version tag (`v0.6.0`). Put each ticket the release needs in it. When the milestone has no open issues left (or is closed by hand) and CI has passed on `main`, `.github/workflows/milestone-release.yml` closes it, tags `main` with its title and runs `release.yml`, which builds the binaries and publishes the release with generated notes. Issues close when their fix reaches `main`, so the pull request that brings a feature branch to `main` must say `Closes #N` for every issue it finishes, the parent issue too. Never reuse a version: a milestone whose tag exists is not released again.
+
 ## Security & Configuration
 
 Do not commit credentials, private keys, or machine-specific configuration. Keep secrets in environment variables or an approved secret store, and document required configuration with safe example values.
