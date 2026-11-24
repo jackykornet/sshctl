@@ -192,8 +192,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return tea.Batch(m.reload("", string(msg.sess.Action)+" finished; connection list refreshed"), m.ev.listen())
 		}
 		return m.ev.listen()
-	case tunnelEndedMsg:
-		if r := m.tunnels.ended(msg); r != nil {
+	case tunnelExitedMsg:
+		if r := m.tunnels.exited(msg); r != nil {
 			return tea.Batch(m.setStatus(r.alias+" tunnel failed: "+r.err, true), m.ev.listen())
 		}
 		return m.ev.listen()
@@ -493,13 +493,13 @@ func (m *Model) openGroup() tea.Cmd {
 		if other != nil {
 			return m.setStatus(other.Error(), true)
 		}
-		return m.setStatus(fmt.Sprintf("opened %s in group %s", countConnections(len(opened)), group), false)
+		return m.setStatus(fmt.Sprintf("opened %s in group %s", plural(len(opened), "connection"), group), false)
 	}
 	aliases, reason := failedAliases(failed)
 	if len(opened) == 0 {
 		return m.setStatus(fmt.Sprintf("could not open %s in group %s%s", aliases, group, reason), true)
 	}
-	return m.setStatus(fmt.Sprintf("opened %s in group %s; could not open %s%s", countConnections(len(opened)), group, aliases, reason), true)
+	return m.setStatus(fmt.Sprintf("opened %s in group %s; could not open %s%s", plural(len(opened), "connection"), group, aliases, reason), true)
 }
 
 // failedAliases lists the aliases that failed to start. When they all failed
@@ -523,11 +523,12 @@ func failedAliases(failed []*startError) (aliases, reason string) {
 	return strings.Join(parts, ", "), reason
 }
 
-func countConnections(n int) string {
+// plural is n of noun, as "1 tunnel" or "2 tunnels".
+func plural(n int, noun string) string {
 	if n == 1 {
-		return "1 connection"
+		return "1 " + noun
 	}
-	return fmt.Sprintf("%d connections", n)
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // reconnect starts a new process in the current tab after its Session ended.
@@ -571,20 +572,17 @@ func (m *Model) closeTab() tea.Cmd {
 // Confirming stops every tunnel before the Workspace exits.
 func (m *Model) quit() tea.Cmd {
 	n, k := m.st.LiveSessions(), m.tunnels.count()
-	noun := "sessions"
-	if n == 1 {
-		noun = "session"
-	}
+	sessions, tunnels := plural(n, "live session"), plural(k, "tunnel")
 	var question string
 	switch {
 	case n == 0 && k == 0:
 		return tea.Quit
 	case k == 0:
-		question = fmt.Sprintf("%d live %s will be closed. Quit? (y/n)", n, noun)
+		question = fmt.Sprintf("%s will be closed. Quit? (y/n)", sessions)
 	case n == 0:
-		question = fmt.Sprintf("%s running, quit anyway? (y/n)", countTunnels(k))
+		question = fmt.Sprintf("%s running, quit anyway? (y/n)", tunnels)
 	default:
-		question = fmt.Sprintf("%d live %s and %s running, quit anyway? (y/n)", n, noun, countTunnels(k))
+		question = fmt.Sprintf("%s and %s running, quit anyway? (y/n)", sessions, tunnels)
 	}
 	m.ask(question, func(m *Model) tea.Cmd {
 		m.tunnels.stopAll()

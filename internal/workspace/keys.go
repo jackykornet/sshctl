@@ -130,7 +130,7 @@ var bindings = []binding{
 		help: "move a connection to a group (or drag it)",
 	},
 	{
-		keys: merge(keysIn(inPrefix, tunnelKey, "t"), each(inTunnels, on("x", tunnelRowKey(stopTunnel)), on("r", tunnelRowKey(restartTunnel)))),
+		keys: merge(keysIn(inPrefix, tunnelKey, "t"), each(inTunnels, on("x", tunnelRowKey((*Model).stopTunnel)), on("r", tunnelRowKey((*Model).startTunnel)))),
 		help: "start / stop tunnels (tunnel row: x stop, r restart)",
 	},
 	{
@@ -244,9 +244,6 @@ func tunnelKey(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	})(m, msg)
 }
 
-func stopTunnel(m *Model, alias string) tea.Cmd    { return m.stopTunnel(alias) }
-func restartTunnel(m *Model, alias string) tea.Cmd { return m.startTunnel(alias) }
-
 // tunnelRowKey runs run on the alias of the tunnel row under the cursor.
 func tunnelRowKey(run func(m *Model, alias string) tea.Cmd) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -256,6 +253,7 @@ func tunnelRowKey(run func(m *Model, alias string) tea.Cmd) action {
 		return nil
 	}
 }
+
 func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.quit() }
 
 func moveCursor(delta int) action {

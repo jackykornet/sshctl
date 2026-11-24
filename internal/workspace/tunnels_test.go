@@ -53,7 +53,7 @@ func TestTunnelsLayoutGolden(t *testing.T) {
 	t.Run("failed", func(t *testing.T) {
 		m := newTunnelLayoutModel(t, 80, 12)
 		run := m.tunnels.get("prod-web")
-		m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255, stderr: "prod-web: Permission denied (publickey).\n"})
+		m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255, stderr: "prod-web: Permission denied (publickey).\n"})
 		golden(t, "tunnels-failed", m)
 	})
 }
@@ -64,7 +64,7 @@ func TestTunnelStatusCountsRunningTunnels(t *testing.T) {
 		t.Fatalf("status should count 3 running tunnels:\n%s", s)
 	}
 	run := m.tunnels.get("prod-web")
-	m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255})
+	m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255})
 	m.status = ""
 	if s := screen(m); !strings.Contains(s, "⇄ 2 tunnels") {
 		t.Fatalf("a failed tunnel is not counted:\n%s", s)
@@ -139,7 +139,7 @@ func TestATunnelFailureHintsOnlyAtAPrompt(t *testing.T) {
 		m, _ := newRecordingModel(t, tunnelEntries())
 		startTunnels(m, "web")
 		run := m.tunnels.get("web")
-		m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: 255, stderr: tc.stderr + "\n"})
+		m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: 255, stderr: tc.stderr + "\n"})
 		if got := strings.Contains(run.err, batchHint); got != tc.hint {
 			t.Errorf("%q: error %q, hint %v, want %v", tc.stderr, run.err, got, tc.hint)
 		}
@@ -151,7 +151,7 @@ func TestAStoppedTunnelIsNotReportedAsFailed(t *testing.T) {
 	startTunnels(m, "web")
 	run := m.tunnels.get("web")
 	press(m, keyPrefix, text("t")[0])
-	m.Update(tunnelEndedMsg{run: run, proc: run.proc, code: -1})
+	m.Update(tunnelExitedMsg{run: run, proc: run.proc, code: -1})
 	if m.statusErr || run.failed() {
 		t.Errorf("a stopped tunnel's exit is no failure: status %q", m.status)
 	}

@@ -245,21 +245,6 @@ func (m *Model) rowAt(x, y int) (Row, bool) {
 	return rows[i], true
 }
 
-// tunnelRowAt returns the index of the Tunnels section row at screen
-// position x, y.
-func (m *Model) tunnelRowAt(x, y int) (int, bool) {
-	height := m.tunnelSectionHeight()
-	if height == 0 || x < 0 || x >= m.listWidth() {
-		return 0, false
-	}
-	top := m.h - 1 - height + 1 // below the section's title
-	i := y - top + m.tunnelOffset(height-1)
-	if y < top || y >= m.h-1 || i >= len(m.tunnelRows()) {
-		return 0, false
-	}
-	return i, true
-}
-
 // dragOver follows a held Connection. Once it leaves its own row the list
 // also shows the ungrouped header, so it can be dropped out of its group.
 func (m *Model) dragOver(mm tea.Mouse) {
