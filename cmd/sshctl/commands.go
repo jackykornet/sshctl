@@ -43,9 +43,13 @@ func run(args []string, in io.Reader, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	moved, err := config.MoveOld(p)
-	if err != nil {
-		return err
+	// Completion leaves the old config folder to a command whose notice of
+	// the move is seen: the completion scripts discard stderr.
+	var moved string
+	if startWorkspace || args[0] != completeCommand {
+		if moved, err = config.MoveOld(p); err != nil {
+			return err
+		}
 	}
 	c, err := config.Load(p, legacy)
 	if err != nil {
@@ -198,6 +202,9 @@ var commands = []command{
 	}},
 	{name: "config", forms: []form{
 		{sub: "show", help: "Show paths and relevant SSH settings", run: (*app).showConfig},
+	}},
+	{name: "completion", forms: []form{
+		{args: "bash|zsh|fish|powershell", help: "Print the shell completion script; the README\nsays how to enable it", run: (*app).completion},
 	}},
 }
 
@@ -390,6 +397,8 @@ func (a *app) execute(args []string) error {
 	case "--version":
 		fmt.Fprintln(a.out, "sshctl "+buildVersion())
 		return nil
+	case completeCommand:
+		return a.complete(args[1:])
 	}
 	c, f, in, err := lookup(args)
 	if err != nil {

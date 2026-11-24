@@ -1,7 +1,7 @@
  [1] default  [2] acme  [5] idle                                                
  ▾ 1 web ●1                 │ staging                                           
    ○ prod-web public site   │ [1 ssh ●] [+]                                     
-   ● staging                │                                                   
+›  ● staging                │                                                   
                             │                                                   
                             │                                                   
- web / staging · key: id_ed25519         ^B Tab list · ^B n new tab · ^B ? help 
+ SESSION web / staging · key: id_ed25519 ^B Tab list · ^B n new tab · ^B ? help 

@@ -122,8 +122,12 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys:       both(on("I", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openKeyPicker() }).as("keys")),
-		help:       "key picker: the Selected identity of new tabs",
+		// Both pickers share a line so the help screen fits 80x24.
+		keys: both(
+			on("H", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openHistory() }).as("history"),
+			on("I", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openKeyPicker() }).as("keys"),
+		),
+		help:       "History picker / key picker (Selected identity)",
 		tunnelRows: true,
 	},
 	{
@@ -166,9 +170,12 @@ var bindings = []binding{
 	},
 	{
 		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			if m.focus == focusList && m.st.Active() != nil {
+			switch {
+			case m.focus == focusList && m.st.Active() == nil:
+				return m.setStatus("no open session — press Enter on a connection", false)
+			case m.focus == focusList:
 				m.focus = focusPane
-			} else {
+			default:
 				m.focus = focusList
 			}
 			return nil
@@ -176,19 +183,20 @@ var bindings = []binding{
 		help: "move focus between list and terminal",
 	},
 	{
-		// Folded into one line so the help screen fits 80x24.
-		keys: merge(named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if _, r := m.currentRunner(); r != nil {
 				m.setBase(mode{kind: modeScroll}) // ends typing a filter
 				m.focus = focusPane
 			}
 			return nil
-		}, "s"), "scroll"), keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b")),
-		help: "scroll back (or mouse wheel) / hide or show the list",
+		}, "s"), "scroll"),
+		help: "scroll back (mouse wheel also scrolls)",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R"),
-		help: "refresh connections from ssh_config",
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b"),
+			keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R")),
+		help: "hide or show the list / refresh from ssh_config",
 	},
 	{
 		// Folded into one line so the help screen fits 80x24.

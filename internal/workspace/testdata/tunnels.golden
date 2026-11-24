@@ -9,4 +9,4 @@
  ⇄ prod-web panel :8083 ●   │                                                   
  ⇄ db-main :5433 ●          │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- ⇄ 3 tunnels · no active connection · key: id_ed25519    Enter open · ^B ? help 
+ LIST ⇄ 3 tunnels · no active connection · key: id_ed25519            ^B ? help 
