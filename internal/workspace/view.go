@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/openssh"
 	"path/filepath"
 	"strings"
 
@@ -538,6 +539,8 @@ func (m *Model) renderPane(w int, f frameLayout) []string {
 	var body []string
 	s, r := m.currentRunner()
 	switch {
+	case s == nil && m.st.Filter() == "" && m.st.NoConnections():
+		body = m.gettingStarted(w)
 	case s == nil:
 		body = []string{"", "  " + dimStyle.Render("Select a connection and press Enter.")}
 	case r != nil:
@@ -569,6 +572,39 @@ func (m *Model) renderPane(w int, f frameLayout) []string {
 		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
+}
+
+// gettingStarted is the pane's body, w columns wide, while the active Space
+// has no Connections and no filter is typed: how to add one, where Hosts
+// already in ssh_config come from, and the Space picker and help keys.
+func (m *Model) gettingStarted(w int) []string {
+	title, where := "No connections yet.", "here"
+	if m.st.Space() != "" {
+		title = fmt.Sprintf("No connections in %s yet.", m.st.ActiveSpaceName())
+		where = "in Space " + m.st.SpaceName("")
+	}
+	add, spaces, help := m.gettingStartedHints()
+	paras := []string{
+		add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + ".",
+		"Hosts already in ~/.ssh/config show up " + where + ". Saving needs " + openssh.IncludeLine +
+			" at the top of ~/.ssh/config; sshctl asks before adding it.",
+		spaces.String() + ": switch, add or rename Spaces.",
+		help.String() + ": every key.",
+	}
+	body := []string{"", "  " + boldStyle.Render(title)}
+	for _, p := range paras {
+		body = append(body, "")
+		for _, l := range strings.Split(ansi.Wordwrap(p, max(1, w-4), ""), "\n") {
+			body = append(body, "  "+l)
+		}
+	}
+	return body
+}
+
+// gettingStartedHints are the keys the getting-started screen names: add,
+// the Space picker and help.
+func (m *Model) gettingStartedHints() (add, spaces, help hintLine) {
+	return m.hint(inList, "a"), m.hint(inList, "P"), m.hint(inPrefix, "?")
 }
 
 // paneTitle is the pane's header, alias · user@host[:port], or the alias
