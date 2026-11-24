@@ -142,11 +142,6 @@ func (c *Client) SafeSettings() ([]string, error) {
 	return settings, err
 }
 
-func (c *Client) Connect(ctx context.Context, alias string, key string) error {
-	argv := ConnectArgs(alias, key)
-	return runInteractive(ctx, argv[0], argv[1:]...)
-}
-
 // ConnectArgs returns the ssh command line for alias. A non-empty key is the
 // Selected identity and is passed with -i.
 func ConnectArgs(alias, key string) []string {

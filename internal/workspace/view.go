@@ -520,7 +520,7 @@ func tabLabel(s *Session, current bool) (label, plain string) {
 func (m *Model) renderPane(w int, f frameLayout) []string {
 	h := f.mainH
 	if fm := m.form(); fm != nil {
-		return fm.render(w, h, m.spaceNames(), fm.groups(m.st), m.features.On(catalog.FeatureBootstrap))
+		return fm.render(w, h, m.spaceNames(), fm.groups(m.st), m.features.On(catalog.FeatureBootstrap), m.opts.CommandNames)
 	}
 	if p := m.picker(); p != nil {
 		return p.render(m, w, h)

@@ -11,7 +11,7 @@ import (
 
 // keyList lists the public keys and certificates in ~/.ssh and the
 // registered key paths, marking the Selected identities.
-func (a *app) keyList(_ []string) error {
+func (a *app) keyList(input) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -59,7 +59,8 @@ func (a *app) keyList(_ []string) error {
 }
 
 // keyAdd registers a private key path.
-func (a *app) keyAdd(args []string) error {
+func (a *app) keyAdd(in input) error {
+	args := in.args
 	if len(args) != 1 {
 		return errors.New("usage: sshctl key add <private-key-path>")
 	}
@@ -81,8 +82,9 @@ func (a *app) keyAdd(args []string) error {
 
 // keyUse selects the key path args name, or none, as the global Selected
 // identity or, with --space, a Space's.
-func (a *app) keyUse(args []string) error {
-	space, rest, err := a.cutSpaceOption(args)
+func (a *app) keyUse(in input) error {
+	rest := in.args
+	space, err := a.spaceOption(in)
 	if err != nil {
 		return err
 	}

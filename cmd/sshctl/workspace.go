@@ -38,6 +38,7 @@ func (a *app) runWorkspace() error {
 		Notice:          strings.Join(a.cfg.Notices, "; "),
 		ReadClipboard:   platform.ReadClipboard,
 		Resolve:         resolveEndpoint,
+		CommandNames:    commandNames,
 	})
 }
 

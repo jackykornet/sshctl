@@ -49,6 +49,10 @@ type Options struct {
 	// when the Connection first becomes active. When nil, or when it fails,
 	// the header shows the alias alone (used by tests: no ssh runs).
 	Resolve func(alias string) (openssh.Endpoint, error)
+	// CommandNames are sshctl's built-in commands. An alias equal to one
+	// is reached only with sshctl -c <alias> (ADR-0011), so the add/edit
+	// form warns about it.
+	CommandNames []string
 }
 
 type focus int
