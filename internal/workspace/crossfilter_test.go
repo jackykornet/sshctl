@@ -93,7 +93,7 @@ func TestClickingAMatchFromAnotherSpaceSwitchesToIt(t *testing.T) {
 	m := newSpaceModel(t, 80, 10)
 	press(m, text("/a")...)
 	press(m, keyEnter)
-	m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft}) // db, under the bar, filter and staging
+	m.Update(tea.MouseClickMsg{X: 3, Y: 4, Button: tea.MouseLeft}) // db, under the bar, its rule, filter and staging
 	if got := m.st.Space(); got != "acme" {
 		t.Fatalf("clicking db left Space %q active, want acme", got)
 	}

@@ -22,7 +22,7 @@ func printLines(m *Model, sess *Session, from, to int) {
 // paneBody returns the Session pane's rows below the tab bar, as shown.
 func paneBody(m *Model) []string {
 	var rows []string
-	for _, l := range strings.Split(screen(m), "\n")[1 : m.h-1] {
+	for _, l := range strings.Split(screen(m), "\n")[m.frame().bodyTop:m.frame().mainEnd()] {
 		_, pane, _ := strings.Cut(l, "│")
 		rows = append(rows, strings.TrimRight(pane, " "))
 	}
@@ -76,12 +76,12 @@ func TestSelectionOnAScrolledBackViewCopiesWhatWasSelected(t *testing.T) {
 	printLines(m, sess, 1, 40)
 	press(m, keyPrefix, text("s")[0])
 	press(m, text("g")...) // line 1 to line 10 are shown
-	m.Update(click(29, 1, tea.MouseLeft))
-	m.Update(motion(34, 2))
+	m.Update(click(29, 2, tea.MouseLeft))
+	m.Update(motion(34, 3))
 	// Output arrives before the release, and before its redraw.
 	r := m.sessions.runner(sess)
 	fmt.Fprint(r.term, "line 41\r\nline 42\r\n")
-	_, cmd := m.Update(release(34, 2))
+	_, cmd := m.Update(release(34, 3))
 	if got, ok := clipboardSet(cmd); !ok || got != "line 1\nline 2" {
 		t.Fatalf("clipboard = %q, %v; want the lines that were selected", got, ok)
 	}

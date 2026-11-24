@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/openssh"
 )
 
 const (
@@ -43,6 +44,11 @@ type Options struct {
 	// it is nil or returns no text, the Workspace asks the host terminal for
 	// the clipboard with OSC 52 instead.
 	ReadClipboard func() (string, error)
+	// Resolve returns the user, host and port ssh uses for alias, for the
+	// pane's header. It runs once per Connection, off the Bubble Tea loop,
+	// when the Connection first becomes active. When nil, or when it fails,
+	// the header shows the alias alone (used by tests: no ssh runs).
+	Resolve func(alias string) (openssh.Endpoint, error)
 	// CommandNames are sshctl's built-in commands. An alias equal to one
 	// is reached only with sshctl -c <alias> (ADR-0011), so the add/edit
 	// form warns about it.
@@ -98,6 +104,22 @@ type Model struct {
 	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
 	spaceNote   bool
 	spaceNoteID int
+	// endpoints caches each Connection's resolved endpoint for the pane's
+	// header, by alias, from the moment it is asked for.
+	endpoints map[string]endpoint
+}
+
+// An endpoint is a Connection's user@host[:port] for the pane's header.
+type endpoint struct {
+	// done says Resolve has answered; text is empty when it failed.
+	done bool
+	text string
+}
+
+// endpointMsg carries Resolve's answer for alias.
+type endpointMsg struct {
+	alias string
+	text  string
 }
 
 // New loads the first Snapshot and builds the Workspace model.
@@ -123,7 +145,7 @@ func New(opts Options) (*Model, error) {
 	st.SetGroups(snap.Groups)
 	st.SetSpace(snap.ActiveSpace)
 	st.RestoreCollapsed(snap.Collapsed)
-	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), features: snap.Experimental, ev: newEvents()}
+	m := &Model{opts: opts, st: st, endpoints: map[string]endpoint{}, identities: selectedIdentities(snap), features: snap.Experimental, ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
 		ev:         m.ev,
@@ -168,6 +190,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.keepViews()
 	cmd := m.update(msg)
 	m.syncSize()
+	m.resolveActive()
 	return m, cmd
 }
 
@@ -200,6 +223,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if r := m.tunnels.exited(msg); r != nil {
 			return tea.Batch(m.setStatus(r.alias+" tunnel failed: "+r.err, true), m.ev.listen())
 		}
+		return m.ev.listen()
+	case endpointMsg:
+		m.endpoints[msg.alias] = endpoint{done: true, text: msg.text}
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
@@ -619,6 +645,7 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
+	clear(m.endpoints) // ssh_config may have changed
 	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
 	m.st.SetGroups(snap.Groups)
 	m.identities = selectedIdentities(snap)
@@ -776,4 +803,46 @@ func keyHint(k string) string {
 		return "^" + strings.ToUpper(rest)
 	}
 	return k
+}
+
+// resolveActive starts resolving the Active connection's endpoint for the
+// pane's header, the first time it is active. Resolve runs off the Bubble
+// Tea loop and answers with an endpointMsg.
+func (m *Model) resolveActive() {
+	c := m.st.Active()
+	if c == nil {
+		return
+	}
+	if _, ok := m.endpoints[c.Alias]; ok {
+		return
+	}
+	if m.opts.Resolve == nil {
+		m.endpoints[c.Alias] = endpoint{done: true}
+		return
+	}
+	m.endpoints[c.Alias] = endpoint{}
+	alias, resolve, ch := c.Alias, m.opts.Resolve, m.ev.ch
+	go func() {
+		e, err := resolve(alias)
+		text := ""
+		if err == nil {
+			text = endpointText(e)
+		}
+		ch <- endpointMsg{alias: alias, text: text}
+	}()
+}
+
+// endpointText is e as user@host, with :port when it is not 22.
+func endpointText(e openssh.Endpoint) string {
+	if e.HostName == "" {
+		return ""
+	}
+	t := e.HostName
+	if e.User != "" {
+		t = e.User + "@" + t
+	}
+	if e.Port != "" && e.Port != "22" {
+		t += ":" + e.Port
+	}
+	return t
 }
