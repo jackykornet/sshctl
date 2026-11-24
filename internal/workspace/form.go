@@ -68,7 +68,7 @@ func newAddForm(space, group string) *connForm {
 }
 
 func newEditForm(c *Connection) *connForm {
-	s := Spec{Alias: c.Alias, Description: c.Description, Group: c.Group, Managed: c.Managed, Host: c.Host, Tunnels: c.Tunnels}
+	s := catalog.SpecFor(c.Entry)
 	f := &connForm{old: c.Alias, space: c.Space, managed: c.Managed}
 	if c.Managed {
 		f.fields = managedFields(s)

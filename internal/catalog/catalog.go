@@ -43,13 +43,19 @@ type Spec struct {
 	Space string
 	Group string
 	// Managed is true when sshctl writes the Host block, so Host applies.
-	// For a Connection defined elsewhere in ssh_config only the description
-	// and group are saved.
+	// For a Connection defined elsewhere in ssh_config only its sshctl
+	// metadata (description, Space, group, Tunnels) is saved.
 	Managed bool
 	Host    Host
-	// Tunnels replace the Connection's Tunnels; nil leaves it none. A
-	// caller that does not edit them passes the Entry's.
+	// Tunnels replace the Connection's Tunnels; nil leaves it none. Start
+	// from SpecFor to keep the ones it has.
 	Tunnels []Tunnel
+}
+
+// SpecFor is e as it is saved now, the start of a Spec that changes only
+// some of it: Save replaces everything a Spec holds, Tunnels included.
+func SpecFor(e Entry) Spec {
+	return Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: e.Managed, Host: e.Host, Tunnels: e.Tunnels}
 }
 
 // Entry is one Connection as listed from ssh_config and sshctl metadata.

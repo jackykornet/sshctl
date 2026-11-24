@@ -212,7 +212,9 @@ func (a *app) completeEndpoint(ctx context.Context, e catalog.Entry) (catalog.En
 // Tunnels.
 // SaveHost writes an IdentityFile under the home directory as ~/ (ADR-0004).
 func (a *app) saveEndpoint(e catalog.Entry) error {
-	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: true, Host: e.Host, Tunnels: e.Tunnels})
+	s := catalog.SpecFor(e)
+	s.Managed = true
+	return a.catalog().Save(e.Alias, s)
 }
 
 // home is the user's home directory, as SaveHost sees it.

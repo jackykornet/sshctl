@@ -15,21 +15,17 @@ var (
 func focusFormField(t *testing.T, m *Model, id fieldID) {
 	t.Helper()
 	f := m.form()
-	for i, fl := range f.fields {
-		if fl.id == id {
-			f.focusField(i)
-			return
-		}
+	if f.focusOn(id); f.fields[f.focus].id != id {
+		t.Fatalf("the form has no field %d", id)
 	}
-	t.Fatalf("the form has no field %d", id)
 }
 
 // typeTunnels replaces the open form's Tunnels field with text.
-func typeTunnels(t *testing.T, m *Model, text_ string) {
+func typeTunnels(t *testing.T, m *Model, specs string) {
 	t.Helper()
 	focusFormField(t, m, fieldTunnels)
 	press(m, keyClear)
-	press(m, text(text_)...)
+	press(m, text(specs)...)
 }
 
 func TestTheEditFormRoundTripsTunnels(t *testing.T) {
