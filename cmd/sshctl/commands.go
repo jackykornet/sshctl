@@ -135,7 +135,10 @@ var connectCommand = command{forms: []form{
 // its forms in the same order, after connectCommand's.
 var commands = []command{
 	{name: "list", forms: []form{
-		{args: spaceOptionUsage, opts: []string{fieldSpace}, help: "List Connections, or one Space's", run: (*app).list},
+		{args: spaceOptionUsage + " [--json]", opts: []string{fieldSpace, "json"}, help: "List Connections, or one Space's", run: (*app).list},
+	}},
+	{name: "info", forms: []form{
+		{args: "<alias> [--json]", opts: []string{"json"}, help: "Show a Connection as JSON: Space, Group, description,\nManaged, Orphaned and the Selected identity it uses", run: (*app).info},
 	}},
 	{name: "tunnel", forms: []form{
 		{sub: "add", args: "<alias> <spec>", help: "Save a Tunnel, [name=]localport[:host:remoteport];\nthe host defaults to localhost", run: (*app).tunnelAdd},
@@ -153,7 +156,7 @@ var commands = []command{
 		{args: "<alias> [--yes]", opts: []string{"yes"}, help: "Remove a Connection: its Host block if sshctl\nwrote it, and its metadata", run: (*app).remove},
 	}},
 	{name: "space", forms: []form{
-		{sub: "list", help: "List Spaces: number, name, groups, connections", run: (*app).spaceList},
+		{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Spaces: number, name, groups, connections", run: (*app).spaceList},
 		{sub: "add", args: "<name> [<number>]", help: "Create a Space, with the lowest free number\n(1-9) or the one given", run: (*app).spaceAdd},
 		{sub: "rename", args: "<space> <new>", help: "Rename a Space, keeping its contents and number", run: (*app).spaceRename},
 		{sub: "delete", args: "<space>", help: "Delete an empty Space, leaving its number free", run: (*app).spaceDelete},
@@ -164,7 +167,7 @@ var commands = []command{
 		// group connect opens OS terminal windows (internal/platform),
 		// unlike prefix g in the Workspace, which opens tabs.
 		note: "group connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments).", forms: []form{
-			{sub: "list", help: "List Groups: number, name, members, dotfiles", run: inSpace((*app).groupList)},
+			{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Groups: number, name, members, dotfiles", run: inSpace((*app).groupList)},
 			{sub: "add", args: "<name>", help: "Create a Group", run: inSpace((*app).groupAdd)},
 			{sub: "rename", args: "<group> <new>", help: "Rename a Group, moving its Connections", run: inSpace((*app).groupRename)},
 			{sub: "delete", args: "<group> [--yes]", opts: []string{"yes"}, help: "Delete a Group; its Connections become ungrouped", run: inSpace((*app).groupDelete)},
@@ -453,10 +456,20 @@ func (a *app) list(in input) error {
 	if err != nil {
 		return err
 	}
+	var listed []catalog.Entry
 	for _, e := range snap.Entries {
-		if space.set && e.Space != space.ref {
-			continue
+		if !space.set || e.Space == space.ref {
+			listed = append(listed, e)
 		}
+	}
+	if in.flag("json") {
+		if err := a.writeJSON(connectionsJSON(snap, listed)); err != nil {
+			return err
+		}
+		a.includeHint(snap)
+		return nil
+	}
+	for _, e := range listed {
 		var label []string
 		if e.Description != "" {
 			label = append(label, e.Description)
@@ -476,10 +489,16 @@ func (a *app) list(in input) error {
 		}
 		fmt.Fprintf(a.out, "%-24s %s\n", e.Alias, strings.Join(label, " "))
 	}
+	a.includeHint(snap)
+	return nil
+}
+
+// includeHint prints, on stderr, a one-line hint when sshctl's hosts file is
+// not Included in ssh_config.
+func (a *app) includeHint(snap catalog.Snapshot) {
 	if snap.Include != nil {
 		fmt.Fprintf(a.err, "hint: %s, so ssh cannot see sshctl's hosts; run sshctl to add it\n", snap.Include)
 	}
-	return nil
 }
 
 // connect runs ssh to an alias, the first operand or -c's value, with its

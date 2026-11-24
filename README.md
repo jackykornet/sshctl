@@ -44,7 +44,8 @@ The scripts complete the command named `sshctl` (and `sshctl.exe` in PowerShell)
 ```text
 sshctl
 sshctl [-c] <alias> [-- <command>...]
-sshctl list [--space <space>]
+sshctl list [--space <space>] [--json]
+sshctl info <alias> [--json]
 sshctl tunnel add <alias> <spec>
 sshctl tunnel rm <alias> <name|port>
 sshctl tunnel list [<alias>]
@@ -52,13 +53,13 @@ sshctl tunnel <alias>
 sshctl add <alias> [--<field> <value>]...
 sshctl edit <alias> [--<field> <value>]...
 sshctl remove <alias> [--yes]
-sshctl space list
+sshctl space list [--json]
 sshctl space add <name> [<number>]
 sshctl space rename <space> <new>
 sshctl space delete <space>
 sshctl space move <space> <number>
 sshctl space dotfiles <space> [<url|none> | --unset]
-sshctl group [--space <space>] list
+sshctl group [--space <space>] list [--json]
 sshctl group [--space <space>] add <name>
 sshctl group [--space <space>] rename <group> <new>
 sshctl group [--space <space>] delete <group> [--yes]
@@ -108,6 +109,21 @@ Spaces keep Connections apart, for example one per customer or project. Every Gr
 `list --space <space>` lists only that Space's Connections; like every `--space`, it takes a Space name or number (`--space 4`). `group` commands take `--space <space>` to pick the Space; `group add` without it adds to the default Space, and `group list` without it lists every Space's Groups, each line starting with the Space's name when there are several. Without `--space`, a Group name is looked up in every Space and used when exactly one Space has it; when several do, sshctl names them and asks for `--space`. A Group number (`0` included) counts within a Space, so it works without `--space` only while there is one Space.
 
 `group connect <group>` opens one OS terminal window per Connection in the Group, each connecting with ssh. To open a Group's Connections as tabs instead, use prefix `g` in the [Workspace](#workspace). For terminal windows, sshctl supports Windows Terminal (or `cmd start` fallback), macOS Terminal, and Linux GNOME Terminal, Konsole, Xfce Terminal, or `x-terminal-emulator`. Availability depends on the host's installed terminal; the command reports an actionable error when none is found.
+
+### JSON output for scripts
+
+`list --json`, `group list --json` and `space list --json` print a JSON array of objects, and `info <alias>` prints one Connection as a JSON object (JSON is its only form for now; `--json` is accepted, so scripts can pass it and keep working if a text form is added). `--json` has no short form. The field names below are a compatibility promise: they will not be renamed or removed, though fields may be added. Every field is always present; Spaces and Groups are given by name, `""` means none (an empty `group` is ungrouped), and `dotfiles` is the stored repo URL, `"none"` when Provision is refused, or `""` when unset. A list with nothing to show is `[]`. `info` on an alias that is no Connection prints an error on stderr and exits non-zero.
+
+| Command | Fields |
+| --- | --- |
+| `list --json` | `alias`, `description`, `space`, `group`, `orphaned` (an Orphaned connection, shown as `(missing)`), `shadowedByCommand` (the alias is a built-in command name, reached with `sshctl -c`) |
+| `group list --json` | `space`, `number` (its position in the Space, from 1), `name`, `connections` (Orphaned ones included), `dotfiles` |
+| `space list --json` | `number` (`null` for a Space without one), `name`, `default`, `groups`, `connections` (Orphaned ones included), `dotfiles`, `identity` (the Space's own Selected identity, a key path, or `""`) |
+| `info <alias>` | `alias`, `space`, `group`, `description`, `managed` (its Host block is in `~/.ssh/sshctl_config`), `orphaned`, `identity` (the Selected identity `sshctl <alias>` uses: its Space's, else the global one, or `""` when OpenSSH chooses keys) |
+
+```sh
+sshctl list --json | jq -r '.[] | select(.space == "acme") | .alias'
+```
 
 ### Experimental features
 

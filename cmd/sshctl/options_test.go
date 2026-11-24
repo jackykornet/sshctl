@@ -117,7 +117,9 @@ func TestOptionsOutsideTheConventionAreRefused(t *testing.T) {
 		{[]string{"remove", "web", "--yes=1"}, "--yes takes no value"},
 		{[]string{"list", "-s", "acme", "--space", "home"}, "--space given twice"},
 		{[]string{"list", "/space", "acme"}, ""},
-		{[]string{"provision", "default", "--json"}, "unknown option --json"},
+		{[]string{"provision", "default", "--xml"}, "unknown option --xml"},
+		{[]string{"provision", "default", "--json"}, "sshctl provision default does not take --json"},
+		{[]string{"list", "-j"}, "unknown option -j"},
 	} {
 		a, _ := spaceTree(t, "")
 		err := a.execute(tc.args)
