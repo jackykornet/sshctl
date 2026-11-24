@@ -103,6 +103,8 @@ func (m *Model) render() string {
 }
 
 func (m *Model) renderList(w, h int) []string {
+	section := m.tunnelSection(w)
+	h -= len(section)
 	rows, offset, top := m.listRows()
 	lines := make([]string, 0, h)
 	if bar := m.spaceBar(w); bar != "" {
@@ -125,21 +127,18 @@ func (m *Model) renderList(w, h int) []string {
 		if len(lines) == h {
 			break
 		}
-		pointer := " "
-		if m.focus == focusList && offset+i == cursor {
-			pointer = "›"
-		}
+		mark := pointer(m.focus == focusList && m.tunnelCursor < 0 && offset+i == cursor)
 		var line string
 		highlight := false
 		if r.Header() {
-			line = pointer + m.headerLabel(r.Group)
+			line = mark + m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
 			space := ""
 			if m.st.CrossSpace() {
 				space = m.st.SpaceName(r.Conn.Space)
 			}
-			line = pointer + connLabel(r.Conn, grouped && space == "", space)
+			line = mark + connLabel(r.Conn, grouped && space == "", space, m.tunnels.running(r.Conn.Alias))
 			highlight = r.Conn == active
 		}
 		line = fit(line, w)
@@ -164,7 +163,59 @@ func (m *Model) renderList(w, h int) []string {
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
+	return append(lines, section...)
+}
+
+// tunnelMarker flags a Connection with a running tunnel, and starts each
+// row of the Tunnels section.
+const tunnelMarker = "⇄"
+
+// tunnelSection is the Tunnels section's lines, w columns wide: a title,
+// then one row per Tunnel of every tunnel, from every Space, scrolled to
+// keep the cursor's row in view.
+func (m *Model) tunnelSection(w int) []string {
+	s := m.tunnelLayout()
+	if s.height == 0 {
+		return nil
+	}
+	title := "─ Tunnels "
+	lines := []string{dimStyle.Render(fit(title+strings.Repeat("─", max(0, w-len([]rune(title)))), w))}
+	for i, r := range s.rows[s.first:min(len(s.rows), s.first+s.height-1)] {
+		lines = append(lines, m.tunnelLine(r, s.first+i == m.tunnelCursor && m.focus == focusList, w))
+	}
 	return lines
+}
+
+// pointer starts a list or Tunnels section row: › on the cursor's row.
+func pointer(cursor bool) string {
+	if cursor {
+		return "›"
+	}
+	return " "
+}
+
+// tunnelLine is one row of the Tunnels section, such as
+// ⇄ prod-web panel :8083 ●, or ⇄ 2·vps panel :8084 ● for a Connection in
+// another Space. A failed tunnel ends in ✕ and ssh's error.
+func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
+	name := r.run.alias
+	if n := m.st.OtherSpaceNumber(r.run.alias, r.run.space); n > 0 {
+		name = dimStyle.Render(fmt.Sprintf("%d·", n)) + name
+	}
+	if r.tunnel.Name != "" {
+		name += " " + r.tunnel.Name
+	}
+	state, detail := openStyle.Render("●"), ""
+	if r.run.failed() {
+		state, detail = errStyle.Render("✕"), " "+dimStyle.Render(r.run.err)
+	}
+	right := fmt.Sprintf(" :%d %s", r.tunnel.LocalPort, state)
+	left := pointer(cursor) + tunnelMarker + " "
+	room := w - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if ansi.StringWidth(name) > room {
+		name = ansi.Truncate(name, max(room, 1), "…")
+	}
+	return fit(left+name+right+detail, w)
 }
 
 // spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
@@ -277,8 +328,9 @@ func (m *Model) headerLabel(group string) string {
 
 // connLabel is a Connection row after the cursor pointer, indented under its
 // group header when the list is grouped. A space names the Connection's
-// Space, for a filter across every Space.
-func connLabel(c *Connection, grouped bool, space string) string {
+// Space, for a filter across every Space. tunnel adds ⇄ for a running
+// tunnel, apart from the ● of an open Connection.
+func connLabel(c *Connection, grouped bool, space string, tunnel bool) string {
 	marker, name := "  ", c.Alias
 	switch {
 	case c.AllEnded():
@@ -291,6 +343,9 @@ func connLabel(c *Connection, grouped bool, space string) string {
 	line := marker + name
 	if grouped {
 		line = "  " + line
+	}
+	if tunnel {
+		line += " " + openStyle.Render(tunnelMarker)
 	}
 	if c.Unseen() {
 		line += " " + unseenStyle.Render(unseenMarker)
@@ -341,7 +396,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 		switch {
 		case s.Action != "":
 			label += " " + string(s.Action)
-		case s.Claude:
+		case s.Kind == LaunchClaude:
 			label += " claude"
 		}
 		marker, style := tabState(s)
@@ -545,8 +600,11 @@ func (m *Model) sessionStatus() string {
 		key = filepath.Base(k)
 	}
 	space := ""
+	if n := m.tunnels.count(); n > 0 {
+		space = tunnelMarker + " " + plural(n, "tunnel") + " · "
+	}
 	if m.st.SeveralSpaces() {
-		space = m.st.ActiveSpaceName() + " · "
+		space += m.st.ActiveSpaceName() + " · "
 	}
 	c := m.st.Active()
 	if c == nil {

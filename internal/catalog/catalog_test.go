@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -491,7 +492,7 @@ func TestSnapshotListsConnectionsThenSortedOrphans(t *testing.T) {
 		{Alias: "old", Group: "prod", Orphaned: true},
 		{Alias: "zz-gone", Description: "retired", Orphaned: true},
 	}
-	if !slices.Equal(snap.Entries, want) {
+	if !reflect.DeepEqual(snap.Entries, want) {
 		t.Errorf("entries = %+v, want %+v", snap.Entries, want)
 	}
 	if snap.Identity != "/k/id" {
@@ -701,7 +702,7 @@ func TestSnapshotFindsAnEntryAndAGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e, ok := snap.Entry("web"); !ok || e != (Entry{Alias: "web", Group: "prod", Description: "front"}) {
+	if e, ok := snap.Entry("web"); !ok || !reflect.DeepEqual(e, Entry{Alias: "web", Group: "prod", Description: "front"}) {
 		t.Errorf("Entry(web) = %+v, %v", e, ok)
 	}
 	if e, ok := snap.Entry("gone"); !ok || !e.Orphaned {

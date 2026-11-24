@@ -44,7 +44,7 @@ func TestEndedProcessEndsSessionWithExitCode(t *testing.T) {
 
 func TestReconnectRestartsEndedSessionAndIgnoresOldRunner(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}})
-	sess, err := m.sessions.open("alpha", Launch{Claude: true})
+	sess, err := m.sessions.open("alpha", Launch{Kind: LaunchClaude})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestReconnectRestartsEndedSessionAndIgnoresOldRunner(t *testing.T) {
 	if sess.Ended {
 		t.Fatal("an ended message from the replaced runner must be ignored")
 	}
-	if want := (commandCall{"alpha", Launch{Claude: true}}); len(r.calls) != 2 || r.calls[1] != want {
+	if want := (commandCall{"alpha", Launch{Kind: LaunchClaude}}); len(r.calls) != 2 || r.calls[1] != want {
 		t.Fatalf("Command calls = %v, want a second %v", r.calls, want)
 	}
 }

@@ -353,7 +353,7 @@ func TestReplacingConfigKeepsThisMachinesState(t *testing.T) {
 }
 
 func TestLoadTreatsAMissingStateFileAsEmpty(t *testing.T) {
-	path := writeConfig(t, `{"version":5,"spaces":[{"name":"default","default":true,"number":1}],"connections":{"web":{"alias":"web","description":"site"}}}`)
+	path := writeConfig(t, `{"version":6,"spaces":[{"name":"default","default":true,"number":1}],"connections":{"web":{"alias":"web","description":"site"}}}`)
 	c, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)

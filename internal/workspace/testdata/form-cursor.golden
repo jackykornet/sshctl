@@ -8,9 +8,9 @@
                             │    Identity file  OpenSSH default                 
                             │    Description                                    
                             │    Group          prod                            
+                            │    Tunnels        panel=8083, cockpit=9090        
                             │                                                   
                             │  ^S save · Tab/Shift+Tab move · Esc cancel        
-                            │                                                   
                             │                                                   
                             │                                                   
  no active connection · key: OpenSSH default                          ^B ? help 

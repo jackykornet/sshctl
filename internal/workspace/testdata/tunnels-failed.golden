@@ -1,0 +1,12 @@
+ [1][2][3][4][5][6][7][8][9]│                                                   
+ ▾ 1 web 2                  │                                                   
+     prod-web public site   │  Select a connection and press Enter.             
+     staging                │                                                   
+ ▾ ungrouped 1              │                                                   
+›    db-main ⇄ postgres     │                                                   
+                            │                                                   
+─ Tunnels ──────────────────│                                                   
+ ⇄ 2·vps panel :8084 ●      │                                                   
+ ⇄ prod-web panel :8083 ✕ p…│                                                   
+ ⇄ db-main :5433 ●          │                                                   
+ prod-web tunnel failed: prod-web: Permission denied (publickey).     ^B ? help 

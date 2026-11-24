@@ -120,7 +120,7 @@ func (m *Model) deleteGroup(group string) tea.Cmd {
 	if n == 1 {
 		verb = "becomes"
 	}
-	question := fmt.Sprintf("Delete group %s? %s %s ungrouped.", group, countConnections(n), verb)
+	question := fmt.Sprintf("Delete group %s? %s %s ungrouped.", group, plural(n, "connection"), verb)
 	m.ask(question, func(m *Model) tea.Cmd {
 		if err := m.opts.Catalog.DeleteGroup(m.st.Space(), group); err != nil {
 			return m.setStatus("delete group "+group+": "+err.Error(), true)

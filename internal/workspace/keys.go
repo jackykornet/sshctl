@@ -21,6 +21,9 @@ const (
 	inPrefix
 	// inEnded is the terminal pane with focus on an ended Session.
 	inEnded
+	// inTunnels is the connection list with focus and the cursor on a row
+	// of the Tunnels section. Its keys come before inList's.
+	inTunnels
 	numContexts
 )
 
@@ -54,14 +57,19 @@ type binding struct {
 	// listOnly marks a binding that moves around the list (its cursor,
 	// Groups and filter), so it has no prefix keys (ADR-0007).
 	listOnly bool
+	// tunnelRows lets the binding's inList keys work with the cursor on a
+	// row of the Tunnels section; the other inList keys act on a
+	// Connection or Group and wait for the cursor to be back on the list.
+	tunnelRows bool
 }
 
 // bindings lists every Workspace key binding, in help-screen order.
 var bindings = []binding{
 	{
-		keys:     each(inList, on("up", moveCursor(-1)), on("down", moveCursor(1)), on("k", moveCursor(-1)), on("j", moveCursor(1))),
-		help:     "move the cursor",
-		listOnly: true,
+		keys:       each(inList, on("up", moveCursor(-1)), on("down", moveCursor(1)), on("k", moveCursor(-1)), on("j", moveCursor(1))),
+		help:       "move the cursor",
+		listOnly:   true,
+		tunnelRows: true,
 	},
 	{
 		keys:     keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"),
@@ -84,20 +92,24 @@ var bindings = []binding{
 			m.startFilter()
 			return nil
 		})),
-		help: "filter the connection list",
+		help:       "filter the connection list",
+		tunnelRows: true,
 	},
 	{
-		keys:     keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil }, "esc"),
-		help:     "clear the filter",
-		listOnly: true,
+		keys:       keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.SetFilter(""); return nil }, "esc"),
+		help:       "clear the filter",
+		listOnly:   true,
+		tunnelRows: true,
 	},
 	{
-		keys: both(on("[", selectTab(-1)).as("tab"), on("]", selectTab(1)).as("tab")),
-		help: "previous / next tab",
+		keys:       both(on("[", selectTab(-1)).as("tab"), on("]", selectTab(1)).as("tab")),
+		help:       "previous / next tab",
+		tunnelRows: true,
 	},
 	{
-		keys: both(on("{", cycleActive(-1)).as("connection"), on("}", cycleActive(1)).as("connection")),
-		help: "previous / next open connection in the Space",
+		keys:       both(on("{", cycleActive(-1)).as("connection"), on("}", cycleActive(1)).as("connection")),
+		help:       "previous / next open connection in the Space",
+		tunnelRows: true,
 	},
 	{
 		// The picker and the note share the digits' line so the help
@@ -106,10 +118,11 @@ var bindings = []binding{
 			on("P", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openPicker(); return nil }).as("spaces"),
 			on("S", spaceNote),
 		}, digitKeys()...)...),
-		help: "Space picker / Space names / switch to Space 1-9",
+		help:       "Space picker / Space names / switch to Space 1-9",
+		tunnelRows: true,
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(false))).as("new tab"), on("c", followCursor(newTab(true)))),
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab"), on("c", followCursor(newTab(LaunchClaude)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
@@ -127,15 +140,24 @@ var bindings = []binding{
 		help: "move a connection to a group (or drag it)",
 	},
 	{
+		keys:       both(on("t", tunnelKey).as("tunnels")),
+		help:       "start / stop the connection's tunnels",
+		tunnelRows: true,
+	},
+	{
 		keys: both(crud...),
 		help: "add / edit / delete the cursor's connection or group",
 	},
 	{
-		// Folded into one line so the help screen fits 80x24.
+		// Folded into one line so the help screen fits 80x24. r and x
+		// mean the same on an ended tab and on a tunnel row (ADR-0007):
+		// r reconnects the tab or restarts the tunnel, x closes or stops.
 		keys: merge(each(inPrefix, on("w", closeTab).as("close")), each(inEnded,
 			on("r", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reconnect() }).as("reconnect"),
-			on("x", closeTab).as("close"))),
-		help: "close tab (on an ended tab: r reconnect, x close)",
+			on("x", closeTab).as("close")), each(inTunnels,
+			on("r", tunnelRowKey((*Model).startTunnel)).as("restart"),
+			on("x", tunnelRowKey((*Model).stopTunnel)).as("stop"))),
+		help: "close tab (ended tab, tunnel row: r reconnect, x close)",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
@@ -167,22 +189,20 @@ var bindings = []binding{
 		help: "refresh connections from ssh_config",
 	},
 	{
-		keys: keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(keysIn(inPrefix, func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			if r := m.liveRunner(); r != nil && m.focus == focusPane {
 				r.term.SendKey(msg)
 			}
 			return nil
-		}, prefixSelf),
-		help: "send the prefix key to the session",
-	},
-	{
-		keys: each(inPrefix, on("?", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }).as("help")),
-		help: "show this help",
+		}, prefixSelf), each(inPrefix, on("?", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.openModal(&helpScreen{}); return nil }).as("help"))),
+		help: "send the prefix key to the session / show this help",
 	},
 	{
 		// Bare Ctrl+C in the pane is the Session's.
-		keys: both(on("q", quit).as("quit"), on("ctrl+c", quit)),
-		help: "quit",
+		keys:       both(on("q", quit).as("quit"), on("ctrl+c", quit)),
+		help:       "quit",
+		tunnelRows: true,
 	},
 }
 
@@ -235,10 +255,36 @@ func switchSpace(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 func spaceNote(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.showSpaceNote() }
 
 func closeTab(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.closeTab() }
-func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd     { return m.quit() }
+
+// tunnelKey starts or stops the tunnel of the tunnel row under the cursor,
+// or else of the Connection a move would pick (see Model.toggleTunnel).
+func tunnelKey(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	if alias, ok := m.tunnelTarget(); ok {
+		return m.toggleTunnel(alias)
+	}
+	return followCursor(func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		c := m.moveTarget()
+		if c == nil {
+			return m.setStatus("no connection for a tunnel", false)
+		}
+		return m.toggleTunnel(c.Alias)
+	})(m, msg)
+}
+
+// tunnelRowKey runs run on the alias of the tunnel row under the cursor.
+func tunnelRowKey(run func(m *Model, alias string) tea.Cmd) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if alias, ok := m.tunnelTarget(); ok {
+			return run(m, alias)
+		}
+		return nil
+	}
+}
+
+func quit(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.quit() }
 
 func moveCursor(delta int) action {
-	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.st.MoveCursor(delta); return nil }
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.moveCursor(delta); return nil }
 }
 
 func shiftGroup(delta int) action {
@@ -277,8 +323,8 @@ func collapse(collapsed bool) action {
 }
 
 // newTab opens a Session for the Active connection, or the one under the
-// cursor, running claude when claude is set.
-func newTab(claude bool) action {
+// cursor, running kind.
+func newTab(kind LaunchKind) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		target := m.st.Active()
 		if target == nil {
@@ -287,7 +333,7 @@ func newTab(claude bool) action {
 		if target == nil {
 			return nil
 		}
-		return m.open(target.Alias, Launch{Claude: claude})
+		return m.open(target.Alias, Launch{Kind: kind})
 	}
 }
 
@@ -394,6 +440,15 @@ func merge(sets ...[numContexts][]boundKey) (out [numContexts][]boundKey) {
 
 // runBinding runs the binding for msg in ctx, reporting false when there is none.
 func (m *Model) runBinding(ctx keyContext, msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	_, bk, ok := m.lookupBinding(ctx, msg)
+	if !ok {
+		return nil, false
+	}
+	return bk.run(m, msg), true
+}
+
+// lookupBinding finds the binding for msg in ctx.
+func (m *Model) lookupBinding(ctx keyContext, msg tea.KeyPressMsg) (binding, boundKey, bool) {
 	k := msg.String()
 	if ctx == inPrefix && k == m.opts.PrefixKey {
 		k = prefixSelf
@@ -401,11 +456,27 @@ func (m *Model) runBinding(ctx keyContext, msg tea.KeyPressMsg) (tea.Cmd, bool) 
 	for _, b := range bindings {
 		for _, bk := range b.keys[ctx] {
 			if bk.key == k {
-				return bk.run(m, msg), true
+				return b, bk, true
 			}
 		}
 	}
-	return nil, false
+	return binding{}, boundKey{}, false
+}
+
+// listKey runs msg's binding for the list: with the cursor in the Tunnels
+// section, its own keys first, and of the list's only those that work there.
+func (m *Model) listKey(msg tea.KeyPressMsg) tea.Cmd {
+	if _, ok := m.tunnelTarget(); ok {
+		if cmd, ok := m.runBinding(inTunnels, msg); ok {
+			return cmd
+		}
+		if b, bk, ok := m.lookupBinding(inList, msg); ok && b.tunnelRows {
+			return bk.run(m, msg)
+		}
+		return nil
+	}
+	cmd, _ := m.runBinding(inList, msg)
+	return cmd
 }
 
 // bindingLabel is b's keys as the help screen shows them, one group per context.
@@ -422,6 +493,10 @@ func (m *Model) bindingLabel(b binding) string {
 		label := keyNames(keys, m.opts.PrefixKey)
 		if keyContext(ctx) == inPrefix {
 			label = keyHint(m.opts.PrefixKey) + " " + label
+		}
+		// The same keys in another context are shown once.
+		if slices.Contains(parts, label) {
+			continue
 		}
 		parts = append(parts, label)
 	}

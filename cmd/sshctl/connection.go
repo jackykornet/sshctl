@@ -169,6 +169,9 @@ func (a *app) saveConnection(args []string, edit bool) error {
 		Alias: strings.TrimSpace(values[fieldAlias]), Description: values[fieldDescription],
 		Space: space, Group: group, Managed: managed,
 		Host: catalog.Host{HostName: values[fieldHost], User: values[fieldUser], Port: values[fieldPort], IdentityFile: values[fieldIdentity]},
+		// Tunnels have no field here; sshctl tunnel changes them, and they
+		// stay as they are (ADR-0012).
+		Tunnels: e.Tunnels,
 	}
 	if err := a.saveSpec(reader, old, s); err != nil {
 		return err
@@ -274,10 +277,10 @@ func (a *app) remove(args []string) error {
 	}
 	question := fmt.Sprintf("Delete %s from ssh_config? (y/n) ", alias)
 	if !e.Managed {
-		if e.Description == "" && e.Group == "" && e.Space == "" {
+		if e.Description == "" && e.Group == "" && e.Space == "" && len(e.Tunnels) == 0 {
 			return fmt.Errorf("%s is defined outside sshctl; edit your ssh_config to remove it", alias)
 		}
-		question = fmt.Sprintf("Remove %s's description and group? Its Host block is not sshctl's. (y/n) ", alias)
+		question = fmt.Sprintf("Remove %s's description, group and tunnels? Its Host block is not sshctl's. (y/n) ", alias)
 	}
 	if !yes {
 		fmt.Fprint(a.out, question)

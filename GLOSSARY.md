@@ -5,7 +5,7 @@ sshctl manages metadata about OpenSSH host aliases and gives a workspace for ope
 ## Connections and sessions
 
 **Connection**:
-One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description and group. sshctl's metadata never defines how to reach the host; only a Host block does. Renaming a Connection carries its metadata and History to the new alias. A Connection with neither a description nor a group has no sshctl metadata.
+One non-wildcard Host alias from the user's ssh_config, optionally carrying sshctl's own description, group and Tunnels. sshctl's metadata never defines how to reach the host; only a Host block does. Renaming a Connection carries its metadata and History to the new alias. A Connection with no description, group, Space or Tunnel has no sshctl metadata.
 _Avoid_: Server, host, profile
 
 **Managed connection**:
@@ -13,12 +13,17 @@ A Connection whose Host block is in sshctl's own file, `~/.ssh/sshctl_config`, w
 _Avoid_: sshctl host, owned connection
 
 **Orphaned connection**:
-A Connection whose sshctl description or group remains after its Host alias has disappeared from ssh_config. It cannot be opened. The CLI and the Workspace show it as `(missing)`, and their messages say it is missing from ssh_config.
+A Connection whose sshctl metadata (description, group, Tunnels) remains after its Host alias has disappeared from ssh_config. It cannot be opened. The CLI and the Workspace show it as `(missing)`, and their messages say it is missing from ssh_config.
 _Avoid_: Stale, missing, saved-only connection
 
 **Session**:
 One run for a Connection, shown as one tab: usually an `ssh` login, or an sshctl action run for that Connection, such as Bootstrap or Provision. A Session is either **live** (still running) or **ended** (it has finished but the tab has not been closed). A Connection has zero or more Sessions.
+A running Tunnel is not a Session: it has no tab and does not make its Connection an Open connection.
 _Avoid_: Tab (the tab is only its view), window, terminal
+
+**Tunnel**:
+A saved local forward on a Connection: an optional name, a local port, and a host and port as the server sees them, where the host defaults to `localhost`. A Connection can have several, written `[name=]localport[:host:remoteport]`, and a name may not be only digits so it never looks like a port. Tunnels are sshctl metadata (ADR-0012): they move with the Connection when it is renamed, an Orphaned connection keeps them, and running them never changes the Host block or History.
+_Avoid_: Port forward, forward
 
 **Open connection**:
 A Connection that has at least one Session, live or ended. It stops being open when its last tab is closed.

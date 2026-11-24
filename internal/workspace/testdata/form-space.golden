@@ -11,8 +11,8 @@
                             │                   1 default · 2 acme · 5 idle     
                             │    Group          web                             
                             │                   0 none · 1 web                  
+                            │    Tunnels        panel=8083, cockpit=9090        
                             │                                                   
                             │  ^S save · Tab/Shift+Tab move · Esc cancel        
                             │  ^O save and Bootstrap                            
-                            │                                                   
  default · no active connection · key: id_ed25519                     ^B ? help 

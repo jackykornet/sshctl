@@ -22,6 +22,20 @@ if [ -f "$snapshot" ]; then
 	rm -f "$snapshot"
 fi
 
+# One-time restore of a pre-volume atlas snapshot (see save-atlas.sh). The
+# notes go to ~/sshctl-notes, a folder on the host mounted by devcontainer.json.
+atlas_snapshot="$(dirname "$0")/.atlas-snapshot.tgz"
+if [ -f "$atlas_snapshot" ]; then
+	tmp="$(mktemp -d)"
+	tar -xzf "$atlas_snapshot" -C "$tmp"
+	[ -e "$HOME/.config/atlas/atlas.json" ] || cp -a "$tmp/config/." "$HOME/.config/atlas/"
+	[ -e "$HOME/.local/share/atlas/state/memory.sqlite" ] ||
+		{ mkdir -p "$HOME/.local/share/atlas/state" && cp -a "$tmp/data/state/." "$HOME/.local/share/atlas/state/"; }
+	cp -an "$tmp/notes/." "$HOME/sshctl-notes/"
+	rm -rf "$tmp" "$atlas_snapshot"
+	echo "Restored atlas memory and notes from $atlas_snapshot"
+fi
+
 npm install --global @openai/codex@latest @anthropic-ai/claude-code@latest
 
 codex plugin marketplace add mattpocock/skills || true
