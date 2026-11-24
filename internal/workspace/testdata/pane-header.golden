@@ -1,0 +1,10 @@
+ ▾ 1 web ●1                 │ prod-web · deploy@10.0.0.5:2222                   
+   ● prod-web public site   │ [1 ssh ●] [+]                                     
+   ○ staging                │                                                   
+ ▾ ungrouped                │                                                   
+   ○ db-main postgres       │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ web / prod-web · key: id_ed25519        ^B Tab list · ^B n new tab · ^B ? help 

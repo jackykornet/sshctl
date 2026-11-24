@@ -1,10 +1,10 @@
 /web█                       │                                                   
-›▾ 1 web 2                  │                                                   
-     prod-web public site   │  Select a connection and press Enter.             
-     staging                │                                                   
+›▾ 1 web                    │                                                   
+   ○ prod-web public site   │                                                   
+   ○ staging                │  Select a connection and press Enter.             
                             │                                                   
                             │                                                   
                             │                                                   
                             │                                                   
-                            │                                                   
- no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 
+────────────────────────────┴───────────────────────────────────────────────────
+ no active connection · key: id_ed25519       Enter open · / filter · ^B ? help 

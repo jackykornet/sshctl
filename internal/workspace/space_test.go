@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // spaceCatalog is a fakeCatalog with the default Space (web in Group prod,
@@ -162,10 +163,12 @@ func TestSpaceBarStylesActiveLiveAndIdleSpaces(t *testing.T) {
 	press(m, keyPrefix, text("2")[0])
 	free := func(n int) string { return spaceFreeStyle.Render(fmt.Sprintf("[%d]", n)) }
 	parts := []string{"[1]", spaceActiveStyle.Render("[2]"), free(3), free(4), dimStyle.Render("[5]"), free(6), free(7), free(8), free(9)}
-	if got, want := m.spaceBar(80), " "+strings.Join(parts, " "); got != want {
+	named := []string{"[1] default", spaceActiveStyle.Render("[2] acme"), dimStyle.Render("[5] idle")}
+	if got, want := m.spaceBar(80), " "+strings.Join(named, "  "); got != want {
 		t.Errorf("space bar = %q, want %q", got, want)
 	}
-	// Too narrow for the gaps, the numbers close up, all nine still shown.
+	// Too narrow for the names and for gaps, every Space number shows,
+	// closed up.
 	if got, want := m.spaceBar(28), " "+strings.Join(parts, ""); got != want {
 		t.Errorf("space bar in 28 columns = %q, want %q", got, want)
 	}
@@ -191,11 +194,11 @@ func TestTheStatusBarShowsTheActiveSpacesKey(t *testing.T) {
 	f.identity = "/home/me/.ssh/id_global"
 	f.spaceKeys = map[string]string{"acme": "/home/me/.ssh/id_acme"}
 	m := newStoreModel(t, f)
-	if got := m.sessionStatus(); !strings.HasSuffix(got, "key: id_global") {
+	if got := ansi.Strip(m.sessionStatus()); !strings.HasSuffix(got, "key: id_global") {
 		t.Errorf("default Space status %q, want the global key", got)
 	}
 	press(m, text("2")...)
-	if got := m.sessionStatus(); !strings.HasSuffix(got, "key: id_acme") {
+	if got := ansi.Strip(m.sessionStatus()); !strings.HasSuffix(got, "key: id_acme") {
 		t.Errorf("acme status %q, want acme's key", got)
 	}
 }

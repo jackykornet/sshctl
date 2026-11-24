@@ -1,0 +1,10 @@
+›▸ 1 web 2 ●1               │ prod-web                                          
+ ▾ ungrouped                │ [1 ssh ●] [+]                                     
+   ○ db-main postgres       │                                                   
+   ○ old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ web / prod-web · key: id_ed25519     Enter open · / filter · a add · ^B ? help 
