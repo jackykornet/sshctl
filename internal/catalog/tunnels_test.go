@@ -118,23 +118,28 @@ func TestTunnelsRefusesAnUnknownConnection(t *testing.T) {
 	}
 }
 
-// DeleteMetadata removes the description, group and Space, and nothing else.
-func TestDeleteMetadataKeepsTunnels(t *testing.T) {
+// DeleteMetadata removes Tunnels with the rest of the metadata, as Delete
+// does, and a Connection whose only metadata is Tunnels has metadata.
+func TestDeleteMetadataDeletesTunnels(t *testing.T) {
 	tr := newTree(t, false, "Host web\n")
-	if err := tr.cat.Save("web", Spec{Alias: "web", Description: "front"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := tr.cat.AddTunnel("web", panel); err != nil {
 		t.Fatal(err)
 	}
 	if err := tr.cat.DeleteMetadata("web"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("DeleteMetadata(web) with only a Tunnel: %v", err)
 	}
-	if m := tr.config(t).Connections["web"]; m.Description != "" || !slices.Equal(m.Tunnels, []Tunnel{panel}) {
-		t.Errorf("web = %+v, want only its Tunnel", m)
+	if m, ok := tr.config(t).Connections["web"]; ok {
+		t.Errorf("web = %+v, want no metadata", m)
 	}
 	if err := tr.cat.DeleteMetadata("web"); !errors.Is(err, ErrNoMetadata) {
 		t.Errorf("again: err = %v, want ErrNoMetadata", err)
+	}
+}
+
+func TestRemoveTunnelRefusesAnUnknownConnection(t *testing.T) {
+	tr := newTree(t, false, "Host web\n")
+	if _, err := tr.cat.RemoveTunnel("nope", "panel"); !errors.Is(err, ErrUnknownConnection) {
+		t.Errorf("RemoveTunnel(nope) err = %v, want ErrUnknownConnection", err)
 	}
 }
 

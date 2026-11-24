@@ -55,10 +55,14 @@ func (c *Catalog) AddTunnel(alias string, t Tunnel) error {
 
 // RemoveTunnel deletes alias's Tunnel ref names, by name or, when ref is only
 // digits, by local port, and returns it. It returns ErrNoTunnel when there is
-// no such Tunnel.
+// no such Tunnel, and ErrUnknownConnection for an alias that is no
+// Connection.
 func (c *Catalog) RemoveTunnel(alias, ref string) (Tunnel, error) {
 	var removed Tunnel
 	err := c.update(func(cfg *config.Config) error {
+		if err := c.requireConnection(cfg, alias); err != nil {
+			return err
+		}
 		tunnels, t, err := tunnel.Remove(cfg.Connections[alias].Tunnels, ref)
 		if err != nil {
 			return fmt.Errorf("%s: %w", alias, err)
