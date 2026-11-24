@@ -18,7 +18,7 @@ func newClaudeModel(t *testing.T) (*Model, *recorder) {
 func TestPrefixCOpensClaudeSessionOnCursorConnection(t *testing.T) {
 	m, r := newClaudeModel(t)
 	press(m, keyPrefix, text("c")[0])
-	want := commandCall{"alpha", Launch{Claude: true}}
+	want := commandCall{"alpha", Launch{Kind: LaunchClaude}}
 	if len(r.calls) != 1 || r.calls[0] != want {
 		t.Fatalf("Command calls = %v, want [%v]", r.calls, want)
 	}
@@ -69,7 +69,7 @@ func TestReconnectKeepsClaudeKind(t *testing.T) {
 	if sess.Ended {
 		t.Fatal("r should reconnect the ended tab")
 	}
-	want := []commandCall{{"alpha", Launch{Claude: true}}, {"alpha", Launch{Claude: true}}}
+	want := []commandCall{{"alpha", Launch{Kind: LaunchClaude}}, {"alpha", Launch{Kind: LaunchClaude}}}
 	if len(r.calls) != 2 || r.calls[0] != want[0] || r.calls[1] != want[1] {
 		t.Fatalf("Command calls = %v, want %v", r.calls, want)
 	}

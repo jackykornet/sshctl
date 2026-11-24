@@ -34,21 +34,31 @@ type Session struct {
 	Launch
 }
 
-// A Launch is what a Session's process runs for its Connection: ssh to it
-// (a login shell, or claude), or one of sshctl's own Actions on it.
+// A Launch is what a process runs for its Connection: ssh to it (a login
+// shell, claude, or its Tunnels), or one of sshctl's own Actions on it.
 type Launch struct {
-	// Claude runs claude on the remote host instead of a login shell.
-	Claude bool
+	// Kind is what ssh runs, when there is no Action.
+	Kind LaunchKind
 	// Action, when set, runs sshctl's own command of that name on the
 	// Connection ("sshctl bootstrap <alias>") instead of ssh. Its tab is
 	// labelled with the Action, and when it exits with status 0 the
 	// connection list is reloaded, since an Action may change Host blocks.
 	Action Action
-	// Tunnel runs the Connection's Tunnels (ssh -N -L …, in BatchMode) as a
-	// background process with no pseudo-terminal and no tab. It is not a
-	// Session; see tunnels.
-	Tunnel bool
 }
+
+// A LaunchKind is what ssh runs on a Launch's Connection.
+type LaunchKind int
+
+const (
+	// LaunchShell is a login shell.
+	LaunchShell LaunchKind = iota
+	// LaunchClaude runs claude on the remote host instead of a login shell.
+	LaunchClaude
+	// LaunchTunnel runs the Connection's Tunnels (ssh -N -L …, in
+	// BatchMode) as a background process with no pseudo-terminal and no
+	// tab. It is not a Session; see tunnels.
+	LaunchTunnel
+)
 
 // An Action is an sshctl command a Session can run on its Connection.
 type Action string

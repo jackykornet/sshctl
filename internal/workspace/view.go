@@ -396,7 +396,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 		switch {
 		case s.Action != "":
 			label += " " + string(s.Action)
-		case s.Claude:
+		case s.Kind == LaunchClaude:
 			label += " claude"
 		}
 		marker, style := tabState(s)

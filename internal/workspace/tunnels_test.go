@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-var tunnelLaunch = Launch{Tunnel: true}
+var tunnelLaunch = Launch{Kind: LaunchTunnel}
 
 // newTunnelLayoutModel returns a w×h Workspace with no processes, whose
 // prod-web and db-main (default Space) and vps (Space 2) have Tunnels, and
@@ -81,7 +81,7 @@ func newTunnelProcessModel(t *testing.T, s script) *Model {
 	m, err := New(Options{
 		Catalog: &fakeCatalog{entries: tunnelEntries()},
 		Command: func(alias string, l Launch) ([]string, error) {
-			if !l.Tunnel {
+			if l.Kind != LaunchTunnel {
 				t.Errorf("Command(%s, %+v), want a tunnel launch", alias, l)
 			}
 			return s.argv(alias), nil

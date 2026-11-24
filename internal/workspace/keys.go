@@ -112,7 +112,7 @@ var bindings = []binding{
 		help: "previous / next open connection in the Space",
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(false))), on("c", followCursor(newTab(true)))),
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))), on("c", followCursor(newTab(LaunchClaude)))),
 		help: "new tab for the active connection (c runs claude)",
 	},
 	{
@@ -296,8 +296,8 @@ func collapse(collapsed bool) action {
 }
 
 // newTab opens a Session for the Active connection, or the one under the
-// cursor, running claude when claude is set.
-func newTab(claude bool) action {
+// cursor, running kind.
+func newTab(kind LaunchKind) action {
 	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		target := m.st.Active()
 		if target == nil {
@@ -306,7 +306,7 @@ func newTab(claude bool) action {
 		if target == nil {
 			return nil
 		}
-		return m.open(target.Alias, Launch{Claude: claude})
+		return m.open(target.Alias, Launch{Kind: kind})
 	}
 }
 

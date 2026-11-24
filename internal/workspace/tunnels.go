@@ -95,7 +95,7 @@ func (t *tunnels) start(c *Connection) error {
 	}
 	var proc *tunnelProc
 	if t.command != nil {
-		argv, err := t.command(c.Alias, Launch{Tunnel: true})
+		argv, err := t.command(c.Alias, Launch{Kind: LaunchTunnel})
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.Alias, err)
 		}

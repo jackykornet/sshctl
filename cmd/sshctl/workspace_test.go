@@ -20,21 +20,21 @@ func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 	}
 	a := &app{cfgPath: path, cfg: config.New()}
 	tests := []struct {
-		name   string
-		claude bool
-		want   []string
+		name string
+		kind workspace.LaunchKind
+		want []string
 	}{
-		{"plain tab", false, []string{"ssh", "-i", "/k/id", "web"}},
-		{"claude tab", true, []string{"ssh", "-t", "-i", "/k/id", "web", "claude"}},
+		{"plain tab", workspace.LaunchShell, []string{"ssh", "-i", "/k/id", "web"}},
+		{"claude tab", workspace.LaunchClaude, []string{"ssh", "-t", "-i", "/k/id", "web", "claude"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := a.sessionCommand("web", workspace.Launch{Claude: tt.claude})
+			got, err := a.sessionCommand("web", workspace.Launch{Kind: tt.kind})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("sessionCommand(web, %v) = %v, want %v", tt.claude, got, tt.want)
+				t.Errorf("sessionCommand(web, %v) = %v, want %v", tt.kind, got, tt.want)
 			}
 		})
 	}
@@ -66,7 +66,7 @@ func TestSessionCommandRunsTheConnectionsTunnelsInBatchMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{cfgPath: path, cfg: config.New()}
-	got, err := a.sessionCommand("web", workspace.Launch{Tunnel: true})
+	got, err := a.sessionCommand("web", workspace.Launch{Kind: workspace.LaunchTunnel})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestSessionCommandRunsTheConnectionsTunnelsInBatchMode(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("sessionCommand(web, tunnel) = %v, want %v", got, want)
 	}
-	if _, err := a.sessionCommand("db", workspace.Launch{Tunnel: true}); err == nil {
+	if _, err := a.sessionCommand("db", workspace.Launch{Kind: workspace.LaunchTunnel}); err == nil {
 		t.Error("a Connection with no Tunnels has nothing to run")
 	}
 }
