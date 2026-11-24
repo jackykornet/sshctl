@@ -133,7 +133,7 @@ func (t Tunnel) Label() string {
 func Add(list []Tunnel, t Tunnel) ([]Tunnel, error) {
 	for _, have := range list {
 		if have.LocalPort == t.LocalPort {
-			return nil, fmt.Errorf("%w: local port %d is already forwarded", ErrDuplicate, t.LocalPort)
+			return nil, fmt.Errorf("%w: a tunnel already uses local port %d", ErrDuplicate, t.LocalPort)
 		}
 		if t.Name != "" && have.Name == t.Name {
 			return nil, fmt.Errorf("%w: a tunnel is already named %q", ErrDuplicate, t.Name)
