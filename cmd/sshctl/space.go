@@ -149,6 +149,18 @@ func (a *app) spaceList(in input) error {
 	for _, e := range snap.Entries {
 		conns[e.Space]++
 	}
+	if in.flag("json") {
+		spaces := []spaceJSON{}
+		for _, s := range snap.Spaces {
+			ref, _ := snap.SpaceRef(s.Name)
+			j := spaceJSON{Name: s.Name, Default: s.Default, Groups: groups[ref], Connections: conns[ref], Color: s.Color, Dotfiles: s.Dotfiles, Identity: snap.SpaceIdentities[ref]}
+			if s.Number > 0 {
+				j.Number = &s.Number
+			}
+			spaces = append(spaces, j)
+		}
+		return a.writeJSON(spaces)
+	}
 	for _, s := range snap.Spaces {
 		ref, _ := snap.SpaceRef(s.Name)
 		num := "-"

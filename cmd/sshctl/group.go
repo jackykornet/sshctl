@@ -129,7 +129,8 @@ func findStoredGroup(snap catalog.Snapshot, space spaceOption, arg string) (ref,
 }
 
 // groupList prints each Group's number, name, member count, dotfiles
-// setting and Indicator color, if any, Space by Space. With --space it lists that Space's Groups; with
+// setting and Indicator color, if any, Space by Space. With --space it
+// lists that Space's Groups; with
 // several Spaces and no --space, each line starts with the Space's name.
 func (a *app) groupList(space spaceOption, in input) error {
 	args := in.args
@@ -146,6 +147,16 @@ func (a *app) groupList(space spaceOption, in input) error {
 		records[groupKey{g.Space, g.Name}] = g
 	}
 	members := memberCounts(snap)
+	if in.flag("json") {
+		groups := []groupJSON{}
+		for _, s := range spaces {
+			for i, name := range snap.GroupNames(s.ref) {
+				k := groupKey{s.ref, name}
+				groups = append(groups, groupJSON{Space: s.name, Number: i + 1, Name: name, Connections: members[k], Dotfiles: records[k].Dotfiles, Color: records[k].Color})
+			}
+		}
+		return a.writeJSON(groups)
+	}
 	for _, s := range spaces {
 		prefix := ""
 		if len(spaces) > 1 {
