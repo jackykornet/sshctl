@@ -115,7 +115,7 @@ var commands = []command{
 		{args: spaceOptionUsage, help: "List Connections, or one Space's", run: (*app).list},
 	}},
 	{name: "connect", forms: []form{
-		{args: "<alias> [--claude]", help: "Connect using OpenSSH", run: (*app).connect},
+		{args: "<alias>", help: "Connect using OpenSSH", run: (*app).connect},
 	}},
 	{name: "tunnel", forms: []form{
 		{sub: "add", args: "<alias> <spec>", help: "Save a Tunnel, [name=]localport[:host:remoteport];\nthe host defaults to localhost", run: (*app).tunnelAdd},
@@ -405,24 +405,15 @@ func (a *app) list(args []string) error {
 	return nil
 }
 func (a *app) connect(args []string) error {
-	claude := false
-	pos := []string{}
-	for _, arg := range args {
-		if arg == "--claude" {
-			claude = true
-		} else {
-			pos = append(pos, arg)
-		}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return errUsage
 	}
-	if len(pos) != 1 {
-		return errors.New("usage: sshctl connect <alias> [--claude]")
-	}
-	alias := pos[0]
+	alias := args[0]
 	key, err := a.identityFor(alias)
 	if err != nil {
 		return err
 	}
-	if err := a.ssh.Connect(context.Background(), alias, key, claude); err != nil {
+	if err := a.ssh.Connect(context.Background(), alias, key); err != nil {
 		return err
 	}
 	return a.recordHistory(alias)
