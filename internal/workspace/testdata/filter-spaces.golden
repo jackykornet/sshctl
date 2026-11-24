@@ -1,9 +1,9 @@
  [1] default  [2] acme  [5] idle                                                
 ────────────────────────────┬───────────────────────────────────────────────────
 /a█                         │                                                   
-›○ staging [default/web]    │                                                   
- ○ db [acme/data]           │                                                   
-                            │  Select a connection and press Enter.             
+›○ staging [web]            │                                                   
+ ○ acme › data › db postgres│                                                   
+ ○ acme › cache             │  Select a connection and press Enter.             
                             │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
