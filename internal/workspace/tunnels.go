@@ -252,18 +252,16 @@ func (m *Model) toggleTunnel(alias string) tea.Cmd {
 	return m.startTunnel(alias)
 }
 
-// startTunnel starts, or restarts, alias's Tunnels as they are saved now.
+// startTunnel starts, or restarts, alias's Tunnels as they are saved now. It
+// refuses a Connection that was renamed or deleted, or has no Tunnels left,
+// and leaves its tunnel as it is, for x to stop.
 func (m *Model) startTunnel(alias string) tea.Cmd {
 	c := m.st.Get(alias)
 	if c == nil {
-		m.tunnels.stop(alias)
-		m.fixTunnelCursor()
-		return m.setStatus(alias+" is no longer in the connection list", true)
+		return m.setStatus(alias+" is no longer in the connection list; x stops its tunnel", true)
 	}
 	if len(c.Tunnels) == 0 {
-		m.tunnels.stop(alias)
-		m.fixTunnelCursor()
-		return m.setStatus(alias+" has no Tunnels", true)
+		return m.setStatus(alias+" has no Tunnels; x stops its tunnel", true)
 	}
 	if err := m.tunnels.start(c); err != nil {
 		if errors.Is(err, ErrOrphaned) {

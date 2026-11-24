@@ -310,6 +310,34 @@ func TestXOnATunnelRowStopsItAndRRestartsIt(t *testing.T) {
 	}
 }
 
+// r cannot restart a tunnel whose Connection was renamed or deleted, so it
+// says so and leaves the row for x to stop.
+func TestRRefusesATunnelWhoseConnectionIsGone(t *testing.T) {
+	m, r := newRecordingModel(t, tunnelEntries())
+	startTunnels(m, "web")
+	r.entries = []Entry{{Alias: "web2", Tunnels: []Tunnel{panelTunnel}}, {Alias: "db"}}
+	m.reload("", "")
+	m.st.SetCursor("web2")
+	press(m, text("j")...)
+	if alias, ok := m.tunnelTarget(); !ok || alias != "web" {
+		t.Fatalf("cursor on tunnel row %q, want web's", alias)
+	}
+	proc := m.tunnels.get("web").proc
+	press(m, text("r")...)
+	if run := m.tunnels.get("web"); run == nil || run.proc != proc {
+		t.Fatal("r must leave web's tunnel as it is")
+	}
+	if len(r.calls) != 1 {
+		t.Errorf("Command calls = %+v, want only the first start", r.calls)
+	}
+	if !m.statusErr || !strings.Contains(m.status, "web is no longer in the connection list") {
+		t.Errorf("status %q (error %v), want it to say web is gone", m.status, m.statusErr)
+	}
+	if alias, ok := m.tunnelTarget(); !ok || alias != "web" {
+		t.Errorf("the cursor left web's tunnel row, now %q", alias)
+	}
+}
+
 func TestListKeysWaitForAConnectionRowInTheTunnelsSection(t *testing.T) {
 	m, r := newRecordingModel(t, tunnelEntries())
 	startTunnels(m, "web")
