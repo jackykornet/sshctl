@@ -525,6 +525,9 @@ func (m *Model) renderPane(w int, f frameLayout) []string {
 	if p := m.picker(); p != nil {
 		return p.render(m, w, h)
 	}
+	if p, ok := m.mode.modal.(*keyPicker); ok {
+		return p.render(m, w, h)
+	}
 	var lines []string
 	if f.paneHeader {
 		lines = append(lines, fit(m.paneTitle(), w))

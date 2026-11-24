@@ -45,6 +45,7 @@ var hintSites = []struct {
 	{"new group prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("a")...) })},
 	{"rename group prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("e")...) })},
 	{"space picker", modalSite(func(m *Model) { press(m, text("P")...) })},
+	{"key picker", modalSite(func(m *Model) { press(m, text("I")...) })},
 	{"new space prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("a")...) })},
 }
 

@@ -38,6 +38,8 @@ type fakeCatalog struct {
 	activeSpace    string
 	identity       string
 	spaceKeys      map[string]string // SpaceIdentities
+	keys           []string          // what Keys lists
+	identityOps    []string          // "global key" or "space name key", one per SetIdentity or SetSpaceIdentity
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
@@ -363,6 +365,33 @@ func (f *fakeCatalog) regroup(old, name string) {
 			f.entries[i].Group = name
 		}
 	}
+}
+
+func (f *fakeCatalog) Keys() ([]string, error) { return f.keys, nil }
+
+func (f *fakeCatalog) SetIdentity(key string) error {
+	f.identityOps = append(f.identityOps, "global "+key)
+	f.identity = key
+	return nil
+}
+
+// SetSpaceIdentity sets, or with key "" unsets, the Space name's own key,
+// keyed as Connections refer to the Space ("" for the default Space).
+func (f *fakeCatalog) SetSpaceIdentity(name, key string) error {
+	f.identityOps = append(f.identityOps, "space "+name+" "+key)
+	ref := name
+	if f.spaceIndex(name) < 0 {
+		ref = ""
+	}
+	if key == "" {
+		delete(f.spaceKeys, ref)
+		return nil
+	}
+	if f.spaceKeys == nil {
+		f.spaceKeys = map[string]string{}
+	}
+	f.spaceKeys[ref] = key
+	return nil
 }
 
 func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {

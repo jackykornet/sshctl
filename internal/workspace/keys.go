@@ -122,6 +122,11 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
+		keys:       both(on("I", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.openKeyPicker() }).as("keys")),
+		help:       "key picker: the Selected identity of new tabs",
+		tunnelRows: true,
+	},
+	{
 		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab")),
 		help: "new tab for the active connection",
 	},
@@ -171,18 +176,15 @@ var bindings = []binding{
 		help: "move focus between list and terminal",
 	},
 	{
-		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		// Folded into one line so the help screen fits 80x24.
+		keys: merge(named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			if _, r := m.currentRunner(); r != nil {
 				m.setBase(mode{kind: modeScroll}) // ends typing a filter
 				m.focus = focusPane
 			}
 			return nil
-		}, "s"), "scroll"),
-		help: "scroll back (mouse wheel also scrolls)",
-	},
-	{
-		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b"),
-		help: "hide or show the connection list",
+		}, "s"), "scroll"), keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.hideList = !m.hideList; return nil }, "b")),
+		help: "scroll back (or mouse wheel) / hide or show the list",
 	},
 	{
 		keys: keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.reload("", "connection list refreshed") }, "R"),

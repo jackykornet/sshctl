@@ -16,7 +16,8 @@ import (
 //   - helpScreen: ↑/↓ and PgUp/PgDn scroll it; every other key closes it.
 //   - spacePicker: its own keys (see its status line); Esc, q or P close it.
 //     It opens spaceInput and confirmations, which return to it.
-//   - connForm, moveInput, groupInput, spaceInput and spacePicker: the prefix key arms a
+//   - keyPicker: its own keys (see its status line); Esc, q or I close it.
+//   - connForm, moveInput, groupInput, spaceInput, spacePicker and keyPicker: the prefix key arms a
 //     prefix of their own (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the
 //     modal on no). Every other prefix command is swallowed: it would act
