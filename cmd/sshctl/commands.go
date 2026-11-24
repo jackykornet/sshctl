@@ -114,6 +114,12 @@ var commands = []command{
 	{name: "connect", forms: []form{
 		{args: "<alias> [--claude]", help: "Connect using OpenSSH", run: (*app).connect},
 	}},
+	{name: "tunnel", forms: []form{
+		{sub: "add", args: "<alias> <spec>", help: "Save a Tunnel, [name=]localport[:host:remoteport];\nthe host defaults to localhost", run: (*app).tunnelAdd},
+		{sub: "rm", args: "<alias> <name|port>", help: "Delete a Tunnel by name or local port", run: (*app).tunnelRemove},
+		{sub: "list", args: "[<alias>]", help: "List a Connection's Tunnels, or every one's", run: (*app).tunnelList},
+		{args: "<alias>", help: "Run a Connection's Tunnels until Ctrl-C", run: (*app).tunnelRun},
+	}},
 	{name: "add", forms: []form{
 		{args: "<alias>", help: "Add or update connection metadata", run: func(a *app, args []string) error { return a.metadata(args, false) }},
 	}},

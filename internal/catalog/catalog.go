@@ -62,6 +62,8 @@ type Entry struct {
 	// so Host applies and the block can be edited and deleted.
 	Managed bool
 	Host    Host
+	// Tunnels are the Connection's saved local forwards (ADR-0012).
+	Tunnels []Tunnel
 }
 
 // Experimental says which Experimental features are on; see
@@ -242,7 +244,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, alias := range aliases {
 		seen[alias] = true
 		m := cfg.Connections[alias]
-		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group}
+		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels}
 		if h, ok := managed[alias]; ok {
 			e.Managed = true
 			e.Host = h.Endpoint
@@ -258,7 +260,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	sort.Strings(orphans)
 	for _, alias := range orphans {
 		m := cfg.Connections[alias]
-		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Orphaned: true})
+		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels, Orphaned: true})
 	}
 	return snap, nil
 }
@@ -590,16 +592,17 @@ var ErrNoMetadata = errors.New("no sshctl metadata")
 
 // DeleteMetadata removes alias's description, group and Space, which
 // leaves it in the default Space, and nothing else: its Host block, even
-// one sshctl manages, and its History stay.
+// one sshctl manages, its Tunnels and its History stay. It returns
+// ErrNoMetadata when there is none of the three to remove.
 func (c *Catalog) DeleteMetadata(alias string) error {
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
 		return err
 	}
-	if _, ok := cfg.Connections[alias]; !ok {
+	if m := cfg.Connections[alias]; m.Description == "" && m.Group == "" && m.Space == "" {
 		return fmt.Errorf("%s: %w", alias, ErrNoMetadata)
 	}
-	delete(cfg.Connections, alias)
+	cfg.SetMetadata(alias, "", "", "")
 	return c.saveConfig(c.configPath, cfg)
 }
 
