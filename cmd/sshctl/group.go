@@ -146,6 +146,16 @@ func (a *app) groupList(space spaceOption, in input) error {
 		dotfiles[groupKey{g.Space, g.Name}] = g.Dotfiles
 	}
 	members := memberCounts(snap)
+	if in.flag("json") {
+		groups := []groupJSON{}
+		for _, s := range spaces {
+			for i, name := range snap.GroupNames(s.ref) {
+				k := groupKey{s.ref, name}
+				groups = append(groups, groupJSON{Space: s.name, Number: i + 1, Name: name, Connections: members[k], Dotfiles: dotfiles[k]})
+			}
+		}
+		return a.writeJSON(groups)
+	}
 	for _, s := range spaces {
 		prefix := ""
 		if len(spaces) > 1 {
