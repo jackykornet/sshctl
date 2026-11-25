@@ -8,7 +8,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sshctl/sshctl/internal/config"
 )
+
+// Every Indicator color config offers has a terminal colour to draw it in.
+func TestEveryIndicatorColorIsDrawn(t *testing.T) {
+	for _, name := range config.Colors {
+		if _, ok := indicator(name, dimStyle); !ok {
+			t.Errorf("Indicator color %q has no terminal colour", name)
+		}
+	}
+}
 
 // colorMask draws screen, a rendered Workspace, as one letter per column
 // for the basic ANSI foreground colour of what is drawn there: k r g y b m
