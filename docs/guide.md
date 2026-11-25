@@ -303,6 +303,36 @@ sshctl keeps two versioned JSON files in `~/.config/sshctl/` on Linux, macOS and
 
 The only SSH config sshctl writes is `~/.ssh/sshctl_config` (owner-only), plus the one `Include` line it asks before adding to `~/.ssh/config`. It checks every value so a field cannot add other directives. Private keys and passphrases are never read into sshctl config. OpenSSH and `ssh-agent` handle key use and in-memory caching. `config show` displays config paths and alias count without printing credentials or key contents.
 
+### Checking for a VPN before connecting
+
+Hosts that are only reachable over a VPN time out slowly when the VPN is down. OpenSSH can check first and stop at once with a clear message, through a `Match exec` block in your own `~/.ssh/config`. sshctl needs no setting for this: `sshctl <alias>`, `group connect`, Tunnels and the Workspace's tabs all run `ssh`, which reads the block.
+
+Put the block after the `Include sshctl_config` line, because sshctl only counts an `Include` that comes before the first `Host` or `Match`:
+
+```sshconfig
+Include sshctl_config
+
+# Stop at once when the office VPN is down.
+Match host 10.20.*,*.corp.example.com !exec "~/.ssh/vpn-up"
+    ProxyCommand sh -c 'echo "office VPN is not connected" >&2; exit 1'
+```
+
+`Match host` compares the HostName the Connection resolves to, so it covers every Connection on the office network whatever its alias; `Match originalhost work-*` matches by alias instead. `!exec` is true when the command fails, and then the `ProxyCommand` prints the message and exits instead of connecting. ssh adds a `Connection closed` line after it, and in the Workspace the message stays in the ended tab. When the VPN is up, the block does not apply and ssh connects as usual.
+
+`~/.ssh/vpn-up` is any command that exits 0 when the VPN is up (make it executable with `chmod +x`). Keep it fast, since it runs on every connect to those hosts, and also when the Workspace's pane header runs `ssh -G`. For example:
+
+```sh
+#!/bin/sh
+# Linux, WireGuard or OpenVPN: the tunnel's interface exists.
+ip link show wg0 >/dev/null 2>&1
+# macOS, a VPN set up in System Settings:
+#   scutil --nc status "Office VPN" | head -n 1 | grep -qx Connected
+# Any system: a host on the office network answers on port 22 within 2 seconds.
+#   nc -z -w 2 10.20.0.1 22
+```
+
+A Host block that sets `ProxyJump` skips the check: OpenSSH uses the first of `ProxyJump` and `ProxyCommand` it reads, and sshctl's Host blocks come first. On Windows, OpenSSH runs both commands with `cmd.exe`, so use a `.cmd` or PowerShell script for `vpn-up` and `ProxyCommand cmd /c "echo office VPN is not connected 1>&2 & exit 1"`.
+
 ## Syncing with chezmoi
 
 > [!NOTE]
