@@ -63,7 +63,6 @@ func (s *sessions) reconnect(sess *Session) error {
 		return &startError{c.Alias, err}
 	}
 	sess.Ended, sess.ExitCode = false, 0
-	sess.Title = "" // the new process sets its own
 	return nil
 }
 
@@ -117,16 +116,11 @@ func (s *sessions) keepViews() {
 	}
 }
 
-// takeActivity marks every Session whose process wrote output since the last
-// call, and takes the window title each one set (an Action's tab keeps its
-// Action's name).
+// takeActivity marks every Session whose process wrote output since the last call.
 func (s *sessions) takeActivity() {
 	for sess, r := range s.runners {
 		if r.activity.Swap(false) {
 			s.st.MarkActivity(sess)
-		}
-		if t := r.title.Swap(nil); t != nil && sess.Action == "" {
-			sess.Title = cleanTitle(*t)
 		}
 	}
 }

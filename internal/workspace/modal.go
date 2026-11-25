@@ -221,8 +221,9 @@ func (in *moveInput) status() (string, bool) {
 	return fmt.Sprintf("move %s to group: %s  %s  (0 or empty for none)", in.alias, in.group.withCursor(), in.promptHints(in.keys())), true
 }
 
-// tabInput is the status-line prompt for a tab's name. Empty gives the tab
-// back its automatic name (see Session.Label).
+// tabInput is the status-line prompt for a tab's name. It starts with the
+// typed name, if any; empty gives the tab back its automatic name (see
+// Session.Label).
 type tabInput struct {
 	prefixGate
 	sess *Session
@@ -236,11 +237,7 @@ func (in *tabInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 func (in *tabInput) keys() []boundKey {
 	return promptKeys("rename", func(m *Model) tea.Cmd {
 		m.showModal(nil)
-		name := strings.TrimSpace(in.name.String())
-		if in.sess.Name == "" && name == in.sess.Label() {
-			return nil // unchanged: keep following the automatic name
-		}
-		in.sess.Name = name
+		in.sess.Name = strings.TrimSpace(in.name.String())
 		return nil
 	}, nil)
 }
@@ -260,7 +257,7 @@ func (m *Model) renameTab() tea.Cmd {
 		return m.setStatus("no open session to rename", false)
 	}
 	s := c.CurrentSession()
-	m.openModal(&tabInput{sess: s, name: newLine(s.Label())})
+	m.openModal(&tabInput{sess: s, name: newLine(s.Name)})
 	return nil
 }
 

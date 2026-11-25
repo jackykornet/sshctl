@@ -65,7 +65,7 @@ func paneModel(t *testing.T, opts Options, out string) (*Model, *Session, *input
 	press(m, keyEnter)
 	sess := m.st.Active().CurrentSession()
 	w, h := m.paneSize()
-	r := &runner{term: newVterm(w, h, 100, nil, nil)}
+	r := &runner{term: newVterm(w, h, 100, nil)}
 	r.term.Write([]byte(strings.ReplaceAll(out, "\n", "\r\n")))
 	in := &inputLog{}
 	go io.Copy(in, r.term)
@@ -224,7 +224,7 @@ func TestSelectionStaysWhenAnotherSessionWrites(t *testing.T) {
 	m, _ := newPaneModel(t, "first line")
 	dragMouse(m, [2]int{29, 2}, [2]int{33, 2})
 	w, h := m.paneSize()
-	other := &runner{term: newVterm(w, h, 0, nil, nil)}
+	other := &runner{term: newVterm(w, h, 0, nil)}
 	other.activity.Store(true)
 	m.sessions.runners[&Session{}] = other
 	m.Update(redrawMsg{})

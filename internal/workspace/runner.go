@@ -24,10 +24,7 @@ type runner struct {
 	histLen int
 	// activity is set when the program writes output (a bell is output too)
 	// and cleared when the Workspace takes it.
-	activity atomic.Bool
-	// title is the window title the program last set, until the Workspace
-	// takes it.
-	title     atomic.Pointer[string]
+	activity  atomic.Bool
 	closeOnce sync.Once
 	ptyOnce   sync.Once
 }
@@ -96,9 +93,7 @@ func startRunner(argv []string, w, h, scrollback int, sess *Session, ev *events)
 		return nil, err
 	}
 	r := &runner{pty: p, cmd: cmd}
-	r.term = newVterm(w, h, scrollback,
-		func(text string) { ev.ch <- clipboardMsg{text} },
-		func(title string) { r.title.Store(&title) })
+	r.term = newVterm(w, h, scrollback, func(text string) { ev.ch <- clipboardMsg{text} })
 
 	output := make(chan struct{})
 	var lastRead atomic.Int64

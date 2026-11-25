@@ -1,7 +1,7 @@
  [1] default  [2] acme                                                          
 ────────────────────────────┬───────────────────────────────────────────────────
  ▾ 1 web ●1                 │ prod-web                                          
-›  ● prod-web public site   │  1 │ +                                            
+›  ● prod-web public site   │  1 ssh │ +                                        
    ○ staging                │                                                   
  ▾ ungrouped                │                                                   
    ○ db-main postgres       │                                                   
@@ -11,7 +11,7 @@
  ccc ccccccc  bbb bbbb                                                          
 rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
  . . rrr gg                 r rrrrrrrr                                          
-cCCCCCCCCCCCCCCCCCCCCCCCCCCCr RRR. .                                            
+cCCCCCCCCCCCCCCCCCCCCCCCCCCCr RRRRRRR. .                                        
    . .......                r                                                   
  . .........                r                                                   
    . ....... ........       r                                                   

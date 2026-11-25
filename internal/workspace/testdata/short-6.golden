@@ -1,5 +1,5 @@
  [1] default  [2] acme  [5] idle                                                
- ▾ 1 web ●1                 │  1 │ +                                            
+ ▾ 1 web ●1                 │  1 ssh │ +                                        
    ○ prod-web public site   │                                                   
 ›  ● staging                │                                                   
                             │                                                   
