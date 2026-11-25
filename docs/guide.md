@@ -172,7 +172,7 @@ The scripts complete the command named `sshctl` (and `sshctl.exe` in PowerShell)
 
 ## Workspace
 
-![Opening connections in tabs, a second tab, an ended Session reconnecting](demo/sessions.gif)
+![Opening connections in tabs, tabs named after the remote directory and by hand, an ended Session reconnecting](demo/sessions.gif)
 
 Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
 
