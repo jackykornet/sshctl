@@ -1,0 +1,12 @@
+ [1] default  [2] acme                                                          
+────────────────────────────┬───────────────────────────────────────────────────
+›○ db                       │ Keys for space acme                               
+                            │ New tabs only: open tabs keep their key.          
+                            │     OpenSSH default                               
+                            │     /home/me/.ssh/id_ed25519  global              
+                            │ › ● /home/me/.ssh/id_work  space acme             
+                            │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ Enter use in space · g use globally · Esc close                                

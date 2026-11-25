@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/sshctl/sshctl/internal/config"
 	"github.com/sshctl/sshctl/internal/openssh"
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 // Host is how OpenSSH reaches a Managed connection.
@@ -42,10 +45,19 @@ type Spec struct {
 	Space string
 	Group string
 	// Managed is true when sshctl writes the Host block, so Host applies.
-	// For a Connection defined elsewhere in ssh_config only the description
-	// and group are saved.
+	// For a Connection defined elsewhere in ssh_config only its sshctl
+	// metadata (description, Space, group, Tunnels) is saved.
 	Managed bool
 	Host    Host
+	// Tunnels replace the Connection's Tunnels; nil leaves it none. Start
+	// from SpecFor to keep the ones it has.
+	Tunnels []Tunnel
+}
+
+// SpecFor is e as it is saved now, the start of a Spec that changes only
+// some of it: Save replaces everything a Spec holds, Tunnels included.
+func SpecFor(e Entry) Spec {
+	return Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: e.Managed, Host: e.Host, Tunnels: e.Tunnels}
 }
 
 // Entry is one Connection as listed from ssh_config and sshctl metadata.
@@ -62,6 +74,8 @@ type Entry struct {
 	// so Host applies and the block can be edited and deleted.
 	Managed bool
 	Host    Host
+	// Tunnels are the Connection's saved local forwards (ADR-0012).
+	Tunnels []Tunnel
 }
 
 // Experimental says which Experimental features are on; see
@@ -242,7 +256,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	for _, alias := range aliases {
 		seen[alias] = true
 		m := cfg.Connections[alias]
-		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group}
+		e := Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels}
 		if h, ok := managed[alias]; ok {
 			e.Managed = true
 			e.Host = h.Endpoint
@@ -258,7 +272,7 @@ func (c *Catalog) Snapshot() (Snapshot, error) {
 	sort.Strings(orphans)
 	for _, alias := range orphans {
 		m := cfg.Connections[alias]
-		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Orphaned: true})
+		snap.Entries = append(snap.Entries, Entry{Alias: alias, Description: m.Description, Space: m.Space, Group: m.Group, Tunnels: m.Tunnels, Orphaned: true})
 	}
 	return snap, nil
 }
@@ -334,6 +348,32 @@ func (c *Catalog) SetIdentity(key string) error {
 		cfg.SelectedIdentity = key
 		return nil
 	})
+}
+
+// Keys lists, sorted, the public keys and certificates in the ssh
+// directory and the private keys "sshctl key add" registered: the keys a
+// Selected identity is chosen from.
+func (c *Catalog) Keys() ([]string, error) {
+	cfg, err := config.Load(c.configPath, c.legacy)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	entries, _ := os.ReadDir(c.ssh.SSHDir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasSuffix(n, ".pub") && !e.IsDir() {
+			set[filepath.Join(c.ssh.SSHDir, n)] = true
+		}
+	}
+	for _, k := range cfg.Keys {
+		set[k] = true
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }
 
 // IdentityFor returns the Selected identity ssh uses for alias: its
@@ -477,14 +517,14 @@ func (c *Catalog) update(change func(*config.Config) error) error {
 // A Host block is written to sshctl's ssh_config file whenever s is Managed
 // or the alias is new or renamed; openssh.SaveHost enforces ADR-0002, and
 // a Connection whose Host block is the user's cannot be renamed. Then the
-// description and group are saved under the new alias, and History follows
-// a rename.
+// description, group and Tunnels are saved under the new alias, and History
+// follows a rename.
 //
 // Nothing is changed when Save fails: the sshctl config is read before the
 // Host block is written, and the Host block is put back when the config
 // cannot be written. Save returns an *IncludeError when ssh_config must
-// first Include sshctl's file, and refuses an unknown Space
-// (ErrUnknownSpace), a Group name config.CheckGroupName refuses and, with
+// first Include sshctl's file, and refuses Tunnels tunnel.Check refuses, an
+// unknown Space (ErrUnknownSpace), a Group name config.CheckGroupName refuses and, with
 // ErrUnknownGroup, a Group the Space has no record of (AddGroup creates
 // one).
 func (c *Catalog) Save(old string, s Spec) error {
@@ -492,6 +532,9 @@ func (c *Catalog) Save(old string, s Spec) error {
 		if err := config.CheckGroupName(s.Group); err != nil {
 			return err
 		}
+	}
+	if err := tunnel.Check(s.Tunnels); err != nil {
+		return err
 	}
 	cfg, err := config.Load(c.configPath, c.legacy)
 	if err != nil {
@@ -516,6 +559,7 @@ func (c *Catalog) Save(old string, s Spec) error {
 		rename(cfg, old, s.Alias)
 	}
 	cfg.SetMetadata(s.Alias, space, s.Description, s.Group)
+	cfg.SetTunnels(s.Alias, s.Tunnels)
 	if err := c.saveConfig(c.configPath, cfg); err != nil {
 		if uerr := undo(); uerr != nil {
 			return fmt.Errorf("%w (and restoring the Host block failed: %v)", err, uerr)
@@ -580,24 +624,6 @@ func (c *Catalog) Delete(alias string) error {
 	}
 	if err := c.ssh.DeleteHost(alias); err != nil && !errors.Is(err, openssh.ErrUnknownHost) {
 		return err
-	}
-	delete(cfg.Connections, alias)
-	return c.saveConfig(c.configPath, cfg)
-}
-
-// ErrNoMetadata is returned by DeleteMetadata when alias has no sshctl metadata.
-var ErrNoMetadata = errors.New("no sshctl metadata")
-
-// DeleteMetadata removes alias's description, group and Space, which
-// leaves it in the default Space, and nothing else: its Host block, even
-// one sshctl manages, and its History stay.
-func (c *Catalog) DeleteMetadata(alias string) error {
-	cfg, err := config.Load(c.configPath, c.legacy)
-	if err != nil {
-		return err
-	}
-	if _, ok := cfg.Connections[alias]; !ok {
-		return fmt.Errorf("%s: %w", alias, ErrNoMetadata)
 	}
 	delete(cfg.Connections, alias)
 	return c.saveConfig(c.configPath, cfg)

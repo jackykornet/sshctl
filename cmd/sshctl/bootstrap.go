@@ -13,22 +13,19 @@ import (
 )
 
 // bootstrapCommand runs `sshctl bootstrap <alias>`.
-func (a *app) bootstrapCommand(args []string) error {
-	alias, ok := aliasArg(args)
+func (a *app) bootstrapCommand(in input) error {
+	alias, ok := aliasArg(in)
 	if !ok {
 		return errUsage
 	}
 	return a.bootstrap(alias)
 }
 
-// aliasArg returns the one alias in args, which may follow "--" so that an
-// alias starting with "-" is not taken for an option.
-func aliasArg(args []string) (string, bool) {
-	if len(args) == 2 && args[0] == "--" && args[1] != "" {
-		return args[1], true
-	}
-	if len(args) == 1 && args[0] != "" && !strings.HasPrefix(args[0], "-") {
-		return args[0], true
+// aliasArg returns the one alias in, which may follow "--" so that an alias
+// starting with "-" is not taken for an option.
+func aliasArg(in input) (string, bool) {
+	if len(in.args) == 1 && in.args[0] != "" {
+		return in.args[0], true
 	}
 	return "", false
 }
@@ -56,8 +53,11 @@ func (a *app) bootstrap(alias string) error {
 		return err
 	}
 	e, ok := snap.Entry(alias)
-	if !ok || e.Orphaned {
+	if !ok {
 		return fmt.Errorf("%s is not a Host in ssh_config", alias)
+	}
+	if e.Orphaned {
+		return fmt.Errorf("%s is missing from ssh_config", alias)
 	}
 	ctx := context.Background()
 	key := snap.SpaceIdentity(e.Space)
@@ -208,10 +208,13 @@ func (a *app) completeEndpoint(ctx context.Context, e catalog.Entry) (catalog.En
 	return e, nil
 }
 
-// saveEndpoint writes e's Host block, keeping its description and group.
+// saveEndpoint writes e's Host block, keeping its description, group and
+// Tunnels.
 // SaveHost writes an IdentityFile under the home directory as ~/ (ADR-0004).
 func (a *app) saveEndpoint(e catalog.Entry) error {
-	return a.catalog().Save(e.Alias, catalog.Spec{Alias: e.Alias, Description: e.Description, Space: e.Space, Group: e.Group, Managed: true, Host: e.Host})
+	s := catalog.SpecFor(e)
+	s.Managed = true
+	return a.catalog().Save(e.Alias, s)
 }
 
 // home is the user's home directory, as SaveHost sees it.

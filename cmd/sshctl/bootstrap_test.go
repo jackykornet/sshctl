@@ -298,6 +298,21 @@ func TestBootstrapRefusesAnUnknownAliasBeforeRunningAnything(t *testing.T) {
 	}
 }
 
+func TestBootstrapSaysAnOrphanedConnectionIsMissingFromSSHConfig(t *testing.T) {
+	a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	a.cfg.Connections["gone"] = config.Connection{Alias: "gone", Description: "retired"}
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		t.Fatal(err)
+	}
+	err := a.execute([]string{"bootstrap", "gone"})
+	if err == nil || err.Error() != "gone is missing from ssh_config" {
+		t.Errorf("err = %v, want gone is missing from ssh_config", err)
+	}
+	if len(h.calls) != 0 {
+		t.Errorf("ran %q, want nothing", h.calls)
+	}
+}
+
 func TestBootstrapFailsEarlyWithoutPOSIXSh(t *testing.T) {
 	a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
 	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
@@ -420,5 +435,21 @@ func TestBootstrapUsesTheSpacesSelectedIdentity(t *testing.T) {
 		if !slices.Contains(argv, key) {
 			t.Errorf("ssh %q does not use acme's Selected identity", argv)
 		}
+	}
+}
+
+// Bootstrap rewrites the Host block through catalog.Save, which replaces
+// Tunnels: it keeps the Connection's own.
+func TestBootstrapKeepsTunnels(t *testing.T) {
+	a, out, _ := bootstrapTree(t, openssh.IncludeLine+"\n")
+	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})
+	if err := a.execute([]string{"tunnel", "add", "web", "panel=8083"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"bootstrap", "web"}); err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if got := load(t, a).Connections["web"].Tunnels; len(got) != 1 || got[0].Name != "panel" {
+		t.Errorf("Tunnels = %+v, want panel kept", got)
 	}
 }

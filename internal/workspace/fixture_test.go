@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -22,7 +23,8 @@ type commandCall struct {
 // their Groups; SetActiveSpace records and changes activeSpace. It records every
 // call, fails SetGroup while failGroup is set, fails each Save with the next
 // error in saveErrs, and otherwise lists the saved Spec as it is (or drops
-// the deleted alias) on the next Snapshot. Snapshot reports include, the
+// the deleted alias) on the next Snapshot. RecordOpen puts the alias first
+// in history, which History returns. Snapshot reports include, the
 // Include ssh_config lacks, until AddInclude is called. ProvisionRepo fails
 // with provision[alias], or returns a repo. The catalog's own rules are
 // tested in internal/catalog.
@@ -38,11 +40,14 @@ type fakeCatalog struct {
 	activeSpace    string
 	identity       string
 	spaceKeys      map[string]string // SpaceIdentities
+	keys           []string          // what Keys lists
+	identityOps    []string          // "global key" or "space name key", one per SetIdentity or SetSpaceIdentity
 	startCollapsed []string
 	loadErr        error
 	failGroup      bool
 	include        *IncludeError
 	provision      map[string]error // ProvisionRepo's error per alias
+	history        []string         // History, most recent first
 	// off lists the Experimental features Snapshot reports off; every
 	// other one is on, so tests of Bootstrap and Provision need not turn
 	// them on.
@@ -66,6 +71,36 @@ type fakeCatalog struct {
 	activeSaves  []string // SetActiveSpace spaces
 	spaceOps     []string // "add x", "add x at 3", "rename x→y", "delete x", "move x 2", one per Space call
 	spaceErr     error    // returned by the next Space call, which then changes nothing
+
+	// groupColors and spaceColors are the Indicator colors Snapshot gives
+	// Groups, by catalog.CollapsedKey, and Spaces, by how Connections refer
+	// to them; SetGroupColor and SetSpaceColor change them and record
+	// "group x red" or "space x none" in colorOps.
+	groupColors map[string]string
+	spaceColors map[string]string
+	colorOps    []string
+}
+
+func (f *fakeCatalog) SetGroupColor(space, group, color string) error {
+	f.colorOps = append(f.colorOps, "group "+catalog.CollapsedKey(space, group)+" "+cmp.Or(color, "none"))
+	if f.groupColors == nil {
+		f.groupColors = map[string]string{}
+	}
+	f.groupColors[catalog.CollapsedKey(space, group)] = color
+	return nil
+}
+
+func (f *fakeCatalog) SetSpaceColor(space, color string) error {
+	f.colorOps = append(f.colorOps, "space "+space+" "+cmp.Or(color, "none"))
+	ref, ok := catalog.Snapshot{Spaces: f.allSpaces()}.SpaceRef(space)
+	if !ok {
+		return catalog.ErrUnknownSpace
+	}
+	if f.spaceColors == nil {
+		f.spaceColors = map[string]string{}
+	}
+	f.spaceColors[ref] = color
+	return nil
 }
 
 // spaceOp records op and returns spaceErr, once.
@@ -247,6 +282,13 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}
 	snap.Groups = append(snap.Groups, f.spaceGroups...)
+	for i, g := range snap.Groups {
+		snap.Groups[i].Color = f.groupColors[catalog.CollapsedKey(g.Space, g.Name)]
+	}
+	for i, s := range snap.Spaces {
+		ref, _ := snap.SpaceRef(s.Name)
+		snap.Spaces[i].Color = f.spaceColors[ref]
+	}
 	if f.includes == 0 {
 		snap.Include = f.include
 	}
@@ -255,8 +297,11 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 
 func (f *fakeCatalog) RecordOpen(alias string) error {
 	f.opened = append(f.opened, alias)
+	f.history = append([]string{alias}, slices.DeleteFunc(f.history, func(a string) bool { return a == alias })...)
 	return nil
 }
+
+func (f *fakeCatalog) History() ([]string, error) { return slices.Clone(f.history), nil }
 
 func (f *fakeCatalog) SetGroup(alias, group string) error {
 	if f.failGroup {
@@ -282,7 +327,7 @@ func (f *fakeCatalog) Save(old string, s Spec) error {
 		}
 	}
 	f.entries = slices.DeleteFunc(f.entries, func(e Entry) bool { return e.Alias == old })
-	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host})
+	f.entries = append(f.entries, Entry{Alias: s.Alias, Description: s.Description, Space: s.Space, Group: s.Group, Managed: s.Managed, Host: s.Host, Tunnels: s.Tunnels})
 	return nil
 }
 
@@ -365,6 +410,33 @@ func (f *fakeCatalog) regroup(old, name string) {
 	}
 }
 
+func (f *fakeCatalog) Keys() ([]string, error) { return f.keys, nil }
+
+func (f *fakeCatalog) SetIdentity(key string) error {
+	f.identityOps = append(f.identityOps, "global "+key)
+	f.identity = key
+	return nil
+}
+
+// SetSpaceIdentity sets, or with key "" unsets, the Space name's own key,
+// keyed as Connections refer to the Space ("" for the default Space).
+func (f *fakeCatalog) SetSpaceIdentity(name, key string) error {
+	f.identityOps = append(f.identityOps, "space "+name+" "+key)
+	ref := name
+	if f.spaceIndex(name) < 0 {
+		ref = ""
+	}
+	if key == "" {
+		delete(f.spaceKeys, ref)
+		return nil
+	}
+	if f.spaceKeys == nil {
+		f.spaceKeys = map[string]string{}
+	}
+	f.spaceKeys[ref] = key
+	return nil
+}
+
 func (f *fakeCatalog) ProvisionRepo(alias string) (string, error) {
 	if err := f.provision[alias]; err != nil {
 		return "", err
@@ -399,7 +471,13 @@ func endSession(m *Model, sess *Session, code int) {
 // that exits at once on every platform. Command fails for the aliases in fail.
 func newRecordingModel(t *testing.T, entries []Entry, fail ...string) (*Model, *recorder) {
 	t.Helper()
-	r := &recorder{fakeCatalog: &fakeCatalog{entries: entries}}
+	return newRecordingCatalogModel(t, &fakeCatalog{entries: entries}, fail...)
+}
+
+// newRecordingCatalogModel is newRecordingModel over the catalog f.
+func newRecordingCatalogModel(t *testing.T, f *fakeCatalog, fail ...string) (*Model, *recorder) {
+	t.Helper()
+	r := &recorder{fakeCatalog: f}
 	m, err := New(Options{
 		Catalog: r.fakeCatalog,
 		Command: func(alias string, l Launch) ([]string, error) {

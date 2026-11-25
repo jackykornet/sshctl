@@ -1,0 +1,10 @@
+›▸ 1 web 2 ●1               │ prod-web                                          
+ ▾ ungrouped                │ [1 ssh ●] [+]                                     
+   ○ db-main postgres       │                                                   
+   ○ old-box (missing)      │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ LIST web / prod-web         Enter open · / filter · a add · e edit · ^B ? help 

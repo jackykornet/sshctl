@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,28 +10,11 @@ import (
 
 // keyList lists the public keys and certificates in ~/.ssh and the
 // registered key paths, marking the Selected identities.
-func (a *app) keyList(_ []string) error {
-	home, err := os.UserHomeDir()
+func (a *app) keyList(input) error {
+	keys, err := a.catalog().Keys()
 	if err != nil {
 		return err
 	}
-	keyDir := filepath.Join(home, ".ssh")
-	set := map[string]bool{}
-	entries, _ := os.ReadDir(keyDir)
-	for _, e := range entries {
-		n := e.Name()
-		if strings.HasSuffix(n, ".pub") || strings.HasSuffix(n, "-cert.pub") {
-			set[filepath.Join(keyDir, n)] = true
-		}
-	}
-	for _, k := range a.cfg.Keys {
-		set[k] = true
-	}
-	keys := make([]string, 0, len(set))
-	for k := range set {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err
@@ -59,9 +41,10 @@ func (a *app) keyList(_ []string) error {
 }
 
 // keyAdd registers a private key path.
-func (a *app) keyAdd(args []string) error {
+func (a *app) keyAdd(in input) error {
+	args := in.args
 	if len(args) != 1 {
-		return errors.New("usage: sshctl key add <private-key-path>")
+		return errUsage
 	}
 	abs, err := filepath.Abs(args[0])
 	if err != nil {
@@ -81,13 +64,14 @@ func (a *app) keyAdd(args []string) error {
 
 // keyUse selects the key path args name, or none, as the global Selected
 // identity or, with --space, a Space's.
-func (a *app) keyUse(args []string) error {
-	space, rest, err := a.cutSpaceOption(args)
+func (a *app) keyUse(in input) error {
+	rest := in.args
+	space, err := a.spaceOption(in)
 	if err != nil {
 		return err
 	}
 	if len(rest) != 1 {
-		return errors.New("usage: sshctl key use [--space <space>] <key-path|none>")
+		return errUsage
 	}
 	k := rest[0]
 	if k != "none" {

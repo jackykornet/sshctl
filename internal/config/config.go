@@ -12,15 +12,17 @@ import (
 	"strings"
 
 	"github.com/sshctl/sshctl/internal/atomicfile"
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 // Version is the config format written by Save. Version 2 stores Groups
 // as records (ADR-0003); version 3 moves the machine-local values to
 // state.json (ADR-0004); version 4 adds Spaces (ADR-0005); version 5
 // gives each Space a fixed number (ADR-0010), so an older sshctl refuses
-// the file rather than save it without them. Older configs are migrated
-// by Load.
-const Version = 5
+// the file rather than save it without them; version 6 adds Tunnels
+// (ADR-0012), and version 7 Indicator colors on Groups and Spaces
+// (ADR-0009), for the same reason. Older configs are migrated by Load.
+const Version = 7
 
 // StateVersion is the state.json format written by Save.
 const StateVersion = 1
@@ -32,6 +34,14 @@ type Connection struct {
 	// Space is the Space the Connection belongs to, "" for the default
 	// Space. Its Group is a Group of that Space.
 	Space string `json:"space,omitempty"`
+	// Tunnels are the Connection's saved local forwards (ADR-0012), in the
+	// order they were added.
+	Tunnels []tunnel.Tunnel `json:"tunnels,omitempty"`
+}
+
+// empty reports whether m holds no metadata, so it need not be stored.
+func (m Connection) empty() bool {
+	return m.Space == "" && m.Description == "" && m.Group == "" && len(m.Tunnels) == 0
 }
 
 // Group is a stored Group record (ADR-0003). Its position in Config.Groups
@@ -46,6 +56,9 @@ type Group struct {
 	// Connections, DotfilesNone to refuse Provision for them, or "" when
 	// unset, so the global Provision.Dotfiles applies.
 	Dotfiles string `json:"dotfiles,omitempty"`
+	// Color is the Group's Indicator color (ADR-0009), one of Colors, or ""
+	// for none, so its Space's applies.
+	Color string `json:"color,omitempty"`
 }
 
 type Config struct {
@@ -238,8 +251,10 @@ func allDigits(s string) bool {
 
 // GroupIndex returns the position in Groups of the Group named name in
 // space ("" for the default Space), or -1.
-func (c *Config) GroupIndex(space, name string) int {
-	for i, g := range c.Groups {
+func (c *Config) GroupIndex(space, name string) int { return groupIndex(c.Groups, space, name) }
+
+func groupIndex(groups []Group, space, name string) int {
+	for i, g := range groups {
 		if g.Space == space && g.Name == name {
 			return i
 		}
@@ -248,14 +263,27 @@ func (c *Config) GroupIndex(space, name string) int {
 }
 
 // SetMetadata sets alias's Space ("" for the default Space), description
-// and group, a Group of that Space. Metadata with none of them is dropped,
-// so an emptied Connection leaves nothing behind.
+// and group, a Group of that Space, keeping its Tunnels. Metadata with none
+// of them is dropped, so an emptied Connection leaves nothing behind.
 func (c *Config) SetMetadata(alias, space, description, group string) {
-	if space == "" && description == "" && group == "" {
-		delete(c.Connections, alias)
+	c.setConnection(Connection{Alias: alias, Description: description, Group: group, Space: space, Tunnels: c.Connections[alias].Tunnels})
+}
+
+// SetTunnels sets alias's Tunnels, keeping the rest of its metadata. It does
+// not check them; see tunnel.Add.
+func (c *Config) SetTunnels(alias string, tunnels []tunnel.Tunnel) {
+	m := c.Connections[alias]
+	m.Alias, m.Tunnels = alias, tunnels
+	c.setConnection(m)
+}
+
+// setConnection stores m, or drops alias's record when m is empty.
+func (c *Config) setConnection(m Connection) {
+	if m.empty() {
+		delete(c.Connections, m.Alias)
 		return
 	}
-	c.Connections[alias] = Connection{Alias: alias, Description: description, Group: group, Space: space}
+	c.Connections[m.Alias] = m
 	c.addMissingGroups()
 }
 
@@ -579,6 +607,7 @@ func loadConfig(path string, legacy []string, state State, haveState bool) (*Con
 				return nil, e
 			}
 		}
+		c.noteUnknownColors()
 		return &c, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {

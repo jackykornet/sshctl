@@ -15,7 +15,7 @@ func TestPrefixPProvisionsCursorConnectionAfterConfirming(t *testing.T) {
 	m, r := newRecordingModel(t, []Entry{{Alias: "alpha"}, {Alias: "beta"}})
 	press(m, keyDown)
 	press(m, keyPrefix, text("p")[0])
-	if c := m.confirm(); c == nil || c.question != "Provision beta with your dotfiles? y/n" {
+	if c := m.confirm(); c == nil || c.question != "Provision beta with your dotfiles?" {
 		t.Fatalf("confirm = %+v, want the Provision question for beta", c)
 	}
 	if len(r.calls) != 0 {
@@ -88,7 +88,7 @@ func TestProvisionTabAsksForRepoAndShowsExitCode(t *testing.T) {
 	press(m, keyEnter)
 	pump(t, m, func() bool { return sess.Ended })
 	got := screen(m)
-	for _, want := range []string{"applying https://example.com/d.git", "mise install failed", "session ended (exit 3)", "alpha 1 provision"} {
+	for _, want := range []string{"applying https://example.com/d.git", "mise install failed", "session ended (exit 3)", "[1 provision ●]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("screen lacks %q; exit=%d screen:\n%s", want, sess.ExitCode, got)
 		}

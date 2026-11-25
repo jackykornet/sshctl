@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -59,17 +61,14 @@ func TestRunMovesTheOldConfigOnceWithANotice(t *testing.T) {
 // The Selected identity is read and written through the Connection catalog,
 // so a change made elsewhere since sshctl started is what the CLI sees.
 func TestSelectedIdentityGoesThroughTheCatalog(t *testing.T) {
-	home := fakeHome(t)
-	key := filepath.Join(home, ".ssh", "id_work")
-	if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	fakeHome(t)
+	a, out := cliTree(t, "", config.New(), "")
+	key := filepath.Join(a.ssh.SSHDir, "id_work")
 	for _, f := range []string{key, key + ".pub"} {
 		if err := os.WriteFile(f, []byte("k"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, out := cliTree(t, "", config.New(), "")
 	if err := a.catalog().SetIdentity(key); err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +102,38 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "connect <alias>") {
+	if !strings.Contains(out.String(), "\n  [-c] <alias> [-- <command>...]") {
 		t.Fatalf("help missing connect usage: %s", out.String())
+	}
+	if strings.Contains(out.String(), "\n  connect") {
+		t.Fatalf("help still lists the connect command: %s", out.String())
 	}
 	if err := run([]string{"not-a-command"}, strings.NewReader(""), &out, &out); err == nil {
 		t.Fatal("expected unknown command error")
+	}
+}
+
+// group connect opens OS terminal windows while the Workspace opens tabs, so
+// both help screens say which one it does and where tabs are.
+func TestHelpSaysGroupConnectOpensTerminalWindows(t *testing.T) {
+	fakeHome(t)
+	for _, args := range [][]string{{"--help"}, {"group", "--help"}} {
+		var out bytes.Buffer
+		if err := run(args, strings.NewReader(""), &out, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"one terminal window per Connection", "prefix g in the Workspace"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("sshctl %s does not say %q:\n%s", strings.Join(args, " "), want, out.String())
+			}
+		}
+	}
+	// A wrong group call prints the group usage, note included.
+	for _, args := range [][]string{{"group"}, {"group", "bogus"}} {
+		err := run(args, strings.NewReader(""), io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "one terminal window per Connection") {
+			t.Errorf("sshctl %s: error %v does not carry the group connect note", strings.Join(args, " "), err)
+		}
 	}
 }
 
@@ -135,7 +161,7 @@ func TestEveryCommandIsReachableAndInHelp(t *testing.T) {
 				if f.sub != "" {
 					call = append(call, f.sub)
 				}
-				gotC, gotF, _ := lookup(call)
+				gotC, gotF, _, _ := lookup(call)
 				if gotC != c || gotF != f {
 					t.Errorf("sshctl %s does not reach its form", strings.Join(call, " "))
 				}
@@ -149,7 +175,7 @@ func TestEveryCommandIsReachableAndInHelp(t *testing.T) {
 			}
 		}
 	}
-	if gotC, _, _ := lookup([]string{"not-a-command"}); gotC != nil {
+	if gotC, _, _, _ := lookup([]string{"not-a-command"}); gotC != &connectCommand {
 		t.Errorf("an unknown command reached %q", gotC.name)
 	}
 }
@@ -162,6 +188,8 @@ func TestWrongCallsGetTheCommandsUsage(t *testing.T) {
 		{"agent"}, {"key"}, {"key", "bogus"}, {"config", "bogus"},
 		{"group", "--space", "default"}, {"group", "add"}, {"space", "rename", "default"},
 		{"list", "extra"}, {"bootstrap"},
+		{"key", "add"}, {"key", "use"}, {"known-hosts", "remove"},
+		{"provision", "default", "a", "b"}, {"space", "dotfiles", "default", "a", "b"},
 	} {
 		err := a.execute(args)
 		if want := "usage: sshctl " + usage(args[0]); err == nil || err.Error() != want {
@@ -170,29 +198,29 @@ func TestWrongCallsGetTheCommandsUsage(t *testing.T) {
 	}
 }
 
-// The README's Commands block lists every form --help does, in its order.
-func TestReadmeListsTheCommands(t *testing.T) {
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+// The Guide's Commands block lists every form --help does, in its order.
+func TestGuideListsTheCommands(t *testing.T) {
+	guide, err := os.ReadFile(filepath.Join("..", "..", "docs", "guide.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows checks README.md out with CRLF line endings (.gitattributes).
-	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
+	// Windows checks docs/guide.md out with CRLF line endings (.gitattributes).
+	text := strings.ReplaceAll(string(guide), "\r\n", "\n")
 	_, block, ok := strings.Cut(text, "## Commands\n\n```text\n")
 	if ok {
 		block, _, ok = strings.Cut(block, "```")
 	}
 	if !ok {
-		t.Fatal("README has no Commands block")
+		t.Fatal("the Guide has no Commands block")
 	}
 	want := "sshctl\n"
-	for _, c := range commands {
+	for _, c := range append([]command{connectCommand}, commands...) {
 		for _, f := range c.forms {
 			want += "sshctl " + c.synopsis(f) + "\n"
 		}
 	}
 	if block != want {
-		t.Errorf("README Commands block:\n%s\nwant, from the command table:\n%s", block, want)
+		t.Errorf("Guide Commands block:\n%s\nwant, from the command table:\n%s", block, want)
 	}
 }
 
@@ -222,15 +250,15 @@ func TestListShowsAliasesThenSortedOrphanedConnections(t *testing.T) {
 	cfg.Connections["old"] = config.Connection{Alias: "old", Group: "prod"}
 	cfg.Connections["mid"] = config.Connection{Alias: "mid", Description: "moved"}
 	a, out := cliTree(t, "Host web\n  HostName 10.0.0.1\nHost db\n  HostName 10.0.0.2\nHost *\n  User me\n", cfg, "")
-	if err := a.list(nil); err != nil {
+	if err := a.execute([]string{"list"}); err != nil {
 		t.Fatal(err)
 	}
 	want := "" +
 		"web                      front end [prod]\n" +
 		"db\n" +
-		"mid                      moved (orphaned)\n" +
-		"old                      [prod] (orphaned)\n" +
-		"zz-gone                  retired (orphaned)\n"
+		"mid                      moved (missing)\n" +
+		"old                      [prod] (missing)\n" +
+		"zz-gone                  retired (missing)\n"
 	if out.String() != want {
 		t.Errorf("list output:\n%s\nwant:\n%s", out.String(), want)
 	}
@@ -251,7 +279,7 @@ func TestListHintsAtAMissingInclude(t *testing.T) {
 			if err := os.WriteFile(a.ssh.ManagedPath(), []byte("Host synced\n  HostName 10.0.0.9\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.list(nil); err != nil {
+			if err := a.execute([]string{"list"}); err != nil {
 				t.Fatal(err)
 			}
 			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
@@ -266,9 +294,9 @@ func TestListHintsAtAMissingInclude(t *testing.T) {
 	}
 }
 
-func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
+func TestEditWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 	a, _ := cliTree(t, "Host web\n", config.New(), "\n\n")
-	if err := a.metadata([]string{"web"}, false); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := config.Load(a.cfgPath, nil)
@@ -276,7 +304,7 @@ func TestAddWithNoDescriptionOrGroupKeepsNoMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m, ok := loaded.Connections["web"]; ok {
-		t.Errorf("empty add saved metadata %#v, want none", m)
+		t.Errorf("empty edit saved metadata %#v, want none", m)
 	}
 }
 
@@ -285,38 +313,15 @@ func TestEditWithEmptyInputKeepsOldValues(t *testing.T) {
 	cfg.Groups = []config.Group{{Name: "prod"}, {Name: "staging"}}
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, _ := cliTree(t, "Host web\n", cfg, "\nstaging\n")
-	if err := a.metadata([]string{"web"}, true); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := config.Load(a.cfgPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); got != want {
+	if got, want := loaded.Connections["web"], (config.Connection{Alias: "web", Description: "front end", Group: "staging"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("edited metadata = %#v, want %#v", got, want)
-	}
-}
-
-func TestMetadataPersistsDescriptionAndGroup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	c := config.New()
-	c.Groups = []config.Group{{Name: "engineering"}}
-	if err := config.Save(path, c); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	ssh := &openssh.Client{SSHConfig: filepath.Join(t.TempDir(), "sshconfig")}
-	a := &app{in: strings.NewReader("development machine\nengineering\n"), out: &out, cfgPath: path, cfg: c, ssh: ssh}
-	if err := a.metadata([]string{"buildbox"}, false); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := config.Load(path, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := loaded.Connections["buildbox"]
-	if got.Description != "development machine" || got.Group != "engineering" {
-		t.Fatalf("unexpected saved metadata: %#v", got)
 	}
 }
 
@@ -366,7 +371,7 @@ func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Group: "prod"}
 	a, out := cliTree(t, "Host web\n", cfg, "\n\n")
 	stale(a)
-	if err := a.metadata([]string{"web"}, true); err != nil {
+	if err := a.execute([]string{"edit", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Description [front end]: Group [prod]: ") {
@@ -374,27 +379,5 @@ func TestEditStartsFromTheCurrentMetadata(t *testing.T) {
 	}
 	if got := load(t, a).Connections["web"]; got.Description != "front end" || got.Group != "prod" {
 		t.Errorf("web = %#v, want its metadata unchanged", got)
-	}
-}
-
-func TestRemoveDeletesOnlyMetadata(t *testing.T) {
-	cfg := config.New()
-	cfg.Connections["api"] = config.Connection{Alias: "api", Group: "prod"}
-	a, _ := cliTree(t, openssh.IncludeLine+"\n", cfg, "")
-	if err := a.ssh.SaveHost("", openssh.Host{Alias: "api", Endpoint: openssh.Endpoint{HostName: "10.0.0.9"}}); err != nil {
-		t.Fatal(err)
-	}
-	stale(a)
-	if err := a.remove([]string{"api"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := load(t, a).Connections["api"]; ok {
-		t.Error("api's metadata should be removed")
-	}
-	if hosts, err := a.ssh.ManagedHosts(); err != nil || len(hosts) != 1 || hosts[0].Alias != "api" {
-		t.Errorf("Host blocks = %+v, %v; want api's kept", hosts, err)
-	}
-	if err := a.remove([]string{"api"}); err == nil || err.Error() != `no sshctl metadata for "api"` {
-		t.Errorf("removing again: err = %v", err)
 	}
 }

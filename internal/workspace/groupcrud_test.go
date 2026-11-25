@@ -24,7 +24,7 @@ func newGroupModel(t *testing.T) (*Model, *fakeCatalog) {
 func TestDeleteOnAGroupHeaderAsksThenUngroupsItsMembers(t *testing.T) {
 	m, f := newGroupModel(t)
 	press(m, text("d")...)
-	want := "Delete group web? 4 connections become ungrouped. (y/n)"
+	want := "Delete group web? 4 connections become ungrouped."
 	if m.confirm() == nil || m.confirm().question != want {
 		t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 	}
@@ -112,7 +112,7 @@ func TestTheFormOffersToCreateANewGroup(t *testing.T) {
 			press(m, text("e")...)
 			fill(m, "", "dev")
 			press(m, keyCtrlS)
-			if want := "Create group dev? (y/n)"; m.confirm() == nil || m.confirm().question != want {
+			if want := "Create group dev?"; m.confirm() == nil || m.confirm().question != want {
 				t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 			}
 			press(m, text(answer)...)
@@ -145,17 +145,17 @@ func TestHeadersShowGroupNumbers(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := headers(), []string{"1 web 4", "2 batch 1", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 web", "2 batch", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("headers = %q, want %q", got, want)
 	}
 	press(m, tea.KeyPressMsg{Code: 'J', Text: "J"}) // web down below batch
-	if got, want := headers(), []string{"1 batch 1", "2 web 4", "ungrouped 1"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 batch", "2 web", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after reorder headers = %q, want %q", got, want)
 	}
 	m.st.SetCursorGroup("batch")
 	press(m, text("d")...)
 	press(m, text("y")...)
-	if got, want := headers(), []string{"1 web 4", "ungrouped 2"}; !reflect.DeepEqual(got, want) {
+	if got, want := headers(), []string{"1 web", "ungrouped"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("after delete headers = %q, want %q", got, want)
 	}
 }
@@ -208,7 +208,7 @@ func TestTheMovePromptOffersToCreateANewGroup(t *testing.T) {
 			m.st.SetCursor("alpha")
 			press(m, keyPrefix, text("m")[0], keyClear)
 			press(m, append(text("dev"), keyEnter)...)
-			if want := "Create group dev? (y/n)"; m.confirm() == nil || m.confirm().question != want {
+			if want := "Create group dev?"; m.confirm() == nil || m.confirm().question != want {
 				t.Fatalf("confirm = %+v, want %q", m.confirm(), want)
 			}
 			press(m, text(answer)...)
@@ -248,7 +248,7 @@ func TestTheFormTakesAGroupNumber(t *testing.T) {
 			if !strings.Contains(screen(m), "0 none · 1 web · 2 batch") {
 				t.Fatalf("screen = \n%s\nwant the Group numbers listed", screen(m))
 			}
-			m.form().focus = len(m.form().fields) - 1
+			focusFormField(t, m, fieldGroup)
 			press(m, keyClear)
 			press(m, text(tt.typed)...)
 			press(m, keyCtrlS)
@@ -263,7 +263,7 @@ func TestTheFormRefusesANumberWithNoGroup(t *testing.T) {
 	m, f := newGroupModel(t)
 	m.st.SetCursor("alpha")
 	press(m, text("e")...)
-	m.form().focus = len(m.form().fields) - 1
+	focusFormField(t, m, fieldGroup)
 	press(m, keyClear)
 	press(m, text("7")...)
 	press(m, keyCtrlS)

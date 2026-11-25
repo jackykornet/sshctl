@@ -43,6 +43,34 @@ func fill(m *Model, values ...string) {
 	}
 }
 
+// An alias equal to a built-in sshctl command cannot be reached as
+// sshctl <alias> (ADR-0011), so the form warns, pointing to -c, but saves it.
+func TestFormWarnsAboutAnAliasThatIsACommandName(t *testing.T) {
+	f := &fakeCatalog{entries: storeEntries()}
+	m, err := New(Options{Catalog: f, CommandNames: []string{"list", "key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.closeAll)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 16})
+	m.st.SetCursor("web")
+	press(m, text("a")...)
+	press(m, text("lis")...)
+	const warning = "sshctl list is a command; use sshctl -c list"
+	if screen := ansi.Strip(m.render()); strings.Contains(screen, "sshctl -c") {
+		t.Errorf("warned about lis:\n%s", screen)
+	}
+	press(m, text("t")...)
+	if screen := ansi.Strip(m.render()); !strings.Contains(screen, warning) {
+		t.Errorf("screen missing %q:\n%s", warning, screen)
+	}
+	fill(m, "list", "10.0.0.9")
+	press(m, keyCtrlS)
+	if m.form() != nil || m.st.Get("list") == nil {
+		t.Errorf("the alias list was not saved: form %+v", m.form())
+	}
+}
+
 func TestAddConnectionAsksForIncludeThenSaves(t *testing.T) {
 	f := &fakeCatalog{entries: storeEntries(), saveErrs: []error{needInclude}}
 	m := newStoreModel(t, f)
@@ -99,7 +127,7 @@ func TestDecliningTheStartupIncludeLastsTheSession(t *testing.T) {
 	if m.confirm() != nil || f.includes != 0 || len(f.saves) != 0 {
 		t.Fatalf("confirm = %+v includes = %d saves = %v", m.confirm(), f.includes, f.saves)
 	}
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	if m.confirm() != nil || m.status != "connection list refreshed" {
 		t.Fatalf("refresh asked again: confirm = %+v status = %q", m.confirm(), m.status)
 	}
@@ -147,7 +175,7 @@ func TestEditManagedConnectionCanRename(t *testing.T) {
 	m := newStoreModel(t, f)
 	m.st.SetCursor("web")
 	press(m, text("e")...)
-	if got := m.form().spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form().fields) != 7 {
+	if got := m.form().spec(); got.Alias != "web" || got.Host.User != "deploy" || len(m.form().fields) != 8 {
 		t.Fatalf("form = %+v", got)
 	}
 	fill(m, "web1")
@@ -177,8 +205,8 @@ func TestEditUnmanagedConnectionOnlyChangesMetadata(t *testing.T) {
 	m := newStoreModel(t, f)
 	m.st.SetCursor("mine")
 	press(m, text("e")...)
-	if len(m.form().fields) != 2 {
-		t.Fatalf("fields = %d, want description and group only", len(m.form().fields))
+	if len(m.form().fields) != 3 {
+		t.Fatalf("fields = %d, want description, group and tunnels only", len(m.form().fields))
 	}
 	fill(m, "laptop", "home")
 	press(m, keyCtrlS)
@@ -197,7 +225,7 @@ func TestDeleteConnectionAsksFirst(t *testing.T) {
 		question string
 	}{
 		{"web", "Delete web from ssh_config?"},
-		{"mine", "Remove mine's description and group?"},
+		{"mine", "Remove mine's description, group and tunnels?"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.alias, func(t *testing.T) {
@@ -238,7 +266,7 @@ func TestFormIsDrawnInThePane(t *testing.T) {
 	m.st.SetCursor("mine")
 	press(m, text("a")...)
 	screen := ansi.Strip(m.render())
-	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "Ctrl+S save"} {
+	for _, want := range []string{"Add connection", "› Alias", "HostName", "host or IP address", "^S save"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("screen missing %q:\n%s", want, screen)
 		}

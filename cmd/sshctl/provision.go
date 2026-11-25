@@ -13,8 +13,8 @@ import (
 )
 
 // provisionCommand runs `sshctl provision <alias>`.
-func (a *app) provisionCommand(args []string) error {
-	alias, ok := aliasArg(args)
+func (a *app) provisionCommand(in input) error {
+	alias, ok := aliasArg(in)
 	if !ok {
 		return errUsage
 	}
@@ -122,32 +122,20 @@ func readAnswer(in *bufio.Reader) (string, bool) {
 	return strings.TrimSpace(line), true
 }
 
-const provisionDefaultUsage = "usage: sshctl provision default [<url|none> | --unset] [--group <name>]"
-
 // provisionDefault lists the dotfiles settings, or sets or unsets the
 // global one or, with --group, a Group's.
-func (a *app) provisionDefault(args []string) error {
-	if len(args) == 0 {
+func (a *app) provisionDefault(in input) error {
+	unset := in.flag("unset")
+	group, grouped := in.value(fieldGroup)
+	if len(in.args) == 0 && !unset && !grouped {
 		return a.listDotfiles()
 	}
-	var repo, group string
-	unset, grouped := false, false
-	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; {
-		case arg == "--unset" && !unset:
-			unset = true
-		case arg == "--group" && !grouped && i+1 < len(args) && args[i+1] != "":
-			grouped = true
-			i++
-			group = args[i]
-		case arg != "" && !strings.HasPrefix(arg, "-") && repo == "":
-			repo = arg
-		default:
-			return errors.New(provisionDefaultUsage)
-		}
+	var repo string
+	if len(in.args) == 1 {
+		repo = in.args[0]
 	}
-	if unset == (repo != "") {
-		return errors.New(provisionDefaultUsage)
+	if len(in.args) > 1 || unset == (repo != "") || grouped && group == "" {
+		return errUsage
 	}
 	if grouped {
 		return a.catalog().SetGroupDotfiles("", group, repo)

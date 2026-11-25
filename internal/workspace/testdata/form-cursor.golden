@@ -1,16 +1,16 @@
- ▾ prod 1                   │                                                   
-›    web                    │  Edit web                                         
- ▾ ungrouped 1              │                                                   
-     mine hand written      │    Alias          web                             
+ ▾ prod                     │                                                   
+›  ○ web                    │  Edit web                                         
+ ▾ ungrouped                │                                                   
+   ○ mine hand written      │    Alias          web                             
                             │  › HostName       10.0.0█.1                       
                             │    User           deploy                          
                             │    Port           22                              
                             │    Identity file  OpenSSH default                 
                             │    Description                                    
                             │    Group          prod                            
+                            │    Tunnels        panel=8083, cockpit=9090        
                             │                                                   
-                            │  Tab/↑↓ move · Ctrl+S save · Esc cancel           
+                            │  ^S save · Tab/Shift+Tab move · Esc cancel        
                             │                                                   
-                            │                                                   
-                            │                                                   
- no active connection · key: OpenSSH default                          ^B ? help 
+────────────────────────────┴───────────────────────────────────────────────────
+ no active connection · key: OpenSSH default                                    

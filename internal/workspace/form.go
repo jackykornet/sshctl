@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 // Host is how OpenSSH reaches a Connection whose Host block sshctl manages.
@@ -15,6 +16,9 @@ type Host = catalog.Host
 
 // Spec is a Connection as entered in the connection form.
 type Spec = catalog.Spec
+
+// Tunnel is a saved local forward on a Connection (ADR-0012).
+type Tunnel = catalog.Tunnel
 
 // IncludeError is returned by Catalog.Save when the user's ssh_config does
 // not yet read sshctl's hosts file. Saving can be retried after
@@ -32,6 +36,7 @@ const (
 	fieldDescription
 	fieldSpace
 	fieldGroup
+	fieldTunnels
 )
 
 type formField struct {
@@ -63,7 +68,7 @@ func newAddForm(space, group string) *connForm {
 }
 
 func newEditForm(c *Connection) *connForm {
-	s := Spec{Alias: c.Alias, Description: c.Description, Group: c.Group, Managed: c.Managed, Host: c.Host}
+	s := catalog.SpecFor(c.Entry)
 	f := &connForm{old: c.Alias, space: c.Space, managed: c.Managed}
 	if c.Managed {
 		f.fields = managedFields(s)
@@ -71,6 +76,7 @@ func newEditForm(c *Connection) *connForm {
 		f.fields = []formField{
 			{id: fieldDescription, label: "Description", value: newLine(s.Description)},
 			{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
+			tunnelsField(s.Tunnels),
 		}
 	}
 	return f
@@ -80,6 +86,13 @@ func newEditForm(c *Connection) *connForm {
 func (f *connForm) addSpaceField(name string) {
 	i := slices.IndexFunc(f.fields, func(fl formField) bool { return fl.id == fieldGroup })
 	f.fields = slices.Insert(f.fields, i, formField{id: fieldSpace, label: "Space", placeholder: "name or number", value: newLine(name)})
+}
+
+// focusOn moves the focus to field id, if the form has it.
+func (f *connForm) focusOn(id fieldID) {
+	if i := slices.IndexFunc(f.fields, func(fl formField) bool { return fl.id == id }); i >= 0 {
+		f.focusField(i)
+	}
 }
 
 // field returns the form's field id, or nil when it has none.
@@ -130,7 +143,14 @@ func managedFields(s Spec) []formField {
 		{id: fieldIdentity, label: "Identity file", placeholder: "OpenSSH default", value: newLine(s.Host.IdentityFile)},
 		{id: fieldDescription, label: "Description", value: newLine(s.Description)},
 		{id: fieldGroup, label: "Group", placeholder: "none", value: newLine(s.Group)},
+		tunnelsField(s.Tunnels),
 	}
+}
+
+// tunnelsField is the Tunnels field: a comma-separated list of specs, for
+// every Connection, since Tunnels are sshctl metadata (ADR-0012).
+func tunnelsField(tunnels []Tunnel) formField {
+	return formField{id: fieldTunnels, label: "Tunnels", placeholder: "panel=8083, cockpit=9090", value: newLine(tunnel.Join(tunnels))}
 }
 
 func (f *connForm) title() string {
@@ -140,11 +160,12 @@ func (f *connForm) title() string {
 	case f.managed:
 		return "Edit " + f.old
 	default:
-		return "Edit " + f.old + " (description and group)"
+		return "Edit " + f.old + " (sshctl metadata)"
 	}
 }
 
-// spec returns the form's values with surrounding spaces trimmed.
+// spec returns the form's values with surrounding spaces trimmed, all but
+// the Tunnels, which tunnels parses.
 func (f *connForm) spec() Spec {
 	s := Spec{Alias: f.old, Space: f.space, Managed: f.managed}
 	for _, fl := range f.fields {
@@ -169,6 +190,11 @@ func (f *connForm) spec() Spec {
 	return s
 }
 
+// tunnels parses the Tunnels field, a comma-separated list of specs.
+func (f *connForm) tunnels() ([]Tunnel, error) {
+	return tunnel.ParseList(f.field(fieldTunnels).value.String())
+}
+
 func (m *Model) startAdd() tea.Cmd {
 	group := ""
 	if r, ok := m.st.CursorRow(); ok {
@@ -188,13 +214,18 @@ func (m *Model) withSpaceField(f *connForm) {
 	}
 }
 
-func (m *Model) startEdit() tea.Cmd {
+func (m *Model) startEdit() tea.Cmd { return m.startEditAt(fieldAlias) }
+
+// startEditAt opens the edit form for the target Connection with the focus
+// on field focus, or on its first field when it has no such field.
+func (m *Model) startEditAt(focus fieldID) tea.Cmd {
 	c := m.moveTarget()
 	if c == nil {
 		return m.setStatus("no connection to edit", false)
 	}
 	f := newEditForm(c)
 	m.withSpaceField(f)
+	f.focusOn(focus)
 	m.openModal(f)
 	return nil
 }
@@ -203,24 +234,35 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	if cmd, ok := f.intercept(m, msg); ok {
 		return cmd
 	}
+	if bk, ok := findKey(f.keys(), msg.String()); ok {
+		return bk.run(m, msg)
+	}
 	fl := &f.fields[f.focus]
-	switch msg.String() {
-	case "esc":
-		m.showModal(nil)
-	case "tab", "down":
-		f.focusField(f.focus + 1)
-	case "shift+tab", "up":
-		f.focusField(f.focus - 1)
-	case "enter":
-		if f.focus < len(f.fields)-1 {
-			f.focusField(f.focus + 1)
-			return nil
-		}
-		return m.saveForm(f, false)
-	case "ctrl+s":
-		return m.saveForm(f, false)
-	case "ctrl+o":
-		if f.old == "" {
+	before := fl.value.String()
+	fl.value.key(msg)
+	f.clearGroupIfSpaceChanged(fl, before)
+	return nil
+}
+
+func (f *connForm) keys() []boundKey {
+	focus := func(delta int) action {
+		return func(*Model, tea.KeyPressMsg) tea.Cmd { f.focusField(f.focus + delta); return nil }
+	}
+	save := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.saveForm(f, false) }
+	keys := []boundKey{
+		on("ctrl+s", save).as("save"),
+		on("tab", focus(1)).as("move"), on("down", focus(1)),
+		on("shift+tab", focus(-1)).as("move"), on("up", focus(-1)),
+		on("enter", func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			if f.focus < len(f.fields)-1 {
+				return focus(1)(m, msg)
+			}
+			return save(m, msg)
+		}),
+		on("esc", closeModal).as("cancel"),
+	}
+	if f.old == "" {
+		keys = append(keys, on("ctrl+o", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			// While Bootstrap is off, nothing is saved and the form
 			// stays open, saying why.
 			if err := m.features.Check(catalog.FeatureBootstrap); err != nil {
@@ -228,13 +270,22 @@ func (f *connForm) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 				return nil
 			}
 			return m.saveForm(f, true)
-		}
-	default:
-		before := fl.value.String()
-		fl.value.key(msg)
-		f.clearGroupIfSpaceChanged(fl, before)
+		}).as("save and Bootstrap"))
 	}
-	return nil
+	return keys
+}
+
+// hints are the form's hint lines: its own keys, then Ctrl+O on a new
+// Connection, then how to leave after a swallowed prefix command.
+func (f *connForm) hints() []hintLine {
+	out := []hintLine{hintsFor(f.keys(), "ctrl+s", "tab", "shift+tab", "esc")}
+	if f.old == "" {
+		out = append(out, hintsFor(f.keys(), "ctrl+o"))
+	}
+	if f.swallowed {
+		out = append(out, hintsFor(f.keys(), "esc"))
+	}
+	return out
 }
 
 // focusField moves the focus to field i, wrapping around, with the cursor
@@ -253,7 +304,7 @@ func (f *connForm) paste(text string) {
 
 func (f *connForm) status() (string, bool) {
 	if f.swallowed {
-		return "form open: Esc to cancel", true
+		return "form open  " + hintsFor(f.keys(), "esc").String(), true
 	}
 	return "", false
 }
@@ -271,6 +322,13 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 	}
 	f.space = space
 	s := f.spec()
+	tunnels, err := f.tunnels()
+	if err != nil {
+		f.err = err.Error()
+		f.focusOn(fieldTunnels)
+		return nil
+	}
+	s.Tunnels = tunnels
 	group, ok := m.st.ResolveGroupIn(space, s.Group)
 	if !ok {
 		f.err = "no group number " + s.Group
@@ -283,7 +341,7 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 			return nil
 		}
 	}
-	err := m.opts.Catalog.Save(f.old, s)
+	err = m.opts.Catalog.Save(f.old, s)
 	var inc *IncludeError
 	if errors.As(err, &inc) {
 		m.askInclude(inc, func(m *Model) tea.Cmd {
@@ -329,7 +387,7 @@ func (m *Model) saveForm(f *connForm, bootstrap bool) tea.Cmd {
 // askInclude asks before adding inc's Include line to the user's ssh_config
 // (ADR-0002); yes runs on y.
 func (m *Model) askInclude(inc *IncludeError, yes func(*Model) tea.Cmd) {
-	m.ask(fmt.Sprintf("Add %q to the top of %s? (y/n)", inc.Line, inc.Config), yes)
+	m.ask(fmt.Sprintf("Add %q to the top of %s?", inc.Line, inc.Config), yes)
 }
 
 // offerInclude asks at startup to add the Include that sshctl's existing
@@ -354,12 +412,12 @@ func (m *Model) deleteConnection() tea.Cmd {
 	if c.Open() {
 		return m.setStatus("close "+c.Alias+"'s tabs before deleting it", true)
 	}
-	question := fmt.Sprintf("Delete %s from ssh_config? (y/n)", c.Alias)
+	question := fmt.Sprintf("Delete %s from ssh_config?", c.Alias)
 	if !c.Managed {
-		if c.Description == "" && c.Group == "" {
+		if c.Description == "" && c.Group == "" && len(c.Tunnels) == 0 {
 			return m.setStatus(c.Alias+" is defined outside sshctl; edit your ssh_config to remove it", true)
 		}
-		question = fmt.Sprintf("Remove %s's description and group? Its Host block is not sshctl's. (y/n)", c.Alias)
+		question = fmt.Sprintf("Remove %s's description, group and tunnels? Its Host block is not sshctl's.", c.Alias)
 	}
 	alias := c.Alias
 	m.ask(question, func(m *Model) tea.Cmd {
@@ -374,8 +432,10 @@ func (m *Model) deleteConnection() tea.Cmd {
 // render draws the connection form in a w×h pane. Under the Space field it
 // lists spaces, the Spaces by number; under the group field the stored
 // groups of the form's Space by Group number, since the form covers their
-// headers.
-func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) []string {
+// headers. An alias equal to one of commands, sshctl's built-in commands,
+// gets a warning under the alias field: it is reached only with sshctl -c
+// (ADR-0011), but it is not refused.
+func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool, commands []string) []string {
 	lines := []string{"", "  " + boldStyle.Render(f.title()), ""}
 	for i, fl := range f.fields {
 		pointer := "  "
@@ -387,6 +447,9 @@ func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) [
 			value = dimStyle.Render(fl.placeholder)
 		}
 		lines = append(lines, fmt.Sprintf("  %s%-14s %s", pointer, fl.label, value))
+		if alias := strings.TrimSpace(fl.value.String()); fl.id == fieldAlias && slices.Contains(commands, alias) {
+			lines = append(lines, "    "+errStyle.Render(fmt.Sprintf("sshctl %s is a command; use sshctl -c %s", alias, alias)))
+		}
 		if fl.id == fieldSpace {
 			lines = append(lines, strings.Repeat(" ", 19)+dimStyle.Render(strings.Join(spaces, " · ")))
 		}
@@ -405,9 +468,10 @@ func (f *connForm) render(w, h int, spaces, groups []string, bootstrapOn bool) [
 	if f.err != "" {
 		lines = append(lines, "  "+errStyle.Render(f.err))
 	}
-	lines = append(lines, "  "+dimStyle.Render("Tab/↑↓ move · Ctrl+S save · Esc cancel"))
+	hints := f.hints()
+	lines = append(lines, "  "+dimStyle.Render(hints[0].String()))
 	if f.old == "" {
-		hint := "Ctrl+O save and Bootstrap"
+		hint := hints[1].String()
 		if !bootstrapOn {
 			hint += " (experimental, off)"
 		}

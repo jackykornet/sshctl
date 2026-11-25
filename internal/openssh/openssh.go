@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/sshctl/sshctl/internal/tunnel"
 )
 
 type Client struct {
@@ -140,28 +142,35 @@ func (c *Client) SafeSettings() ([]string, error) {
 	return settings, err
 }
 
-func (c *Client) Connect(ctx context.Context, alias string, key string, claude bool) error {
-	argv := ConnectArgs(alias, key, claude)
-	return runInteractive(ctx, argv[0], argv[1:]...)
+// ConnectArgs returns the ssh command line for alias. A non-empty key is the
+// Selected identity and is passed with -i.
+func ConnectArgs(alias, key string) []string {
+	argv := []string{"ssh"}
+	if key != "" {
+		argv = append(argv, "-i", key)
+	}
+	return append(argv, alias)
 }
 
-// ConnectArgs returns the ssh command line for alias. A non-empty key is the
-// Selected identity and is passed with -i; claude runs claude on the remote
-// host, with -t because ssh gives a remote command no terminal otherwise.
-func ConnectArgs(alias, key string, claude bool) []string {
-	argv := []string{"ssh"}
-	if claude {
-		argv = append(argv, "-t")
+// TunnelArgs returns the ssh command line that runs tunnels, alias's
+// Tunnels, with no remote command (ADR-0012). ssh exits when a forward cannot
+// be set up or the server stops answering for about 90 seconds; batch also
+// makes it fail rather than prompt, for a tunnel run with no terminal. A
+// non-empty key is the Selected identity. The Host block is not changed.
+func TunnelArgs(alias, key string, tunnels []tunnel.Tunnel, batch bool) []string {
+	argv := []string{"ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"}
+	if batch {
+		argv = append(argv, "-o", "BatchMode=yes")
 	}
 	if key != "" {
 		argv = append(argv, "-i", key)
 	}
-	argv = append(argv, alias)
-	if claude {
-		argv = append(argv, "claude")
+	for _, t := range tunnels {
+		argv = append(argv, "-L", t.Forward())
 	}
-	return argv
+	return append(argv, alias)
 }
+
 func runInteractive(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = os.Stdin

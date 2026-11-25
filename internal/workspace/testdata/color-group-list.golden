@@ -1,0 +1,20 @@
+ [1] default  [2] acme                                                          
+────────────────────────────┬───────────────────────────────────────────────────
+ ▾ 1 web ●1                 │ prod-web                                          
+›  ● prod-web public site   │ [1 ssh ●] [+]                                     
+   ○ staging                │                                                   
+ ▾ ungrouped                │                                                   
+   ○ db-main postgres       │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ LIST web / prod-web         Enter open · / filter · a add · e edit · ^B ? help 
+ ccc ccccccc  bbb bbbb                                                          
+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+ . . rrr gg                 r rrrrrrrr                                          
+cCCCCCCCCCCCCCCCCCCCCCCCCCCCr RRRRRRRRR ...                                     
+   . .......                r                                                   
+ . .........                r                                                   
+   . ....... ........       r                                                   
+                            r                                                   
+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+#CCCC#RRRRRRRRRRRRRR############################################################

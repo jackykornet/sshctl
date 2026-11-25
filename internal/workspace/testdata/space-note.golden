@@ -1,10 +1,10 @@
- [1][2][3][4][5…│                                                               
+ [1] default  [2] acme  [5] idle                                                
+────────────────┬───────────────────────────────────────────────────────────────
  1 default ·    │                                                               
- 2 acme · 5 idle│  Select a connection and press Enter.                         
-›▾ 1 web 2      │                                                               
-     prod-web p…│                                                               
-     staging    │                                                               
+ 2 acme · 5 idle│                                                               
+›▾ 1 web        │                                                               
+   ○ prod-web p…│  Select a connection and press Enter.                         
+   ○ staging    │                                                               
                 │                                                               
-                │                                                               
-                │                                                               
- default · no active connection · key: id_ed25519                     ^B ? help 
+────────────────┴───────────────────────────────────────────────────────────────
+ LIST no active connection   Enter open · / filter · a add · e edit · ^B ? help 

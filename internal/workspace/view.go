@@ -2,8 +2,7 @@ package workspace
 
 import (
 	"fmt"
-	"github.com/sshctl/sshctl/internal/catalog"
-	"path/filepath"
+	"github.com/sshctl/sshctl/internal/openssh"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -25,9 +24,12 @@ var (
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
 	// selectionStyle draws text selected with the mouse in a Session pane.
 	selectionStyle = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
-	// spaceActiveStyle is the accent colour of the active Space in the
-	// Space bar.
-	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// accentStyle is the Workspace's accent colour: the active Space in the
+	// Space bar and the picker, and the side with focus, its current tab
+	// while the pane has it and the status bar's LIST or SESSION tag.
+	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// focusRowStyle is the list's cursor row while the list has focus.
+	focusRowStyle = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Cyan)
 	// spaceFreeStyle is a free Space number in the Space bar, fainter than
 	// an idle Space. The picker draws its free rows in dimStyle.
 	spaceFreeStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlack).Faint(true)
@@ -44,7 +46,7 @@ func (m *Model) View() tea.View {
 	if s, r := m.currentRunner(); r != nil && !s.Ended && m.focus == focusPane &&
 		m.base().kind == modeList && m.mode.kind != modeModal && m.mode.kind != modeDrag {
 		if x, y, visible := r.term.Cursor(); visible {
-			v.Cursor = tea.NewCursor(m.paneOffset()+x, 1+y)
+			v.Cursor = tea.NewCursor(m.paneOffset()+x, m.frame().bodyTop+y)
 		}
 	}
 	return v
@@ -83,31 +85,51 @@ func (m *Model) render() string {
 		}
 		return strings.Join(append(lines, m.renderStatus(m.w)), "\n")
 	}
+	f := m.frame()
 	lw := m.listWidth()
-	pane := m.renderPane(m.w-m.paneOffset(), mainH)
+	lines := make([]string, 0, m.h)
+	if f.spaceBar {
+		lines = append(lines, fit(m.spaceBar(m.w), m.w))
+	}
+	if f.spaceRule {
+		lines = append(lines, m.rule("┬"))
+	}
+	pane := m.renderPane(m.w-m.paneOffset(), f)
 	var list []string
 	if lw > 0 {
-		list = m.renderList(lw, mainH)
+		list = m.renderList(lw, f.mainH)
 	}
-	lines := make([]string, 0, m.h)
-	sep := dimStyle.Render("│")
-	for i := range mainH {
+	sep := m.frameStyle().Render("│")
+	for i := range f.mainH {
 		if lw > 0 {
 			lines = append(lines, list[i]+sep+pane[i])
 		} else {
 			lines = append(lines, pane[i])
 		}
 	}
+	if f.statusRule {
+		lines = append(lines, m.rule("┴"))
+	}
 	lines = append(lines, m.renderStatus(m.w))
 	return strings.Join(lines, "\n")
 }
 
-func (m *Model) renderList(w, h int) []string {
-	rows, offset, top := m.listRows()
-	lines := make([]string, 0, h)
-	if bar := m.spaceBar(w); bar != "" {
-		lines = append(lines, fit(bar, w))
+// rule is a full-width line in frameStyle, with join where it meets the
+// line between the list and the pane.
+func (m *Model) rule(join string) string {
+	r := strings.Repeat("─", m.w)
+	if lw := m.listWidth(); lw > 0 {
+		r = strings.Repeat("─", lw) + join + strings.Repeat("─", m.w-lw-1)
 	}
+	return m.frameStyle().Render(r)
+}
+
+func (m *Model) renderList(w, h int) []string {
+	section := m.tunnelSection(w)
+	h -= len(section)
+	rows, offset, top := m.listRows()
+	top -= m.frame().mainTop // rows above the list's own
+	lines := make([]string, 0, h)
 	for _, l := range m.spaceNoteLines(w) {
 		lines = append(lines, fit(dimStyle.Render(l), w))
 	}
@@ -125,76 +147,163 @@ func (m *Model) renderList(w, h int) []string {
 		if len(lines) == h {
 			break
 		}
-		pointer := " "
-		if m.focus == focusList && offset+i == cursor {
-			pointer = "›"
-		}
+		onCursor := m.tunnelCursor < 0 && offset+i == cursor
+		mark := m.pointer(onCursor)
 		var line string
 		highlight := false
 		if r.Header() {
-			line = pointer + m.headerLabel(r.Group)
+			line = m.headerLabel(r.Group)
 			highlight = active != nil && active.Group == r.Group && m.st.Collapsed(r.Group) && m.st.Filter() == ""
 		} else {
-			space := ""
-			if m.st.CrossSpace() {
-				space = m.st.SpaceName(r.Conn.Space)
+			cross := m.st.CrossSpace()
+			path := ""
+			if cross && r.Conn.Space != m.st.Space() {
+				path = m.st.SpaceName(r.Conn.Space)
+				if r.Conn.Group != "" {
+					path += pathSep + r.Conn.Group
+				}
 			}
-			line = pointer + connLabel(r.Conn, grouped && space == "", space)
+			line = connLabel(r.Conn, grouped && !cross, path, m.tunnels.running(r.Conn.Alias), w-1)
 			highlight = r.Conn == active
 		}
-		line = fit(line, w)
+		line = fit(line, w-1)
 		switch d := m.mode.drag; {
 		case d != nil && d.moving && d.group == "" && !r.Header() && r.Conn.Alias == d.alias,
 			d != nil && d.moving && d.group != "" && r.Header() && r.Group == d.group:
 			line = dimStyle.Render(ansi.Strip(line))
 		case d != nil && d.moving && d.ok && r.Group == d.target:
 			line = dropStyle.Render(ansi.Strip(line))
+		case onCursor && m.listFocused():
+			// The bar runs to the list's edge; the cursor's › stays apart.
+			line = focusRowStyle.Render(ansi.Strip(line))
 		case highlight:
 			line = activeRow.Render(ansi.Strip(line))
 		}
-		lines = append(lines, line)
+		lines = append(lines, mark+line)
 	}
 	if len(rows) == 0 && len(lines) < h {
 		msg := "no hosts in ssh_config"
-		if m.st.Filter() != "" {
+		switch {
+		case m.st.Filter() != "":
 			msg = "no matches"
+		case !m.st.NoHosts():
+			msg = "no connections here"
 		}
 		lines = append(lines, fit(dimStyle.Render(" "+msg), w))
 	}
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
+	return append(lines, section...)
+}
+
+// tunnelMarker flags a Connection with a running tunnel, and starts each
+// row of the Tunnels section.
+const tunnelMarker = "⇄"
+
+// tunnelSection is the Tunnels section's lines, w columns wide: a title,
+// then one row per Tunnel of every tunnel, from every Space, scrolled to
+// keep the cursor's row in view.
+func (m *Model) tunnelSection(w int) []string {
+	s := m.tunnelLayout()
+	if s.height == 0 {
+		return nil
+	}
+	title := "─ Tunnels "
+	lines := []string{dimStyle.Render(fit(title+strings.Repeat("─", max(0, w-len([]rune(title)))), w))}
+	for i, r := range s.rows[s.first:min(len(s.rows), s.first+s.height-1)] {
+		lines = append(lines, m.tunnelLine(r, s.first+i == m.tunnelCursor, w))
+	}
 	return lines
 }
 
-// spaceBar shows every Space number, [1] [2] [3] … [9]: the active Space
-// in the accent colour, one with a live Session in normal text, an idle one
-// dimmed, and a free number fainter still. When that is wider than w, the
-// numbers close up, [1][2][3]. It is empty while there is only one Space.
+// pointer starts a list or Tunnels section row: › on the cursor's row, in
+// the accent colour while the list has focus and dim while it has not, so
+// it shows where ^B Tab lands.
+func (m *Model) pointer(cursor bool) string {
+	switch {
+	case !cursor:
+		return " "
+	case m.listFocused():
+		return accentStyle.Render("›")
+	}
+	return dimStyle.Render("›")
+}
+
+// listFocused reports whether keys go to the list rather than the pane.
+func (m *Model) listFocused() bool { return !m.paneFocused() }
+
+// paneFocused reports whether keys go to the Active connection's pane.
+func (m *Model) paneFocused() bool { return m.focus == focusPane && m.st.Active() != nil }
+
+// tunnelLine is one row of the Tunnels section, such as
+// ⇄ prod-web panel :8083 ●, or ⇄ 2·vps panel :8084 ● for a Connection in
+// another Space. A failed tunnel ends in ✕ and ssh's error.
+func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
+	name := r.run.alias
+	if n := m.st.OtherSpaceNumber(r.run.alias, r.run.space); n > 0 {
+		name = dimStyle.Render(fmt.Sprintf("%d·", n)) + name
+	}
+	if r.tunnel.Name != "" {
+		name += " " + r.tunnel.Name
+	}
+	state, detail := openStyle.Render("●"), ""
+	if r.run.failed() {
+		state, detail = errStyle.Render("✕"), " "+dimStyle.Render(r.run.err)
+	}
+	right := fmt.Sprintf(" :%d %s", r.tunnel.LocalPort, state)
+	left := tunnelMarker + " "
+	room := w - 1 - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if ansi.StringWidth(name) > room {
+		name = ansi.Truncate(name, max(room, 1), "…")
+	}
+	line := fit(left+name+right+detail, w-1)
+	if cursor && m.listFocused() {
+		line = focusRowStyle.Render(ansi.Strip(line))
+	}
+	return m.pointer(cursor) + line
+}
+
+// spaceBar is the Workspace's top row: every Space as [1] homelab, the
+// active Space in the accent colour, one with a live Session in normal
+// text and an idle one dimmed; a Space with an Indicator color is in that
+// color instead, bold when active and faint when idle. When the names do not fit in w columns it
+// shows every Space number instead, [1] [2] [3] … [9], a free number
+// fainter still, and closes them up, [1][2][3], when even that is wider.
+// It is empty while there is only one Space.
 func (m *Model) spaceBar(w int) string {
 	if !m.st.SeveralSpaces() {
 		return ""
 	}
-	var parts []string
+	var named, numbers []string
 	for _, t := range m.st.SpaceSlots() {
 		if t.Number == 0 {
 			continue // beyond the ninth: only the picker lists it
 		}
-		label := fmt.Sprintf("[%d]", t.Number)
+		style := lipgloss.NewStyle()
 		switch {
 		case t.Free():
-			label = spaceFreeStyle.Render(label)
+			style = spaceFreeStyle
 		case t.Active:
-			label = spaceActiveStyle.Render(label)
+			style = accentStyle
 		case !t.Live:
-			label = dimStyle.Render(label)
+			style = dimStyle
 		}
-		parts = append(parts, label)
+		if c, ok := indicator(t.Color, lipgloss.NewStyle()); ok && !t.Free() {
+			style = c.Bold(t.Active).Faint(!t.Active && !t.Live)
+		}
+		label := fmt.Sprintf("[%d]", t.Number)
+		numbers = append(numbers, style.Render(label))
+		if !t.Free() {
+			named = append(named, style.Render(label+" "+t.Name))
+		}
 	}
-	if bar := " " + strings.Join(parts, " "); ansi.StringWidth(bar) <= w {
-		return bar
+	for _, bar := range []string{" " + strings.Join(named, "  "), " " + strings.Join(numbers, " ")} {
+		if ansi.StringWidth(bar) <= w {
+			return bar
+		}
 	}
-	return " " + strings.Join(parts, "")
+	return " " + strings.Join(numbers, "")
 }
 
 // spaceNames is every Space as "number name" in number order, a Space
@@ -238,20 +347,27 @@ func (m *Model) spaceNoteLines(w int) []string {
 	return append(lines, line)
 }
 
-// headerLabel is a group header: its fold marker, Group number (for a stored
-// Group), name and member count, then how many members are open and whether
-// any has unseen activity.
+// headerLabel is a group header, ▾ 1 web ●1 •: its fold marker, Group
+// number (for a stored Group), name, in the Group's resolved Indicator
+// color if any, its member count while collapsed, then how many members
+// are open and whether any has unseen activity.
 func (m *Model) headerLabel(group string) string {
+	collapsed := m.st.Collapsed(group) && m.st.Filter() == ""
 	fold := "▾ "
-	if m.st.Collapsed(group) && m.st.Filter() == "" {
+	if collapsed {
 		fold = "▸ "
 	}
-	name := boldStyle.Render(group)
+	style, colored := indicator(m.st.Color(m.st.Space(), group), boldStyle)
+	name := style.Render(group)
 	if n := m.st.GroupPosition(group); n > 0 {
 		name = dimStyle.Render(fmt.Sprint(n)) + " " + name
 	}
 	if group == "" {
-		name = dimStyle.Render("ungrouped")
+		style, colored = indicator(m.st.Color(m.st.Space(), ""), lipgloss.NewStyle())
+		if !colored {
+			style = dimStyle
+		}
+		name = style.Render("ungrouped")
 	}
 	members := m.st.Members(group)
 	open, unseen := 0, false
@@ -261,11 +377,13 @@ func (m *Model) headerLabel(group string) string {
 		}
 		unseen = unseen || c.Unseen()
 	}
-	count := fmt.Sprint(len(members))
-	if len(members) == 0 && group != "" {
-		count = "(empty)"
+	line := fold + name
+	switch {
+	case len(members) == 0 && group != "":
+		line += " " + dimStyle.Render("(empty)")
+	case collapsed:
+		line += " " + dimStyle.Render(fmt.Sprint(len(members)))
 	}
-	line := fold + name + " " + dimStyle.Render(count)
 	if open > 0 {
 		line += " " + openStyle.Render(fmt.Sprintf("●%d", open))
 	}
@@ -276,95 +394,110 @@ func (m *Model) headerLabel(group string) string {
 }
 
 // connLabel is a Connection row after the cursor pointer, indented under its
-// group header when the list is grouped. A space names the Connection's
-// Space, for a filter across every Space.
-func connLabel(c *Connection, grouped bool, space string) string {
-	marker, name := "  ", c.Alias
+// group header when the list is grouped: a dot for its Sessions (green ●
+// open, yellow ● all ended, dim ○ not open), its alias, ⇄ for a running
+// tunnel, • for unseen activity, then its description, in w columns. A
+// path, Space › Group for a filter match from another Space, goes before
+// the alias; when the row is too wide the description goes first, then the
+// path is cut short, so the alias stays whole.
+func connLabel(c *Connection, grouped bool, path string, tunnel bool, w int) string {
+	dot, name := dimStyle.Render("○"), c.Alias
 	switch {
 	case c.AllEnded():
-		marker, name = endedStyle.Render("● "), endedStyle.Render(c.Alias)
+		dot = endedStyle.Render("●")
 	case c.Open():
-		marker, name = openStyle.Render("● "), openStyle.Render(c.Alias)
+		dot = openStyle.Render("●")
 	case c.Orphaned:
 		name = dimStyle.Render(c.Alias)
 	}
-	line := marker + name
+	lead := dot + " "
 	if grouped {
-		line = "  " + line
+		lead = "  " + lead
+	}
+	if tunnel {
+		name += " " + openStyle.Render(tunnelMarker)
 	}
 	if c.Unseen() {
-		line += " " + unseenStyle.Render(unseenMarker)
+		name += " " + unseenStyle.Render(unseenMarker)
 	}
-	if extra := rowDetail(c, grouped, space); extra != "" {
+	other := path != ""
+	if other {
+		path += pathSep
+		if room := w - ansi.StringWidth(lead+name); ansi.StringWidth(path) > room {
+			short := ""
+			if room >= 2 {
+				short = ansi.Truncate(strings.TrimSuffix(path, " "), room-1, "…") + " "
+			}
+			path = short
+		}
+		name = dimStyle.Render(path) + name
+	}
+	line := lead + name
+	extra := rowDetail(c, grouped || other)
+	if room := w - ansi.StringWidth(line) - 1; extra != "" && (!other || room > 0) {
+		if other {
+			extra = ansi.Truncate(extra, room, "…")
+		}
 		line += " " + dimStyle.Render(extra)
 	}
 	return line
 }
 
+// pathSep separates the Space, Group and alias of a filter match from
+// another Space: acme › prod › web01.
+const pathSep = " › "
+
 // rowDetail is a Connection's description, or (missing) when it is orphaned.
-// The group is added only when the list has no group headers to show it,
-// after the Connection's space when that is given: [space/group].
-func rowDetail(c *Connection, grouped bool, space string) string {
+// The group is added only when the list shows it nowhere else: [group].
+func rowDetail(c *Connection, grouped bool) string {
 	if c.Orphaned {
-		if space != "" {
-			return "(missing) [" + space + "]"
-		}
 		return "(missing)"
 	}
 	d := c.Description
-	where := c.Group
-	if grouped {
-		where = ""
-	}
-	if space != "" {
-		where = strings.TrimSuffix(space+"/"+where, "/")
-	}
-	if where != "" {
-		d = strings.TrimSpace(d + " [" + where + "]")
+	if !grouped && c.Group != "" {
+		d = strings.TrimSpace(d + " [" + c.Group + "]")
 	}
 	return d
 }
 
+// A tabSpan is where a tab sits on the tab line: columns [start, end) of
+// the pane, and the tab's index, or newTabSpan for [+].
 type tabSpan struct{ start, end, index int }
 
-// tabBar renders the Active connection's tabs in width columns, scrolling so
-// the current tab stays visible, and reports where each visible tab sits.
+// newTabSpan is the index of the [+] that opens a new tab.
+const newTabSpan = -1
+
+// newTabLabel ends the tab line, a mouse target for a new tab.
+const newTabLabel = "[+]"
+
+// tabBar renders the Active connection's tabs in width columns,
+// [1 ssh ●] [2 provision ●] [+], scrolling so the current tab stays
+// visible, and reports where each visible tab and the [+] sit.
 func (m *Model) tabBar(width int) (string, []tabSpan) {
 	c := m.st.Active()
 	if c == nil || !c.Open() || width <= 0 {
 		return strings.Repeat(" ", max(width, 0)), nil
 	}
 	labels := make([]string, len(c.Sessions))
-	styles := make([]lipgloss.Style, len(c.Sessions))
+	plain := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
-		label := fmt.Sprintf("%s %d", c.Alias, s.N)
-		switch {
-		case s.Action != "":
-			label += " " + string(s.Action)
-		case s.Claude:
-			label += " claude"
-		}
-		marker, style := tabState(s)
-		labels[i] = " " + label + marker + " "
-		styles[i] = style
-		if i == c.Current {
-			styles[i] = activeRow
-		}
+		labels[i], plain[i] = tabLabel(s, i == c.Current, m.paneFocused(), m.st.ActiveColor())
 	}
-	// Grow a window of tabs around the current one while it fits, leaving room for ‹ and ›.
-	avail := width - 2
+	// Grow a window of tabs around the current one while it fits, leaving
+	// room for ‹ and › and for the [+].
+	avail := width - 2 - len(newTabLabel) - 1
 	first, last := c.Current, c.Current
-	used := ansi.StringWidth(labels[c.Current])
+	used := ansi.StringWidth(plain[c.Current])
 	for {
 		grew := false
-		if last+1 < len(labels) && used+ansi.StringWidth(labels[last+1]) <= avail {
+		if last+1 < len(plain) && used+1+ansi.StringWidth(plain[last+1]) <= avail {
 			last++
-			used += ansi.StringWidth(labels[last])
+			used += 1 + ansi.StringWidth(plain[last])
 			grew = true
 		}
-		if first > 0 && used+ansi.StringWidth(labels[first-1]) <= avail {
+		if first > 0 && used+1+ansi.StringWidth(plain[first-1]) <= avail {
 			first--
-			used += ansi.StringWidth(labels[first])
+			used += 1 + ansi.StringWidth(plain[first])
 			grew = true
 		}
 		if !grew {
@@ -374,47 +507,90 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	var b strings.Builder
 	var spans []tabSpan
 	x := 0
+	write := func(s string, w int) { b.WriteString(s); x += w }
 	if first > 0 {
-		b.WriteString(dimStyle.Render("‹"))
-		x++
+		write(dimStyle.Render("‹"), 1)
+	} else {
+		write(" ", 1)
 	}
 	for i := first; i <= last; i++ {
-		lw := ansi.StringWidth(labels[i])
+		if i > first {
+			write(" ", 1)
+		}
+		lw := ansi.StringWidth(plain[i])
 		spans = append(spans, tabSpan{x, x + lw, i})
-		b.WriteString(styles[i].Render(labels[i]))
-		x += lw
+		write(labels[i], lw)
 	}
 	if last < len(labels)-1 {
-		b.WriteString(dimStyle.Render("›"))
+		write(dimStyle.Render("›"), 1)
+	} else {
+		write(" ", 1)
 	}
+	spans = append(spans, tabSpan{x, x + len(newTabLabel), newTabSpan})
+	write(dimStyle.Render(newTabLabel), len(newTabLabel))
 	return fit(b.String(), width), spans
 }
 
-// tabState returns a tab's state marker (with its leading space, or empty)
-// and the style for a tab that is not current. Ended wins over activity.
-func tabState(s *Session) (marker string, style lipgloss.Style) {
-	switch {
-	case s.Ended:
-		return " ✕", endedStyle
-	case s.Unseen:
-		return " " + unseenMarker, unseenStyle
-	default:
-		return "", dimStyle
+// tabLabel is a tab, [1 ssh ●]: its number, what it runs and a dot, green
+// while live and yellow once ended. Unseen activity makes it bold and adds
+// •. The current tab is in the accent colour while the pane has focus, and
+// in reverse video while it has not; the Indicator color color, when there
+// is one, takes the accent colour's place in both (ADR-0009). plain is the
+// label unstyled.
+func tabLabel(s *Session, current, focused bool, color string) (label, plain string) {
+	what := "ssh"
+	if s.Action != "" {
+		what = string(s.Action)
 	}
+	head := fmt.Sprintf("[%d %s ", s.N, what)
+	dot := openStyle.Render("●")
+	if s.Ended {
+		dot = endedStyle.Render("●")
+	}
+	unseen := s.Unseen && !s.Ended
+	plain = head + "●"
+	if unseen {
+		plain += " " + unseenMarker
+	}
+	plain += "]"
+	switch {
+	case current && focused:
+		style, _ := indicator(color, accentStyle)
+		return style.Render(plain), plain
+	case current:
+		style, _ := indicator(color, activeRow)
+		return style.Render(plain), plain
+	}
+	style := lipgloss.NewStyle()
+	if unseen {
+		style = unseenStyle
+	}
+	label = style.Render(head) + dot
+	if unseen {
+		label += " " + unseenStyle.Render(unseenMarker)
+	}
+	return label + style.Render("]"), plain
 }
 
-func (m *Model) renderPane(w, h int) []string {
-	if f := m.form(); f != nil {
-		return f.render(w, h, m.spaceNames(), f.groups(m.st), m.features.On(catalog.FeatureBootstrap))
+// renderPane is the pane's lines, w columns wide, for the main area of f:
+// the header (when f has room for it), the tab line and the Session.
+func (m *Model) renderPane(w int, f frameLayout) []string {
+	h := f.mainH
+	if p := m.paneModal(); p != nil {
+		return p.renderPane(m, w, h)
 	}
-	if p := m.picker(); p != nil {
-		return p.render(m, w, h)
+	var lines []string
+	if f.paneHeader {
+		lines = append(lines, fit(m.paneTitle(), w))
 	}
 	bar, _ := m.tabBar(w)
-	lines := []string{bar}
+	lines = append(lines, bar)
+	top := len(lines)
 	var body []string
 	s, r := m.currentRunner()
 	switch {
+	case s == nil && m.st.Filter() == "" && m.st.NoConnections():
+		body = m.gettingStarted(w)
 	case s == nil:
 		body = []string{"", "  " + dimStyle.Render("Select a connection and press Enter.")}
 	case r != nil:
@@ -425,7 +601,7 @@ func (m *Model) renderPane(w, h int) []string {
 		sel = nil
 	}
 	for y, l := range body {
-		if len(lines) == h {
+		if len(lines) >= h {
 			break
 		}
 		l = fit(l, w)
@@ -440,11 +616,67 @@ func (m *Model) renderPane(w, h int) []string {
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
-	if s != nil && s.Ended && h > 1 {
-		banner := fmt.Sprintf(" session ended (exit %d) · r reconnect · x close ", s.ExitCode)
+	lines = lines[:h]
+	if s != nil && s.Ended && h > top {
+		banner := fmt.Sprintf(" session ended (exit %d) · %s ", s.ExitCode, m.endedHints())
 		lines[h-1] = endedBanner.Render(fit(banner, w))
 	}
 	return lines
+}
+
+// gettingStarted is the pane's body, w columns wide, while the active Space
+// has no Connections and no filter is typed: how to add one, where Hosts
+// already in ssh_config come from, and the Space picker and help keys.
+func (m *Model) gettingStarted(w int) []string {
+	title, where := "No connections yet.", "here"
+	if m.st.Space() != "" {
+		title = fmt.Sprintf("No connections in %s yet.", m.st.ActiveSpaceName())
+		where = "in Space " + m.st.SpaceName("")
+	}
+	add, spaces, help := m.gettingStartedHints()
+	// On a Group header a adds a Group, so the screen says that instead.
+	addPara := add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + "."
+	if g, ok := m.headerTarget(); ok {
+		addPara = add.String() + ": a new group, here on a group header. To add a connection to " + g +
+			", run sshctl add <alias> --space " + m.st.ActiveSpaceName() + " --group " + g + "."
+	}
+	paras := []string{
+		addPara,
+		"Hosts already in ~/.ssh/config show up " + where + ". Saving needs " + openssh.IncludeLine +
+			" at the top of ~/.ssh/config; sshctl asks before adding it.",
+		spaces.String() + ": switch, add or rename Spaces.",
+		help.String() + ": every key.",
+	}
+	body := []string{"", "  " + boldStyle.Render(title)}
+	for _, p := range paras {
+		body = append(body, "")
+		for _, l := range strings.Split(ansi.Wordwrap(p, max(1, w-4), ""), "\n") {
+			body = append(body, "  "+l)
+		}
+	}
+	return body
+}
+
+// gettingStartedHints are the keys the getting-started screen names: add,
+// the Space picker and help.
+func (m *Model) gettingStartedHints() (add, spaces, help hintLine) {
+	return m.hint(inList, "a"), m.hint(inList, "P"), m.hint(inPrefix, "?")
+}
+
+// paneTitle is the pane's header, alias · user@host[:port], or the alias
+// alone until (or unless) its endpoint resolves. The alias is in the Active
+// connection's Indicator color, if any.
+func (m *Model) paneTitle() string {
+	c := m.st.Active()
+	if c == nil {
+		return ""
+	}
+	alias, _ := indicator(m.st.ActiveColor(), boldStyle)
+	t := " " + alias.Render(c.Alias)
+	if e := m.endpoints[c.Alias]; e.text != "" {
+		t += dimStyle.Render(" · " + e.text)
+	}
+	return t
 }
 
 // highlight draws columns [x0, x1) of line, which is w columns wide, in
@@ -470,7 +702,7 @@ func (m *Model) helpLines() (title string, body []string) {
 		labels[i] = m.bindingLabel(b)
 		width = max(width, ansi.StringWidth(labels[i]))
 	}
-	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  (↑/↓ PgUp/PgDn scroll · any other key closes)")
+	title = "  " + boldStyle.Render("Keys") + dimStyle.Render("  "+(&helpScreen{}).hints()[0].String())
 	for i, b := range bindings {
 		pad := strings.Repeat(" ", width-ansi.StringWidth(labels[i]))
 		body = append(body, "  "+labels[i]+pad+"  "+dimStyle.Render(m.helpText(b)))
@@ -480,6 +712,9 @@ func (m *Model) helpLines() (title string, body []string) {
 
 func (m *Model) renderStatus(w int) string {
 	var left string
+	// dropKey is set when the left side ends with the dim key, which
+	// the hints may take the room of: the focused pane's keys matter more.
+	dropKey := false
 	modalStatus, ok := "", false
 	if m.mode.modal != nil {
 		modalStatus, ok = m.mode.modal.status()
@@ -509,49 +744,99 @@ func (m *Model) renderStatus(w int) string {
 	case m.status != "":
 		left = m.status
 	case m.scrolling():
-		left = "scroll mode · ↑/↓ PgUp/PgDn g/G · q exit"
+		left = "scroll mode · " + m.scrollHints().String()
 		if _, r := m.currentRunner(); r != nil {
-			left = fmt.Sprintf("scroll: %d/%d lines back · ↑/↓ PgUp/PgDn g/G · q exit", r.scroll, r.term.ScrollbackLen())
+			left = fmt.Sprintf("%d/%d lines back · %s", r.scroll, r.term.ScrollbackLen(), m.scrollHints())
 		}
 	default:
 		left = m.sessionStatus()
+		dropKey = true
+	}
+	// The tag says which side has focus; a modal's or the filter's own
+	// status says where you are instead.
+	if m.mode.modal == nil && !m.filtering() {
+		tag := "LIST"
+		if m.paneFocused() {
+			tag = "SESSION"
+		}
+		left = accentStyle.Render(tag) + " " + left
 	}
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
-	p := keyHint(m.opts.PrefixKey)
+	lefts := []string{left}
+	if dropKey {
+		lefts = append(lefts, strings.TrimSuffix(left, m.statusKey()))
+	}
 	line := " " + left
-	for _, right := range []string{
-		fmt.Sprintf("%s ? help · %s n new tab · %s w close", p, p, p),
-		p + " ? help",
-	} {
-		if gap := w - ansi.StringWidth(line) - ansi.StringWidth(right) - 1; gap >= 1 {
-			line += strings.Repeat(" ", gap) + right + " "
-			break
+hints:
+	for _, hints := range m.statusHints() {
+		right := hints.String()
+		for _, l := range lefts {
+			// A space before the left side, at least one between, one after.
+			if gap := w - ansi.StringWidth(l) - ansi.StringWidth(right) - 2; gap >= 1 {
+				line = " " + l + strings.Repeat(" ", gap) + right + " "
+				break hints
+			}
 		}
 	}
-	return barStyle.Render(fit(line, w))
+	// The bar's reverse video carries on after each styled part, such as
+	// the focus tag, ends.
+	open := strings.TrimSuffix(barStyle.Render("x"), "x\x1b[m")
+	return barStyle.Render(strings.ReplaceAll(fit(line, w), "\x1b[m", "\x1b[m"+open))
 }
 
-func (m *Model) sessionStatus() string {
-	key := "OpenSSH default"
-	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
-		key = filepath.Base(k)
+// statusHints are the hint lines for the status line's right side, for the
+// focused pane's most important keys, the longest first; it shows the first
+// that fits. Each drops the last key but help from the one before. A modal
+// hints at its own keys, so it has none (ADR-0007).
+func (m *Model) statusHints() []hintLine {
+	if m.mode.modal != nil {
+		return nil
 	}
-	space := ""
-	if m.st.SeveralSpaces() {
-		space = m.st.ActiveSpaceName() + " · "
+	var keys hintLine
+	if m.paneFocused() {
+		keys = m.hint(inPrefix, "tab", "n", "w", "[", "]", "s")
+	} else {
+		keys = m.hint(inList, "enter", "/", "a", "e", "d")
+	}
+	help := m.hint(inPrefix, "?")
+	var out []hintLine
+	for n := len(keys.items); n >= 0; n-- {
+		out = append(out, keys.first(n).and(help))
+	}
+	return out
+}
+
+// endedHints is the ended tab banner's hint line.
+func (m *Model) endedHints() hintLine { return m.hint(inEnded, "r", "x") }
+
+// sessionStatus is the status line's left side: the Active connection as
+// Group / alias, in its Indicator color if it has one, and the key it uses.
+func (m *Model) sessionStatus() string {
+	lead := ""
+	if n := m.tunnels.count(); n > 0 {
+		lead = tunnelMarker + " " + plural(n, "tunnel") + " · "
 	}
 	c := m.st.Active()
 	if c == nil {
-		return space + "no active connection · key: " + key
+		return lead + "no active connection" + m.statusKey()
 	}
-	s := c.CurrentSession()
-	state := "connected"
-	if s.Ended {
-		state = fmt.Sprintf("ended (exit %d)", s.ExitCode)
+	group := c.Group
+	if group == "" {
+		group = "ungrouped"
 	}
-	return fmt.Sprintf("%s%s · tab %d/%d · %s · key: %s", space, c.Alias, c.Current+1, len(c.Sessions), state, key)
+	crumb := group + " / " + c.Alias
+	if style, ok := indicator(m.st.ActiveColor(), lipgloss.NewStyle()); ok {
+		crumb = style.Render(crumb)
+	}
+	return lead + crumb + m.statusKey()
+}
+
+// statusKey is the end of sessionStatus: the key the active Space's new
+// tabs use, dim.
+func (m *Model) statusKey() string {
+	return dimStyle.Render(" · key: " + keyLabel(m.identities.SpaceIdentity(m.st.Space())))
 }
 
 // fit truncates or pads s to exactly w columns.

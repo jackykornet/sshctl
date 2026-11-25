@@ -80,7 +80,7 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 	}
 	press(m, keyPrefix, text("n")[0]) // a second tab must not record history again
 	pump(t, m, func() bool {
-		return strings.Contains(screen(m), "alpha 2") && strings.Contains(screen(m), "hello alpha")
+		return strings.Contains(screen(m), "[2 ssh ●]") && strings.Contains(screen(m), "hello alpha")
 	})
 	if len(*opened) != 1 {
 		t.Fatalf("OnOpen calls after second tab = %v", *opened)
@@ -166,11 +166,12 @@ func TestPaneSizeReachesPseudoTerminal(t *testing.T) {
 		return func() bool { return want.MatchString(screen(m)) }
 	}
 	press(m, keyEnter)
-	// 80 wide minus the 28-column list and separator, 12 high minus tab bar and status bar.
-	pump(t, m, reports(10, 51))
+	// 80 wide minus the 28-column list and separator, 12 high minus the
+	// pane header, tab line, status rule and status bar.
+	pump(t, m, reports(8, 51))
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	press(m, keyEnter)
-	pump(t, m, reports(18, 71))
+	pump(t, m, reports(16, 71))
 }
 
 func TestOSC52CopiesToClipboard(t *testing.T) {
@@ -208,7 +209,7 @@ func TestBackgroundOutputMarksTabUntilShown(t *testing.T) {
 	if shown.Unseen {
 		t.Fatal("output in the shown tab must not mark it")
 	}
-	press(m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	press(m, keyPrefix, text("[")[0])
 	if bg.Unseen || c.Unseen() {
 		t.Fatal("switching to the tab clears its marker")
 	}
@@ -226,7 +227,7 @@ func TestBellMarksBackgroundConnection(t *testing.T) {
 	if m.st.Get("beta").Unseen() {
 		t.Fatal("the shown tab's bell must not mark it")
 	}
-	press(m, tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}) // back to alpha
+	press(m, keyPrefix, text("{")[0]) // back to alpha
 	if alpha.Unseen() {
 		t.Fatal("showing alpha's only tab clears its row marker")
 	}
