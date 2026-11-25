@@ -72,7 +72,7 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys:     named(keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, "enter", "space"), "open"),
+		keys:     named(keysIn(inList, func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.enter() }, openKey, "space"), "open"),
 		help:     "open or switch to a connection, or toggle a group",
 		listOnly: true,
 	},
@@ -173,7 +173,7 @@ var bindings = []binding{
 		keys: named(keysIn(inPrefix, func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 			switch {
 			case m.focus == focusList && m.st.Active() == nil:
-				return m.setStatus("no open session — press Enter on a connection", false)
+				return m.setStatus("no open session — press "+keyNames([]string{openKey}, m.opts.PrefixKey)+" on a connection", false)
 			case m.focus == focusList:
 				m.focus = focusPane
 			default:
@@ -527,6 +527,10 @@ func (m *Model) bindingLabel(b binding) string {
 	}
 	return strings.Join(parts, "  ")
 }
+
+// openKey opens the Connection under the cursor in the list; a message that
+// tells the user to open one names it.
+const openKey = "enter"
 
 // keyNames shows keys joined by "/", with the digits 1 to 9 ending them
 // as "1-9" and an Alt modifier they all share written once.
