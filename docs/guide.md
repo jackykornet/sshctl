@@ -15,6 +15,7 @@ How to use sshctl once it is installed. To install it, see [Install](install.md)
   - [Adding, editing and deleting connections](#adding-editing-and-deleting-connections)
   - [Groups](#groups)
   - [Mouse and settings](#mouse-and-settings)
+  - [Copying from vim](#copying-from-vim)
 - [Configuration and security](#configuration-and-security)
 - [Syncing with chezmoi](#syncing-with-chezmoi)
   - [Recommended: a private repo with symlinks](#recommended-a-private-repo-with-symlinks)
@@ -269,7 +270,7 @@ The active connection's color frames the pane: the line between the list and the
 
 ### Mouse and settings
 
-The mouse selects connections and tabs and scrolls history. Click a group header to collapse or expand it, drag a group header onto another group's header to move the group to that position, and drag a connection onto any row of another group (its header or one of its members) to move it there. Release off the list to cancel. Group changes are saved to sshctl's metadata, the same as `sshctl edit`. Drag in a Session's pane to select its text, also while scrolled back; releasing copies it to your clipboard (with OSC 52, which most terminals, Windows Terminal included, support) and the status line says how many characters were copied. Double-click to select and copy one word: a run of characters up to a blank, quote, bracket, comma, semicolon or `|`, so `user@host:/var/log` is one word. The selection stays highlighted until the next key press or click, or until the Session prints something. Right-click a live Session to paste your clipboard into it. sshctl reads the clipboard itself on Windows and macOS, and elsewhere, or when sshctl runs over ssh, asks your terminal for it; if that fails, the status line says to paste with Ctrl+Shift+V. Full-screen programs such as `vim` receive mouse events when they ask for them, so there the mouse is theirs. Holding Shift while dragging still selects with your own terminal, across the whole screen. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim); they cannot read it.
+The mouse selects connections and tabs and scrolls history. Click a group header to collapse or expand it, drag a group header onto another group's header to move the group to that position, and drag a connection onto any row of another group (its header or one of its members) to move it there. Release off the list to cancel. Group changes are saved to sshctl's metadata, the same as `sshctl edit`. Drag in a Session's pane to select its text, also while scrolled back; releasing copies it to your clipboard (with OSC 52, which most terminals, Windows Terminal included, support) and the status line says how many characters were copied. Double-click to select and copy one word: a run of characters up to a blank, quote, bracket, comma, semicolon or `|`, so `user@host:/var/log` is one word. The selection stays highlighted until the next key press or click, or until the Session prints something. Right-click a live Session to paste your clipboard into it. sshctl reads the clipboard itself on Windows and macOS, and elsewhere, or when sshctl runs over ssh, asks your terminal for it; if that fails, the status line says to paste with Ctrl+Shift+V. Full-screen programs such as `vim` receive mouse events when they ask for them, so there the mouse is theirs. Holding Shift while dragging still selects with your own terminal, across the whole screen. Remote programs can copy to your clipboard with OSC 52 (for example from tmux or vim: see [Copying from vim](#copying-from-vim)); they cannot read it.
 
 Optional settings go in a `workspace` object in the config file:
 
@@ -280,6 +281,20 @@ Optional settings go in a `workspace` object in the config file:
 The list width is this machine's own state: sshctl keeps it in `state.json`, not `config.json`.
 
 The Workspace needs Windows 10 version 1809 or newer for its pseudo-terminals; the other commands do not.
+
+### Copying from vim
+
+To copy from a file open in `vim` on the host to the clipboard of the machine running sshctl, yank with OSC 52: vim sends the text through the Session to your terminal, which puts it on your clipboard. This copies whole ranges, not just what fits on the screen. Vim 9.1 ships an `osc52` package; put this in `~/.vimrc` on the host:
+
+```vim
+packadd osc52
+set clipmethod+=osc52
+let g:osc52_disable_paste = 1
+```
+
+Then `"+y` (for example `V` to select lines, then `"+y`) copies to your clipboard. A Session cannot read your clipboard, so `g:osc52_disable_paste` stops `"+p` from waiting for an answer that never comes; paste with a right-click instead. If `"+y` does nothing, `:echo v:clipmethod` should include `osc52`; when it does not, add `let g:osc52_force_avail = 1`. An older vim without the package can use the [vim-oscyank](https://github.com/ojroques/vim-oscyank) plugin. Neovim uses OSC 52 on its own when it finds no other clipboard tool; `vim.g.clipboard = 'osc52'` forces it. Inside tmux on the host, set `set -g set-clipboard on` so tmux passes the copy on.
+
+For a quick copy of what is on the screen, `:set mouse=` gives the mouse back to sshctl, so dragging in the pane selects and copies; `:set nonumber` first keeps line numbers out of it.
 
 ## Configuration and security
 
