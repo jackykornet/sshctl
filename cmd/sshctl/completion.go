@@ -156,7 +156,7 @@ func (c *command) operandValues(snap catalog.Snapshot, operands []string, opts m
 // command, they are connect's and --version.
 func optionNames(c *command, operands []string) []string {
 	if c == nil {
-		return []string{"--connect", "--help", "--version"}
+		return append(optionNames(&connectCommand, nil), "--version")
 	}
 	var forms []*form
 	for i := range c.forms {

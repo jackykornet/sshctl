@@ -368,13 +368,48 @@ Commands:
 			helpLine(w, strings.TrimSpace(c.name+" "+f.call()), text)
 		}
 	}
-	fmt.Fprint(w, `
-Options take the form --name value or --name=value, anywhere after the
-command name; -c, -s, -g, -y and -h stand for --connect, --space, --group,
---yes and --help, and -- ends the options. --version prints the version.
+	var shorts, longs []string
+	for _, o := range options {
+		if o.short != 0 {
+			shorts = append(shorts, "-"+string(o.short))
+			longs = append(longs, "--"+o.name)
+		}
+	}
+	fmt.Fprintf(w, "\n%s\n\nUse sshctl <command> --help for command usage.\n", wrapText(
+		"Options take the form --name value or --name=value, anywhere after the command name; "+
+			andList(shorts)+" stand for "+andList(longs)+", and -- ends the options. --version prints the version.",
+		helpWidth))
+}
 
-Use sshctl <command> --help for command usage.
-`)
+// helpWidth is the width help's and usage notes' prose is wrapped to.
+const helpWidth = 74
+
+// andList joins items as "a, b and c".
+func andList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+// wrapText breaks s into lines of at most width columns, between words.
+func wrapText(s string, width int) string {
+	var b strings.Builder
+	n := 0
+	for i, word := range strings.Fields(s) {
+		switch {
+		case i == 0:
+		case n+1+len(word) > width:
+			b.WriteByte('\n')
+			n = 0
+		default:
+			b.WriteByte(' ')
+			n++
+		}
+		b.WriteString(word)
+		n += len(word)
+	}
+	return b.String()
 }
 
 // helpLine prints call and its help text in two columns; a call too long

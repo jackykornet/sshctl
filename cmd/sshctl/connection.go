@@ -23,30 +23,41 @@ const (
 	fieldGroup       = "group"
 )
 
-// connField is one Connection field: its flag, its prompt label, and
-// whether it is part of the Host block, so only a Managed connection has it.
+// connField is one Connection field: its flag, its prompt label, the
+// placeholder of its value in usage, and whether it is part of the Host
+// block, so only a Managed connection has it.
 type connField struct {
-	flag, label string
-	host        bool
+	flag, label, value string
+	host               bool
 }
 
 var connFields = []connField{
-	{fieldAlias, "Alias", true},
-	{fieldHost, "HostName", true},
-	{fieldUser, "User", true},
-	{fieldPort, "Port", true},
-	{fieldIdentity, "Identity file", true},
-	{fieldDescription, "Description", false},
-	{fieldSpace, "Space", false},
-	{fieldGroup, "Group", false},
+	{fieldAlias, "Alias", "<new>", true},
+	{fieldHost, "HostName", "<hostname>", true},
+	{fieldUser, "User", "<user>", true},
+	{fieldPort, "Port", "<port>", true},
+	{fieldIdentity, "Identity file", "<file>", true},
+	{fieldDescription, "Description", "<text>", false},
+	{fieldSpace, "Space", "<space>", false},
+	{fieldGroup, "Group", "<group>", false},
 }
 
 // connNote is the note add's and edit's usage carries: the field flags.
-const connNote = "Fields: --host <hostname> --user <user> --port <port> --identity <file>\n" +
-	"--description <text> --space <space> --group <group>; edit also takes\n" +
-	"--alias <new> to rename. Without flags, each field is prompted for and an\n" +
-	"empty answer keeps the current value; --<field> \"\" clears it. <space> and\n" +
-	"<group> are a name or number; --group 0 is ungrouped."
+var connNote = func() string {
+	var fields []string
+	rename := ""
+	for _, f := range connFields {
+		flag := "--" + f.flag + " " + f.value
+		if f.flag == fieldAlias {
+			rename = flag
+			continue
+		}
+		fields = append(fields, flag)
+	}
+	return wrapText("Fields: "+strings.Join(fields, " ")+"; edit also takes "+rename+" to rename. "+
+		"Without flags, each field is prompted for and an empty answer keeps the current value; "+
+		"--<field> \"\" clears it. <space> and <group> are a name or number; --group 0 is ungrouped.", helpWidth)
+}()
 
 // connArgs returns the alias and the field flags in gives, by flag name.
 // It returns errUsage unless there is exactly one alias.
