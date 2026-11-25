@@ -461,18 +461,22 @@ func rowDetail(c *Connection, grouped bool) string {
 }
 
 // A tabSpan is where a tab sits on the tab line: columns [start, end) of
-// the pane, and the tab's index, or newTabSpan for [+].
+// the pane, and the tab's index, or newTabSpan for the +.
 type tabSpan struct{ start, end, index int }
 
-// newTabSpan is the index of the [+] that opens a new tab.
+// newTabSpan is the index of the + that opens a new tab.
 const newTabSpan = -1
 
 // newTabLabel ends the tab line, a mouse target for a new tab.
-const newTabLabel = "[+]"
+const newTabLabel = " + "
+
+// tabSep is drawn between tabs, and between the last tab and the +.
+const tabSep = "│"
 
 // tabBar renders the Active connection's tabs in width columns,
-// [1 ssh ●] [2 provision ●] [+], scrolling so the current tab stays
-// visible, and reports where each visible tab and the [+] sit.
+// ` 1 ~/src │ 2 provision │ + `, scrolling so the current tab stays
+// visible, with ‹ and › where tabs are cut off, and reports where each
+// visible tab and the + sit.
 func (m *Model) tabBar(width int) (string, []tabSpan) {
 	c := m.st.Active()
 	if c == nil || !c.Open() || width <= 0 {
@@ -484,8 +488,8 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 		labels[i], plain[i] = tabLabel(s, i == c.Current, m.paneFocused(), m.st.ActiveColor())
 	}
 	// Grow a window of tabs around the current one while it fits, leaving
-	// room for ‹ and › and for the [+].
-	avail := width - 2 - len(newTabLabel) - 1
+	// room for ‹ and › (or the last separator) and for the +.
+	avail := width - 2 - len(newTabLabel)
 	first, last := c.Current, c.Current
 	used := ansi.StringWidth(plain[c.Current])
 	for {
@@ -515,7 +519,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	}
 	for i := first; i <= last; i++ {
 		if i > first {
-			write(" ", 1)
+			write(dimStyle.Render(tabSep), 1)
 		}
 		lw := ansi.StringWidth(plain[i])
 		spans = append(spans, tabSpan{x, x + lw, i})
@@ -524,39 +528,38 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	if last < len(labels)-1 {
 		write(dimStyle.Render("›"), 1)
 	} else {
-		write(" ", 1)
+		write(dimStyle.Render(tabSep), 1)
 	}
 	spans = append(spans, tabSpan{x, x + len(newTabLabel), newTabSpan})
 	write(dimStyle.Render(newTabLabel), len(newTabLabel))
 	return fit(b.String(), width), spans
 }
 
-// tabLabel is a tab, [1 ssh ●]: its number, what it runs and a dot, green
-// while live and yellow once ended. Unseen activity makes it bold and adds
-// •. The current tab is in the accent colour while the pane has focus, and
-// in reverse video while it has not; the Indicator color color, when there
-// is one, takes the accent colour's place in both (ADR-0009). plain is the
-// label unstyled.
+// tabLabel is a tab, ` 1 ~/src `: its number, its name (Session.Label, cut
+// to tabNameWidth columns) and a marker, • for unseen activity (bold, like
+// the rest of the tab) or a yellow ✕ and the exit code once it has ended.
+// The current tab is a block: bold reverse video in the accent colour
+// while the pane has focus, plain reverse video while it has not; the
+// Indicator color color, when there is one, takes the accent colour's
+// place in both (ADR-0009). plain is the label unstyled.
 func tabLabel(s *Session, current, focused bool, color string) (label, plain string) {
-	what := "ssh"
-	if s.Action != "" {
-		what = string(s.Action)
+	head := fmt.Sprintf(" %d", s.N)
+	if name := s.Label(); name != "" {
+		head += " " + ansi.Truncate(name, tabNameWidth, "…")
 	}
-	head := fmt.Sprintf("[%d %s ", s.N, what)
-	dot := openStyle.Render("●")
-	if s.Ended {
-		dot = endedStyle.Render("●")
-	}
+	marker := ""
 	unseen := s.Unseen && !s.Ended
-	plain = head + "●"
-	if unseen {
-		plain += " " + unseenMarker
+	switch {
+	case s.Ended:
+		marker = fmt.Sprintf(" ✕ %d", s.ExitCode)
+	case unseen:
+		marker = " " + unseenMarker
 	}
-	plain += "]"
+	plain = head + marker + " "
 	switch {
 	case current && focused:
 		style, _ := indicator(color, accentStyle)
-		return style.Render(plain), plain
+		return style.Reverse(true).Render(plain), plain
 	case current:
 		style, _ := indicator(color, activeRow)
 		return style.Render(plain), plain
@@ -565,11 +568,13 @@ func tabLabel(s *Session, current, focused bool, color string) (label, plain str
 	if unseen {
 		style = unseenStyle
 	}
-	label = style.Render(head) + dot
-	if unseen {
-		label += " " + unseenStyle.Render(unseenMarker)
+	label = style.Render(head)
+	if s.Ended {
+		label += endedStyle.Render(marker)
+	} else if marker != "" {
+		label += style.Render(marker)
 	}
-	return label + style.Render("]"), plain
+	return label + " ", plain
 }
 
 // renderPane is the pane's lines, w columns wide, for the main area of f:

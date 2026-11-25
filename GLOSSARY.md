@@ -19,6 +19,7 @@ _Avoid_: Stale, missing, saved-only connection
 **Session**:
 One run for a Connection, shown as one tab: usually an `ssh` login, or an sshctl action run for that Connection, such as Bootstrap or Provision. A Session is either **live** (still running) or **ended** (it has finished but the tab has not been closed). A Connection has zero or more Sessions.
 A running Tunnel is not a Session: it has no tab and does not make its Connection an Open connection.
+A Session's **name** is what its tab shows after the tab number: a name typed for it, else its action's name, else the window title the remote side last set. It lasts as long as the Session's tab and is never saved.
 _Avoid_: Tab (the tab is only its view), window, terminal
 
 **Tunnel**:

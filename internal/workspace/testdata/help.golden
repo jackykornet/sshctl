@@ -9,7 +9,7 @@
   {/}  ^B {/}          previous / next open connection in the Space             
   P/S/1-9  ^B P/S/1-9  Space picker / Space names / switch to Space 1-9         
   H/I  ^B H/I          History picker / key picker (Selected identity)          
-  ^B n                 new tab for the active connection                        
+  ^B n/,               new tab for the active connection / rename tab           
   ^B i/p               bootstrap / provision in its own tab                     
   ^B g                 open the connection's group as tabs                      
   ^B m                 move a connection to a group (or drag it)                

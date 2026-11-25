@@ -131,8 +131,9 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new")),
-		help: "new tab for the active connection",
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new"),
+			on(",", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.renameTab() }).as("rename")),
+		help: "new tab for the active connection / rename tab",
 	},
 	{
 		// Each sshctl Action on a Connection runs in its own labelled tab.

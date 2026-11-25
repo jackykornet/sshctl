@@ -1,0 +1,8 @@
+ ▾ 1 web                    │ db-main                                                               
+   ○ prod-web public site   │  1 ~/src │ 2 logs • │ 3 provision ✕ 255 │ 4 vim notes.txt │ +         
+   ○ staging                │                                                                       
+ ▾ ungrouped ●1 •           │                                                                       
+›  ● db-main • postgres     │                                                                       
+   ○ old-box (missing)      │                                                                       
+────────────────────────────┴───────────────────────────────────────────────────────────────────────
+ SESSION ungrouped / db-main           ^B: Tab list · n new · w close · [/] tab · s scroll · ? help 

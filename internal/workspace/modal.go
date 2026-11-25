@@ -23,8 +23,8 @@ import (
 //     its filter.
 //   - colorInput: ←/→ (or h/l) choose an Indicator color, Enter sets it,
 //     Esc (or Ctrl+C) leaves; every other key is ignored.
-//   - connForm, moveInput, groupInput, spaceInput, colorInput, spacePicker,
-//     keyPicker and historyPicker: the prefix key arms a prefix of their own
+//   - connForm, moveInput, groupInput, tabInput, spaceInput, colorInput,
+//     spacePicker, keyPicker and historyPicker: the prefix key arms a prefix of their own
 //     (prefixGate). Only prefix q acts, quitting the
 //     Workspace (after asking, when Sessions are live, and returning to the
 //     modal on no). Every other prefix command is swallowed: it would act
@@ -219,6 +219,49 @@ func (in *moveInput) paste(text string) { in.group.paste(text) }
 
 func (in *moveInput) status() (string, bool) {
 	return fmt.Sprintf("move %s to group: %s  %s  (0 or empty for none)", in.alias, in.group.withCursor(), in.promptHints(in.keys())), true
+}
+
+// tabInput is the status-line prompt for a tab's name. Empty gives the tab
+// back its automatic name (see Session.Label).
+type tabInput struct {
+	prefixGate
+	sess *Session
+	name line
+}
+
+func (in *tabInput) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+	return in.promptKey(m, msg, in.keys(), &in.name)
+}
+
+func (in *tabInput) keys() []boundKey {
+	return promptKeys("rename", func(m *Model) tea.Cmd {
+		m.showModal(nil)
+		name := strings.TrimSpace(in.name.String())
+		if in.sess.Name == "" && name == in.sess.Label() {
+			return nil // unchanged: keep following the automatic name
+		}
+		in.sess.Name = name
+		return nil
+	}, nil)
+}
+
+func (in *tabInput) hints() []hintLine { return []hintLine{in.promptHints(in.keys())} }
+
+func (in *tabInput) paste(text string) { in.name.paste(text) }
+
+func (in *tabInput) status() (string, bool) {
+	return fmt.Sprintf("rename tab %d to: %s  %s  (empty for automatic)", in.sess.N, in.name.withCursor(), in.promptHints(in.keys())), true
+}
+
+// renameTab opens the prompt for the current tab's name.
+func (m *Model) renameTab() tea.Cmd {
+	c := m.st.Active()
+	if c == nil || !c.Open() {
+		return m.setStatus("no open session to rename", false)
+	}
+	s := c.CurrentSession()
+	m.openModal(&tabInput{sess: s, name: newLine(s.Label())})
+	return nil
 }
 
 // promptKeys are the keys of a status-line prompt: Enter runs done, named

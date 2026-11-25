@@ -79,8 +79,11 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 		t.Fatalf("OnOpen calls = %v", *opened)
 	}
 	press(m, keyPrefix, text("n")[0]) // a second tab must not record history again
+	// The tab bar's text varies by shell: cmd.exe names its tab with its
+	// window title, and tab 1 may show activity, so check the State.
 	pump(t, m, func() bool {
-		return strings.Contains(screen(m), "[2 ssh ●]") && strings.Contains(screen(m), "hello alpha")
+		c := m.st.Get("alpha")
+		return len(c.Sessions) == 2 && c.CurrentSession() == c.Sessions[1] && strings.Contains(screen(m), "hello alpha")
 	})
 	if len(*opened) != 1 {
 		t.Fatalf("OnOpen calls after second tab = %v", *opened)
