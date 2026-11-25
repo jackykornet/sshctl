@@ -61,10 +61,7 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 func (p *spacePicker) keys() []boundKey {
 	move := func(delta int) action {
-		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			p.cursor = max(0, min(p.cursor+delta, len(m.st.SpaceSlots())-1))
-			return nil
-		}
+		return movePickerCursor(&p.cursor, delta, func(m *Model) int { return len(m.st.SpaceSlots()) })
 	}
 	shift := func(delta int) action {
 		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.shiftSpace(p, delta) }
@@ -103,7 +100,6 @@ func (p *spacePicker) keys() []boundKey {
 		}
 		return nil
 	}
-	closePicker := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
 	return []boundKey{
 		on("enter", enter).as("switch"), on("space", enter),
 		on("a", add).as("add"),
@@ -114,7 +110,7 @@ func (p *spacePicker) keys() []boundKey {
 		on("shift+down", shift(1)).as("move"), on("J", shift(1)).as("move"),
 		on("up", move(-1)), on("k", move(-1)),
 		on("down", move(1)), on("j", move(1)),
-		on("esc", closePicker).as("close"), on("ctrl+c", closePicker), on("q", closePicker), on("P", closePicker),
+		on("esc", closeModal).as("close"), on("ctrl+c", closeModal), on("q", closeModal), on("P", closeModal),
 	}
 }
 
@@ -227,11 +223,7 @@ func (p *spacePicker) render(m *Model, w, h int) []string {
 		}
 		lines = append(lines, fit(pointer+" "+row, w))
 	}
-	lines = lines[:min(len(lines), h)]
-	for len(lines) < h {
-		lines = append(lines, strings.Repeat(" ", w))
-	}
-	return lines
+	return padLines(lines, w, h)
 }
 
 // spaceInput is the status-line prompt for a new Space's name, or a Space's

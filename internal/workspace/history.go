@@ -95,10 +95,7 @@ func (p *historyPicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 func (p *historyPicker) keys() []boundKey {
 	move := func(delta int) action {
-		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			p.cursor = max(0, min(p.cursor+delta, len(p.rows(m))-1))
-			return nil
-		}
+		return movePickerCursor(&p.cursor, delta, func(m *Model) int { return len(p.rows(m)) })
 	}
 	enter := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		rows := p.rows(m)
@@ -113,11 +110,10 @@ func (p *historyPicker) keys() []boundKey {
 		m.showModal(nil)
 		return m.openOrSwitch(r.conn)
 	}
-	closePicker := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
 	return []boundKey{
 		on("enter", enter).as("open"),
 		on("up", move(-1)).as("move"), on("down", move(1)).as("move"),
-		on("esc", closePicker).as("close"), on("ctrl+c", closePicker),
+		on("esc", closeModal).as("close"), on("ctrl+c", closeModal),
 	}
 }
 
@@ -174,9 +170,5 @@ func (p *historyPicker) render(m *Model, w, h int) []string {
 		}
 		lines = append(lines, fit(pointer+" "+row, w))
 	}
-	lines = lines[:min(len(lines), h)]
-	for len(lines) < h {
-		lines = append(lines, strings.Repeat(" ", w))
-	}
-	return lines
+	return padLines(lines, w, h)
 }

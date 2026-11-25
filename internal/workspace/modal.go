@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -126,7 +127,7 @@ func (h *helpScreen) keys() []boundKey {
 		on("down", by(0, 1)).as("scroll"),
 		on("pgup", by(-1, 0)).as("scroll"),
 		on("pgdown", by(1, 0)).as("scroll"),
-		on("esc", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }).as("close"),
+		on("esc", closeModal).as("close"),
 	}
 }
 
@@ -223,4 +224,26 @@ func (g *prefixGate) promptHints(keys []boundKey) hintLine {
 		return hintsFor(keys, "esc")
 	}
 	return hintsFor(keys, "enter", "esc")
+}
+
+// closeModal is the action that closes the modal, as Esc does in a picker.
+func closeModal(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
+
+// movePickerCursor is the action that moves a picker's cursor by delta, kept
+// within the n rows it has.
+func movePickerCursor(cursor *int, delta int, n func(*Model) int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		*cursor = max(0, min(*cursor+delta, n(m)-1))
+		return nil
+	}
+}
+
+// padLines is a pane's lines, w columns wide, cut or padded with blank
+// lines to h.
+func padLines(lines []string, w, h int) []string {
+	lines = lines[:min(len(lines), h)]
+	for len(lines) < h {
+		lines = append(lines, strings.Repeat(" ", w))
+	}
+	return lines
 }
