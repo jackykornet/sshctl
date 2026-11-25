@@ -69,10 +69,7 @@ func (p *keyPicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 func (p *keyPicker) keys() []boundKey {
 	move := func(delta int) action {
-		return func(*Model, tea.KeyPressMsg) tea.Cmd {
-			p.cursor = max(0, min(p.cursor+delta, len(p.rows)-1))
-			return nil
-		}
+		return movePickerCursor(&p.cursor, delta, func(*Model) int { return len(p.rows) })
 	}
 	forSpace := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		space := m.st.ActiveSpaceName()
@@ -81,13 +78,12 @@ func (p *keyPicker) keys() []boundKey {
 	global := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 		return m.selectKey(func() error { return m.opts.Catalog.SetIdentity(p.rows[p.cursor]) }, "global key")
 	}
-	closePicker := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
 	return []boundKey{
 		on("enter", forSpace).as("use in space"), on("space", forSpace),
 		on("g", global).as("use globally"),
 		on("up", move(-1)), on("k", move(-1)),
 		on("down", move(1)), on("j", move(1)),
-		on("esc", closePicker).as("close"), on("ctrl+c", closePicker), on("q", closePicker), on("I", closePicker),
+		on("esc", closeModal).as("close"), on("ctrl+c", closeModal), on("q", closeModal), on("I", closeModal),
 	}
 }
 
@@ -133,7 +129,7 @@ func keyLabel(k string) string {
 // render draws the picker in the w by h pane: a row per key, ● on the one
 // the active Space's new tabs use, tagged with the Space when it is the
 // Space's own and with global when it is the global one.
-func (p *keyPicker) render(m *Model, w, h int) []string {
+func (p *keyPicker) renderPane(m *Model, w, h int) []string {
 	space := m.st.Space()
 	lines := []string{
 		fit(" "+boldStyle.Render("Keys for space "+m.st.ActiveSpaceName()), w),
@@ -171,9 +167,5 @@ func (p *keyPicker) render(m *Model, w, h int) []string {
 		}
 		lines = append(lines, fit(row, w))
 	}
-	lines = lines[:min(len(lines), h)]
-	for len(lines) < h {
-		lines = append(lines, strings.Repeat(" ", w))
-	}
-	return lines
+	return padLines(lines, w, h)
 }

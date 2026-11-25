@@ -259,7 +259,7 @@ func (f *connForm) keys() []boundKey {
 			}
 			return save(m, msg)
 		}),
-		on("esc", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }).as("cancel"),
+		on("esc", closeModal).as("cancel"),
 	}
 	if f.old == "" {
 		keys = append(keys, on("ctrl+o", func(m *Model, _ tea.KeyPressMsg) tea.Cmd {

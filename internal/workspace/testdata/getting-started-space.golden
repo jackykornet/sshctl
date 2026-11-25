@@ -1,6 +1,6 @@
  [1] default  [2] acme  [5] idle                                                
 ────────────────────────────┬───────────────────────────────────────────────────
- no hosts in ssh_config     │                                                   
+ no connections here        │                                                   
                             │                                                   
                             │                                                   
                             │  No connections in idle yet.                      
@@ -21,4 +21,4 @@
                             │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- LIST no active connection · key: id_ed25519  Enter open · / filter · ^B ? help 
+ LIST no active connection   Enter open · / filter · a add · e edit · ^B ? help 

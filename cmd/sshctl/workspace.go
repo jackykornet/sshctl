@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -50,14 +49,8 @@ const resolveTimeout = 5 * time.Second
 func resolveEndpoint(alias string) (openssh.Endpoint, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
-	// Not openssh.Run: the Workspace owns the terminal, so ssh gets neither
-	// its input nor its error output.
-	quiet := func(ctx context.Context, argv []string, out io.Writer) error {
-		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-		cmd.Stdout = out
-		return cmd.Run()
-	}
-	return openssh.Resolve(ctx, quiet, alias)
+	// Not openssh.Run: the Workspace owns the terminal.
+	return openssh.Resolve(ctx, openssh.RunQuiet, alias)
 }
 
 // sessionCommand builds the command line for a new tab. An Action runs this

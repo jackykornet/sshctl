@@ -368,13 +368,48 @@ Commands:
 			helpLine(w, strings.TrimSpace(c.name+" "+f.call()), text)
 		}
 	}
-	fmt.Fprint(w, `
-Options take the form --name value or --name=value, anywhere after the
-command name; -c, -s, -g, -y and -h stand for --connect, --space, --group,
---yes and --help, and -- ends the options. --version prints the version.
+	var shorts, longs []string
+	for _, o := range options {
+		if o.short != 0 {
+			shorts = append(shorts, "-"+string(o.short))
+			longs = append(longs, "--"+o.name)
+		}
+	}
+	fmt.Fprintf(w, "\n%s\n\nUse sshctl <command> --help for command usage.\n", wrapText(
+		"Options take the form --name value or --name=value, anywhere after the command name; "+
+			andList(shorts)+" stand for "+andList(longs)+", and -- ends the options. --version prints the version.",
+		helpWidth))
+}
 
-Use sshctl <command> --help for command usage.
-`)
+// helpWidth is the width help's and usage notes' prose is wrapped to.
+const helpWidth = 74
+
+// andList joins items as "a, b and c".
+func andList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+// wrapText breaks s into lines of at most width columns, between words.
+func wrapText(s string, width int) string {
+	var b strings.Builder
+	n := 0
+	for i, word := range strings.Fields(s) {
+		switch {
+		case i == 0:
+		case n+1+len(word) > width:
+			b.WriteByte('\n')
+			n = 0
+		default:
+			b.WriteByte(' ')
+			n++
+		}
+		b.WriteString(word)
+		n += len(word)
+	}
+	return b.String()
 }
 
 // helpLine prints call and its help text in two columns; a call too long
@@ -390,14 +425,12 @@ func helpLine(w io.Writer, call, text string) {
 }
 
 // execute runs the command args call, through the commands table, or
-// connects when the first word is no command.
+// connects when the first word is no command. run has handled --version,
+// which needs no config.
 func (a *app) execute(args []string) error {
 	switch args[0] {
 	case "--help", "-h":
 		help(a.out, a.cfg.Experimental)
-		return nil
-	case "--version":
-		fmt.Fprintln(a.out, "sshctl "+buildVersion())
 		return nil
 	case completeCommand:
 		return a.complete(args[1:])
@@ -544,9 +577,17 @@ func (a *app) connect(in input) error {
 	return a.recordHistory(alias)
 }
 
+// confirm reads a line from in and reports whether it is y or yes, also
+// when the input ends without a newline. A *bufio.Reader is read as is, so
+// a caller that asks twice keeps what it buffered.
 func confirm(in io.Reader) bool {
-	line, err := bufio.NewReader(in).ReadString('\n')
-	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
+	r, ok := in.(*bufio.Reader)
+	if !ok {
+		r = bufio.NewReader(in)
+	}
+	line, err := r.ReadString('\n')
+	line = strings.TrimSpace(line)
+	return (err == nil || line != "") && (strings.EqualFold(line, "y") || strings.EqualFold(line, "yes"))
 }
 
 func (a *app) showConfig(input) error {

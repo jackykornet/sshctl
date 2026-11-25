@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,7 +44,7 @@ func (a *app) keyList(input) error {
 func (a *app) keyAdd(in input) error {
 	args := in.args
 	if len(args) != 1 {
-		return errors.New("usage: sshctl key add <private-key-path>")
+		return errUsage
 	}
 	abs, err := filepath.Abs(args[0])
 	if err != nil {
@@ -72,7 +71,7 @@ func (a *app) keyUse(in input) error {
 		return err
 	}
 	if len(rest) != 1 {
-		return errors.New("usage: sshctl key use [--space <space>] <key-path|none>")
+		return errUsage
 	}
 	k := rest[0]
 	if k != "none" {

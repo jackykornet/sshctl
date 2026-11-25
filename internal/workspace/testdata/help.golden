@@ -21,4 +21,4 @@
   ^B b/R               hide or show the list / refresh from ssh_config          
   ^B ^B/?              send the prefix key to the session / show this help      
   q/^C  ^B q/^C        quit                                                     
- no active connection · key: id_ed25519       Enter open · / filter · ^B ? help 
+ no active connection · key: id_ed25519                                         

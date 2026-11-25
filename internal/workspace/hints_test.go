@@ -51,6 +51,7 @@ var hintSites = []struct {
 	{"rename group prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("e")...) })},
 	{"space picker", modalSite(func(m *Model) { press(m, text("P")...) })},
 	{"key picker", modalSite(func(m *Model) { press(m, text("I")...) })},
+	{"history picker", modalSite(func(m *Model) { press(m, text("H")...) })},
 	{"new space prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("a")...) })},
 	{"group color prompt", modalSite(func(m *Model) { m.st.SetCursorGroup("prod"); press(m, text("C")...) })},
 	{"space color prompt", modalSite(func(m *Model) { press(m, text("P")...); press(m, text("C")...) })},
@@ -119,6 +120,28 @@ func TestHintsNameOnlyBoundKeys(t *testing.T) {
 	}
 }
 
+// While a modal is open, the status line hints only at the modal's keys:
+// the list's, bound elsewhere, do not also show (ADR-0007).
+func TestModalStatusLineHintsOnlyItsKeys(t *testing.T) {
+	for _, site := range hintSites {
+		t.Run(site.name, func(t *testing.T) {
+			m, lines, _ := site.open(t)
+			if m.mode.modal == nil {
+				t.Skip("no modal")
+			}
+			rows := strings.Split(strings.TrimRight(screen(m), "\n"), "\n")
+			status := rows[len(rows)-1]
+			for _, l := range lines {
+				status = strings.Replace(status, l.String(), "", 1)
+			}
+			// Every status hint line outside a modal ends with help.
+			if help := m.hint(inPrefix, "?").String(); strings.Contains(status, help) {
+				t.Errorf("status line hints at keys outside the modal: %q", status)
+			}
+		})
+	}
+}
+
 func bound(table []boundKey, key, name string) bool {
 	for _, bk := range table {
 		if bk.key == key {
@@ -140,7 +163,7 @@ func TestHintLineFormat(t *testing.T) {
 		t.Errorf("hint line = %q, want %q", got, want)
 	}
 	m := newTestModel(t, 100, 10)
-	if got, want := m.hint(inPrefix, "?", "w").String(), "^B ? help · ^B w close"; got != want {
+	if got, want := m.hint(inPrefix, "?", "w").String(), "^B: ? help · w close"; got != want {
 		t.Errorf("prefix hint line = %q, want %q", got, want)
 	}
 }

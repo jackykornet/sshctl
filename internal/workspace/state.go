@@ -352,6 +352,10 @@ func (s *State) SpaceEmpty(ref string) bool {
 // whatever the filter.
 func (s *State) NoConnections() bool { return len(s.ordered()) == 0 }
 
+// NoHosts reports whether no Space has a Connection, so ssh_config has no
+// hosts for the list.
+func (s *State) NoHosts() bool { return len(s.conns) == 0 }
+
 // Space returns the active Space as Connections refer to it, "" for the
 // default Space.
 func (s *State) Space() string { return s.space }

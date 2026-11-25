@@ -251,8 +251,10 @@ func allDigits(s string) bool {
 
 // GroupIndex returns the position in Groups of the Group named name in
 // space ("" for the default Space), or -1.
-func (c *Config) GroupIndex(space, name string) int {
-	for i, g := range c.Groups {
+func (c *Config) GroupIndex(space, name string) int { return groupIndex(c.Groups, space, name) }
+
+func groupIndex(groups []Group, space, name string) int {
+	for i, g := range groups {
 		if g.Space == space && g.Name == name {
 			return i
 		}

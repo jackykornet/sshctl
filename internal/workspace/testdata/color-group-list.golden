@@ -7,7 +7,7 @@
    ○ db-main postgres       │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- LIST web / prod-web · key: id_ed25519        Enter open · / filter · ^B ? help 
+ LIST web / prod-web         Enter open · / filter · a add · e edit · ^B ? help 
  ccc ccccccc  bbb bbbb                                                          
 rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
  . . rrr gg                 r rrrrrrrr                                          

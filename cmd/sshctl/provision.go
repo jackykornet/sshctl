@@ -122,8 +122,6 @@ func readAnswer(in *bufio.Reader) (string, bool) {
 	return strings.TrimSpace(line), true
 }
 
-const provisionDefaultUsage = "usage: sshctl provision default [<url|none> | --unset] [--group <name>]"
-
 // provisionDefault lists the dotfiles settings, or sets or unsets the
 // global one or, with --group, a Group's.
 func (a *app) provisionDefault(in input) error {
@@ -137,7 +135,7 @@ func (a *app) provisionDefault(in input) error {
 		repo = in.args[0]
 	}
 	if len(in.args) > 1 || unset == (repo != "") || grouped && group == "" {
-		return errors.New(provisionDefaultUsage)
+		return errUsage
 	}
 	if grouped {
 		return a.catalog().SetGroupDotfiles("", group, repo)

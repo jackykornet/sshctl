@@ -65,10 +65,10 @@ func TestStatusTagShowsFocus(t *testing.T) {
 	if got := strings.TrimSpace(statusLine(m)); !strings.HasPrefix(got, "LIST web / prod-web") {
 		t.Errorf("status = %q, want the LIST tag after ^B Tab", got)
 	}
-	if !strings.Contains(m.renderStatus(m.w), styled(focusStyle, "LIST")) {
+	if !strings.Contains(m.renderStatus(m.w), styled(accentStyle, "LIST")) {
 		t.Error("the LIST tag is not in the accent colour")
 	}
-	if !strings.Contains(m.renderStatus(m.w), styled(focusStyle, "LIST")+"\x1b[m"+styled(barStyle, " web")) {
+	if !strings.Contains(m.renderStatus(m.w), styled(accentStyle, "LIST")+"\x1b[m"+styled(barStyle, " web")) {
 		t.Error("the status bar's reverse video does not carry on after the tag")
 	}
 }
@@ -109,7 +109,7 @@ func TestCurrentTabShowsPaneFocus(t *testing.T) {
 	m := newTestModel(t, 100, 10)
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
-	focused := styled(focusStyle, "[1 ssh ●]")
+	focused := styled(accentStyle, "[1 ssh ●]")
 	if !strings.Contains(m.render(), focused) {
 		t.Error("the current tab is not in the accent colour while the pane has focus")
 	}

@@ -28,4 +28,6 @@ Every hint line uses one format, `key action · key action`, the prefix shown as
 - Renamed: refresh from prefix `r` to prefix `R`.
 - Added, by rule 1: prefix `P` (Space picker), prefix `/` (filter, moving focus to the list), prefix `Ctrl+C` (quit).
 - Hint wording changed: confirmations end in `y yes · n no` instead of `(y/n)`; the form says `^S save · Tab/Shift+Tab move · Esc cancel`; a modal that swallowed a prefix command says `Esc cancel` (or `Esc close`) instead of `… open: Esc to cancel`.
+- A line whose actions are all prefix commands, such as the status line while the Session pane has focus, writes the prefix once: `^B: Tab list · n new · w close`.
+- While a modal is open, the status line shows only the modal's hints, not the list's.
 - A new key is added to a table (`bindings` or the modal's `keys`) with a name if it is hinted; the help screen and hints follow from it.
