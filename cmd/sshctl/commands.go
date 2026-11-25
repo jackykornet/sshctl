@@ -131,7 +131,7 @@ var connectCommand = command{forms: []form{
 }}
 
 // commands is every sshctl command, in the order help lists them. It drives
-// both dispatch (execute) and help, and the README's Commands block lists
+// both dispatch (execute) and help, and the Guide's Commands block lists
 // its forms in the same order, after connectCommand's.
 var commands = []command{
 	{name: "list", forms: []form{
@@ -204,7 +204,7 @@ var commands = []command{
 		{sub: "show", help: "Show paths and relevant SSH settings", run: (*app).showConfig},
 	}},
 	{name: "completion", forms: []form{
-		{args: "bash|zsh|fish|powershell", help: "Print the shell completion script; the README\nsays how to enable it", run: (*app).completion},
+		{args: "bash|zsh|fish|powershell", help: "Print the shell completion script; the Guide\n(docs/guide.md) says how to enable it", run: (*app).completion},
 	}},
 }
 

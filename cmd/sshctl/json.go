@@ -10,7 +10,7 @@ import (
 
 // The --json output of list, group list and space list, and sshctl info,
 // is the stable interface for scripts: the field names below are a
-// compatibility promise, documented in the README. Every field is always
+// compatibility promise, documented in the Guide (docs/guide.md). Every field is always
 // present; "" means none.
 
 // writeJSON prints v as indented JSON and a newline.

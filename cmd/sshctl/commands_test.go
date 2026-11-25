@@ -196,20 +196,20 @@ func TestWrongCallsGetTheCommandsUsage(t *testing.T) {
 	}
 }
 
-// The README's Commands block lists every form --help does, in its order.
-func TestReadmeListsTheCommands(t *testing.T) {
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+// The Guide's Commands block lists every form --help does, in its order.
+func TestGuideListsTheCommands(t *testing.T) {
+	guide, err := os.ReadFile(filepath.Join("..", "..", "docs", "guide.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows checks README.md out with CRLF line endings (.gitattributes).
-	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
+	// Windows checks docs/guide.md out with CRLF line endings (.gitattributes).
+	text := strings.ReplaceAll(string(guide), "\r\n", "\n")
 	_, block, ok := strings.Cut(text, "## Commands\n\n```text\n")
 	if ok {
 		block, _, ok = strings.Cut(block, "```")
 	}
 	if !ok {
-		t.Fatal("README has no Commands block")
+		t.Fatal("the Guide has no Commands block")
 	}
 	want := "sshctl\n"
 	for _, c := range append([]command{connectCommand}, commands...) {
@@ -218,7 +218,7 @@ func TestReadmeListsTheCommands(t *testing.T) {
 		}
 	}
 	if block != want {
-		t.Errorf("README Commands block:\n%s\nwant, from the command table:\n%s", block, want)
+		t.Errorf("Guide Commands block:\n%s\nwant, from the command table:\n%s", block, want)
 	}
 }
 
