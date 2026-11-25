@@ -219,7 +219,7 @@ func (p *spacePicker) render(m *Model, w, h int) []string {
 		case colored:
 			row = dimStyle.Render(number) + " " + color.Bold(t.Active).Faint(!t.Active && !t.Live).Render(t.Name)
 		case t.Active:
-			row = dimStyle.Render(number) + " " + spaceActiveStyle.Render(t.Name)
+			row = dimStyle.Render(number) + " " + accentStyle.Render(t.Name)
 		case !t.Live:
 			row = dimStyle.Render(number + " " + t.Name)
 		default:

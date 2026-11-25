@@ -25,12 +25,10 @@ var (
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
 	// selectionStyle draws text selected with the mouse in a Session pane.
 	selectionStyle = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
-	// spaceActiveStyle is the accent colour of the active Space in the
-	// Space bar.
-	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
-	// focusStyle is the accent colour of the side with focus: the current
-	// tab while the pane has it, and the status bar's LIST or SESSION tag.
-	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// accentStyle is the Workspace's accent colour: the active Space in the
+	// Space bar and the picker, and the side with focus, its current tab
+	// while the pane has it and the status bar's LIST or SESSION tag.
+	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
 	// focusRowStyle is the list's cursor row while the list has focus.
 	focusRowStyle = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Cyan)
 	// spaceFreeStyle is a free Space number in the Space bar, fainter than
@@ -228,7 +226,7 @@ func (m *Model) pointer(cursor bool) string {
 	case !cursor:
 		return " "
 	case m.listFocused():
-		return focusStyle.Render("›")
+		return accentStyle.Render("›")
 	}
 	return dimStyle.Render("›")
 }
@@ -288,7 +286,7 @@ func (m *Model) spaceBar(w int) string {
 		case t.Free():
 			style = spaceFreeStyle
 		case t.Active:
-			style = spaceActiveStyle
+			style = accentStyle
 		case !t.Live:
 			style = dimStyle
 		}
@@ -558,7 +556,7 @@ func tabLabel(s *Session, current, focused bool, color string) (label, plain str
 	plain += "]"
 	switch {
 	case current && focused:
-		style, _ := indicator(color, focusStyle)
+		style, _ := indicator(color, accentStyle)
 		return style.Render(plain), plain
 	case current:
 		style, _ := indicator(color, activeRow)
@@ -771,7 +769,7 @@ func (m *Model) renderStatus(w int) string {
 		if m.paneFocused() {
 			tag = "SESSION"
 		}
-		left = focusStyle.Render(tag) + " " + left
+		left = accentStyle.Render(tag) + " " + left
 	}
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left

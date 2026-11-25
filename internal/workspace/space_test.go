@@ -162,8 +162,8 @@ func TestSpaceBarStylesActiveLiveAndIdleSpaces(t *testing.T) {
 	press(m, keyEnter)
 	press(m, keyPrefix, text("2")[0])
 	free := func(n int) string { return spaceFreeStyle.Render(fmt.Sprintf("[%d]", n)) }
-	parts := []string{"[1]", spaceActiveStyle.Render("[2]"), free(3), free(4), dimStyle.Render("[5]"), free(6), free(7), free(8), free(9)}
-	named := []string{"[1] default", spaceActiveStyle.Render("[2] acme"), dimStyle.Render("[5] idle")}
+	parts := []string{"[1]", accentStyle.Render("[2]"), free(3), free(4), dimStyle.Render("[5]"), free(6), free(7), free(8), free(9)}
+	named := []string{"[1] default", accentStyle.Render("[2] acme"), dimStyle.Render("[5] idle")}
 	if got, want := m.spaceBar(80), " "+strings.Join(named, "  "); got != want {
 		t.Errorf("space bar = %q, want %q", got, want)
 	}
