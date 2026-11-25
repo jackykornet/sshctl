@@ -414,6 +414,30 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	}
 }
 
+func TestKeysListsSSHDirPublicKeysAndRegisteredKeys(t *testing.T) {
+	tr := newTree(t, true, "")
+	d := tr.ssh.SSHDir
+	for _, n := range []string{"id_ed25519", "id_ed25519.pub", "work.pub", "work-cert.pub", "known_hosts"} {
+		if err := os.WriteFile(filepath.Join(d, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := tr.config(t)
+	c.Keys = []string{"/k/deploy", filepath.Join(d, "work.pub")}
+	if err := config.Save(tr.cfg, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := tr.cat.Keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/k/deploy", filepath.Join(d, "id_ed25519.pub"), filepath.Join(d, "work-cert.pub"), filepath.Join(d, "work.pub")}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("Keys() = %v, want %v", got, want)
+	}
+}
+
 func TestSetIdentitySelectsTheKey(t *testing.T) {
 	tr := newTree(t, true, "")
 	for _, key := range []string{"/k/id_ed25519", ""} {

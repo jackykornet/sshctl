@@ -12,27 +12,10 @@ import (
 // keyList lists the public keys and certificates in ~/.ssh and the
 // registered key paths, marking the Selected identities.
 func (a *app) keyList(input) error {
-	home, err := os.UserHomeDir()
+	keys, err := a.catalog().Keys()
 	if err != nil {
 		return err
 	}
-	keyDir := filepath.Join(home, ".ssh")
-	set := map[string]bool{}
-	entries, _ := os.ReadDir(keyDir)
-	for _, e := range entries {
-		n := e.Name()
-		if strings.HasSuffix(n, ".pub") || strings.HasSuffix(n, "-cert.pub") {
-			set[filepath.Join(keyDir, n)] = true
-		}
-	}
-	for _, k := range a.cfg.Keys {
-		set[k] = true
-	}
-	keys := make([]string, 0, len(set))
-	for k := range set {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
 		return err

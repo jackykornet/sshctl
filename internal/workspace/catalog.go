@@ -60,6 +60,15 @@ type Catalog interface {
 	// SetSpaceColor saves the Indicator color of the Space space, one of
 	// catalog.Colors or "" for none.
 	SetSpaceColor(space, color string) error
+	// Keys lists the key files a Selected identity is chosen from, as
+	// "sshctl key list" shows them.
+	Keys() ([]string, error)
+	// SetIdentity makes key (a private key path) the global Selected
+	// identity; "" leaves the choice of keys to OpenSSH.
+	SetIdentity(key string) error
+	// SetSpaceIdentity makes key the Space space's Selected identity; ""
+	// unsets it, so the global one applies.
+	SetSpaceIdentity(space, key string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.
