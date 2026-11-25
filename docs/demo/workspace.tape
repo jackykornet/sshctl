@@ -1,25 +1,11 @@
-# The Workspace GIF in README.md. Re-record from the repository root with
-#   vhs docs/demo/workspace.tape
-# setup.sh runs sshctl against the made-up hosts in docs/demo/home, with
-# docs/demo/bin/ssh in place of OpenSSH.
+# The overview GIF at the top of README.md. Re-record every GIF from the
+# repository root with
+#   for t in docs/demo/*.tape; do vhs "$t"; done
+# sandbox/start.tape runs sshctl against the made-up hosts in
+# sandbox/home, with sandbox/bin/ssh in place of OpenSSH.
 
 Output docs/demo/workspace.gif
-
-Set Shell bash
-Set FontSize 14
-Set Width 1100
-Set Height 560
-Set Padding 12
-Set Framerate 20
-Set TypingSpeed 90ms
-Set Theme "Catppuccin Mocha"
-
-Hide
-Type "source docs/demo/setup.sh && clear" Enter
-Sleep 4s
-Type "sshctl" Enter
-Sleep 1s
-Show
+Source docs/demo/sandbox/start.tape
 
 # The connection list: Groups in Space 1, the Space bar above.
 Sleep 1.5s

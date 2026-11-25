@@ -1,15 +1,14 @@
 #!/bin/sh
-# A stand-in for ssh in docs/demo/workspace.tape: it connects nowhere and
+# A stand-in for ssh in docs/demo/*.tape: it connects nowhere and
 # plays a remote shell for the alias, its last argument, so the recording
 # shows a Session without a real host.
 for a in "$@"; do alias=$a; done
-user=deploy
-case $alias in
-db-main | staging-db) user=postgres ;;
-pi-*) user=pi ;;
-nas) user=admin ;;
-bastion) user=ops ;;
-esac
+# The User of the alias's Host block in the demo ssh_config, as ssh would
+# use it.
+user=$(cat ~/.ssh/config ~/.ssh/sshctl_config 2>/dev/null | awk -v a="$alias" '
+	tolower($1) == "host" { in_block = ($2 == a) }
+	in_block && tolower($1) == "user" { print $2; exit }')
+: "${user:=user}"
 
 printf 'Linux %s 6.1.0-28-amd64 #1 SMP Debian x86_64\n\n' "$alias"
 printf 'Last login: Tue Nov 24 09:12:44 2026 from 10.20.0.5\n'
