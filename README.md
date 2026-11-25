@@ -5,6 +5,8 @@
 
 `sshctl` is a cross-platform Go CLI for managing connection metadata while delegating SSH work to your installed OpenSSH tools. It never stores private keys or passphrases.
 
+![The Workspace: Groups and the Space bar, a Session tab, the filter and switching Space](docs/demo/workspace.gif)
+
 ## Feature status
 
 | Feature | Status |
@@ -331,3 +333,11 @@ go test -race ./...
 ```
 
 After an intended change to the Workspace layout, regenerate its golden files with `go test ./internal/workspace -update` and review the diff.
+
+The Workspace GIF at the top of this README is recorded with [vhs](https://github.com/charmbracelet/vhs) (which needs `ttyd`, `ffmpeg` and Chromium). When the layout changes, re-record it from the repository root and check the result:
+
+```sh
+vhs docs/demo/workspace.tape
+```
+
+The tape builds sshctl and runs it with `HOME` set to a copy of `docs/demo/home`, which holds made-up hosts only, and with `docs/demo/bin/ssh` in place of OpenSSH, a script that plays a remote shell and connects nowhere. Keep any new demo data made up.
