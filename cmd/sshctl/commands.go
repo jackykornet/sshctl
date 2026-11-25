@@ -390,14 +390,12 @@ func helpLine(w io.Writer, call, text string) {
 }
 
 // execute runs the command args call, through the commands table, or
-// connects when the first word is no command.
+// connects when the first word is no command. run has handled --version,
+// which needs no config.
 func (a *app) execute(args []string) error {
 	switch args[0] {
 	case "--help", "-h":
 		help(a.out, a.cfg.Experimental)
-		return nil
-	case "--version":
-		fmt.Fprintln(a.out, "sshctl "+buildVersion())
 		return nil
 	case completeCommand:
 		return a.complete(args[1:])
