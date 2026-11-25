@@ -15,7 +15,7 @@ To make that work:
 
 ## Consequences
 
-- **sshctl's files are private, so chezmoi won't symlink them by default.** sshctl writes `config.json` and `sshctl_config` 0600, so `chezmoi add` stores them as `private_` files, and chezmoi's symlink mode never links a private file. The symlink setup has to clear the attribute (`chezmoi chattr -- -private`, as the README shows). sshctl still writes 0600 through the link.
+- **sshctl's files are private, so chezmoi won't symlink them by default.** sshctl writes `config.json` and `sshctl_config` 0600, so `chezmoi add` stores them as `private_` files, and chezmoi's symlink mode never links a private file. The symlink setup has to clear the attribute (`chezmoi chattr -- -private`, as the Guide shows). sshctl still writes 0600 through the link.
 - **Encrypted files in the repo that Provision applies need a `.chezmoiignore`.** When a user keeps sshctl's files encrypted in their public dotfiles repo, Provision applies that same repo on servers, which have no age key, and `chezmoi apply` would fail there. The repo has to ignore those files on machines without the key.
 
 ## Considered options
