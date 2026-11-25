@@ -321,28 +321,20 @@ Match originalhost beta-web,beta-db !exec "~/.ssh/vpn-up beta"
 
 `Match originalhost` compares the alias you connect to, as a pattern (`acme-*`) or a list. Matching by alias rather than address (`Match host 10.20.*`) keeps customers apart when their networks use the same addresses: `acme-web` and `beta-web` can both be `10.20.0.5` and still each get their own check. `!exec` is true when the command fails, and then the `ProxyCommand` prints the message and exits instead of connecting. ssh adds a `Connection closed` line after it, and in the Workspace the message stays in the ended tab. When the check passes, the block does not apply and ssh connects as usual.
 
-`~/.ssh/vpn-up` is any command that exits 0 when the customer's hosts are reachable (make it executable with `chmod +x`). It can pass in more than one way, for example when you are at the customer's office, where no VPN is needed, or when their VPN is up. Keep it fast, since it runs on every connect to those hosts, and also when the Workspace's pane header runs `ssh -G`. For example, on Linux:
+`~/.ssh/vpn-up` is any command that exits 0 when the customer's hosts are reachable (make it executable with `chmod +x`). The simplest test is one host of the customer's that always runs, such as a domain controller: whether you are at their office or on their VPN, it answers, and anywhere else it does not. Name it by its internal DNS name rather than its address, so that a customer whose network uses the same addresses as another does not answer for it. Keep the test fast, since it runs on every connect to those hosts, and also when the Workspace's pane header runs `ssh -G`. For example:
 
 ```sh
 #!/bin/sh
-# Usage: vpn-up <customer>. Exits 0 when that customer's hosts are reachable.
+# Usage: vpn-up <customer>. Exits 0 when that customer's check host answers.
 case "$1" in
-acme)
-	# At the Acme office, this machine has an address on its network.
-	ip -4 addr show | grep -q 'inet 172\.16\.40\.' && exit 0
-	# Anywhere else, the Acme WireGuard tunnel must be up.
-	ip link show wg-acme >/dev/null 2>&1
-	;;
-beta)
-	ip link show tun-beta >/dev/null 2>&1
-	;;
-*)
-	exit 1
-	;;
+acme) host=dc01.acme.local port=389 ;;   # Acme's domain controller (LDAP)
+beta) host=fs01.beta.lan   port=445 ;;   # Beta's file server (SMB)
+*) exit 1 ;;
 esac
+nc -z -w 2 "$host" "$port" >/dev/null 2>&1
 ```
 
-The office test must fit only that office: a common home range such as `192.168.1.` would pass at home too. On macOS, `ifconfig | grep -q 'inet 172\.16\.40\.'` tests the address, and `scutil --nc status "Beta VPN" | head -n 1 | grep -qx Connected` tests a VPN set up in System Settings.
+`nc` (netcat) must be installed; `nc -z` only opens and closes a connection to the port, within 2 seconds here; pick a port the host always listens on. A check can also look at this machine instead, without touching the network: `ip link show wg-acme` (Linux) tests that a VPN's interface exists, and `scutil --nc status "Beta VPN" | head -n 1 | grep -qx Connected` (macOS) tests a VPN set up in System Settings.
 
 A Host block that sets `ProxyJump` skips the check: OpenSSH uses the first of `ProxyJump` and `ProxyCommand` it reads, and sshctl's Host blocks come first. On Windows, OpenSSH runs both commands with `cmd.exe`, so use a `.cmd` or PowerShell script for `vpn-up` and `ProxyCommand cmd /c "echo Acme VPN is not connected 1>&2 & exit 1"`.
 
