@@ -37,25 +37,29 @@ type connectionJSON struct {
 
 // groupJSON is a Group in group list --json: its Space's name, its number
 // within the Space, its name, how many Connections it has (Orphaned ones
-// included) and its dotfiles repo ("" unset, "none" refused).
+// included), its dotfiles repo ("" unset, "none" refused) and its own
+// Indicator color ("" none).
 type groupJSON struct {
 	Space       string `json:"space"`
 	Number      int    `json:"number"`
 	Name        string `json:"name"`
 	Connections int    `json:"connections"`
 	Dotfiles    string `json:"dotfiles"`
+	Color       string `json:"color"`
 }
 
 // spaceJSON is a Space in space list --json: its number (null for a Space
 // without one), name, whether it is the default Space, how many Groups and
-// Connections (Orphaned ones included) it has, and the dotfiles repo ("" unset,
-// "none" refused) and Selected identity ("" none) it sets.
+// Connections (Orphaned ones included) it has, and the Indicator color ("" none),
+// dotfiles repo ("" unset, "none" refused) and Selected identity ("" none) it
+// sets.
 type spaceJSON struct {
 	Number      *int   `json:"number"`
 	Name        string `json:"name"`
 	Default     bool   `json:"default"`
 	Groups      int    `json:"groups"`
 	Connections int    `json:"connections"`
+	Color       string `json:"color"`
 	Dotfiles    string `json:"dotfiles"`
 	Identity    string `json:"identity"`
 }

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -70,6 +71,36 @@ type fakeCatalog struct {
 	activeSaves  []string // SetActiveSpace spaces
 	spaceOps     []string // "add x", "add x at 3", "rename x→y", "delete x", "move x 2", one per Space call
 	spaceErr     error    // returned by the next Space call, which then changes nothing
+
+	// groupColors and spaceColors are the Indicator colors Snapshot gives
+	// Groups, by catalog.CollapsedKey, and Spaces, by how Connections refer
+	// to them; SetGroupColor and SetSpaceColor change them and record
+	// "group x red" or "space x none" in colorOps.
+	groupColors map[string]string
+	spaceColors map[string]string
+	colorOps    []string
+}
+
+func (f *fakeCatalog) SetGroupColor(space, group, color string) error {
+	f.colorOps = append(f.colorOps, "group "+catalog.CollapsedKey(space, group)+" "+cmp.Or(color, "none"))
+	if f.groupColors == nil {
+		f.groupColors = map[string]string{}
+	}
+	f.groupColors[catalog.CollapsedKey(space, group)] = color
+	return nil
+}
+
+func (f *fakeCatalog) SetSpaceColor(space, color string) error {
+	f.colorOps = append(f.colorOps, "space "+space+" "+cmp.Or(color, "none"))
+	ref, ok := catalog.Snapshot{Spaces: f.allSpaces()}.SpaceRef(space)
+	if !ok {
+		return catalog.ErrUnknownSpace
+	}
+	if f.spaceColors == nil {
+		f.spaceColors = map[string]string{}
+	}
+	f.spaceColors[ref] = color
+	return nil
 }
 
 // spaceOp records op and returns spaceErr, once.
@@ -251,6 +282,13 @@ func (f *fakeCatalog) Snapshot() (Snapshot, error) {
 		snap.Groups = append(snap.Groups, catalog.Group{Name: g})
 	}
 	snap.Groups = append(snap.Groups, f.spaceGroups...)
+	for i, g := range snap.Groups {
+		snap.Groups[i].Color = f.groupColors[catalog.CollapsedKey(g.Space, g.Name)]
+	}
+	for i, s := range snap.Spaces {
+		ref, _ := snap.SpaceRef(s.Name)
+		snap.Spaces[i].Color = f.spaceColors[ref]
+	}
 	if f.includes == 0 {
 		snap.Include = f.include
 	}

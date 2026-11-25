@@ -156,23 +156,25 @@ var commands = []command{
 		{args: "<alias> [--yes]", opts: []string{"yes"}, help: "Remove a Connection: its Host block if sshctl\nwrote it, and its metadata", run: (*app).remove},
 	}},
 	{name: "space", forms: []form{
-		{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Spaces: number, name, groups, connections", run: (*app).spaceList},
+		{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Spaces: number, name, groups, connections,\nsettings", run: (*app).spaceList},
 		{sub: "add", args: "<name> [<number>]", help: "Create a Space, with the lowest free number\n(1-9) or the one given", run: (*app).spaceAdd},
 		{sub: "rename", args: "<space> <new>", help: "Rename a Space, keeping its contents and number", run: (*app).spaceRename},
 		{sub: "delete", args: "<space>", help: "Delete an empty Space, leaving its number free", run: (*app).spaceDelete},
 		{sub: "move", args: "<space> <number>", help: "Give a Space a number, swapping with the Space\nthat has it; <space> is a Space name or number", run: (*app).spaceMove},
+		{sub: "color", args: "<space> <color|none>", help: colorHelp("Space"), run: (*app).spaceColor},
 		{sub: "dotfiles", args: "<space> [<url|none> | --unset]", opts: []string{"unset"}, help: "Show or set a Space's dotfiles repo", feature: config.FeatureProvision, run: (*app).spaceDotfiles},
 	}},
 	{name: "group", inSpace: true, spaceHelp: "Pick the Space for a group command;\n<group> is a Group name or number",
 		// group connect opens OS terminal windows (internal/platform),
 		// unlike prefix g in the Workspace, which opens tabs.
 		note: "group connect opens one terminal window per Connection in the Group;\nto open them as tabs, use prefix g in the Workspace (run sshctl with no arguments).", forms: []form{
-			{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Groups: number, name, members, dotfiles", run: inSpace((*app).groupList)},
+			{sub: "list", args: "[--json]", opts: []string{"json"}, help: "List Groups: number, name, members, dotfiles,\ncolor", run: inSpace((*app).groupList)},
 			{sub: "add", args: "<name>", help: "Create a Group", run: inSpace((*app).groupAdd)},
 			{sub: "rename", args: "<group> <new>", help: "Rename a Group, moving its Connections", run: inSpace((*app).groupRename)},
 			{sub: "delete", args: "<group> [--yes]", opts: []string{"yes"}, help: "Delete a Group; its Connections become ungrouped", run: inSpace((*app).groupDelete)},
 			{sub: "move", args: "<group> <position>", help: "Set a Group's position (its number)", run: inSpace((*app).groupMove)},
 			{sub: "connect", args: "<group>", help: "Open one terminal window per Connection in the\nGroup; for tabs, use prefix g in the Workspace", run: inSpace((*app).groupConnect)},
+			{sub: "color", args: "<group> <color|none>", help: colorHelp("Group"), run: inSpace((*app).groupColor)},
 		}},
 	{name: "history", forms: []form{
 		{help: "Show recent connections", run: (*app).history},
