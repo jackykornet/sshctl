@@ -213,7 +213,8 @@ func optionValues(snap catalog.Snapshot, name string, opts map[string]string) []
 // placeholderValues returns what may stand for a placeholder in a form's
 // arguments: Connection aliases for <alias>, Space names for <space>, Group
 // names for <group> (in the Space --space names, if given), the
-// Experimental features for <feature>, and the words of a literal such as
+// Experimental features for <feature>, none and the Indicator colors for
+// <color|none>, and the words of a literal such as
 // enable|disable. Anything else, such as a path, has none.
 func placeholderValues(snap catalog.Snapshot, p string, opts map[string]string) []string {
 	switch p {
@@ -240,6 +241,8 @@ func placeholderValues(snap catalog.Snapshot, p string, opts map[string]string) 
 		return out
 	case "<feature>":
 		return slices.Clone(config.Features)
+	case "<color|none>":
+		return append([]string{config.ColorNone}, config.Colors...)
 	}
 	if strings.ContainsAny(p, "<>") {
 		return nil

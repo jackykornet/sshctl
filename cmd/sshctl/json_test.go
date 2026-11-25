@@ -53,6 +53,7 @@ func TestGroupListJSONShowsEveryGroupWithItsSpace(t *testing.T) {
 		}
 		if g.Name == "prod" && g.Space == "" {
 			cfg.Groups[i].Dotfiles = "https://example.com/d.git"
+			cfg.Groups[i].Color = "red"
 		}
 	}
 	if err := config.Save(a.cfgPath, cfg); err != nil {
@@ -63,9 +64,9 @@ func TestGroupListJSONShowsEveryGroupWithItsSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []any{
-		map[string]any{"space": "home", "number": 1.0, "name": "prod", "connections": 1.0, "dotfiles": "https://example.com/d.git"},
-		map[string]any{"space": "acme", "number": 1.0, "name": "prod", "connections": 1.0, "dotfiles": ""},
-		map[string]any{"space": "acme", "number": 2.0, "name": "data", "connections": 0.0, "dotfiles": "none"},
+		map[string]any{"space": "home", "number": 1.0, "name": "prod", "connections": 1.0, "dotfiles": "https://example.com/d.git", "color": "red"},
+		map[string]any{"space": "acme", "number": 1.0, "name": "prod", "connections": 1.0, "dotfiles": "", "color": ""},
+		map[string]any{"space": "acme", "number": 2.0, "name": "data", "connections": 0.0, "dotfiles": "none", "color": ""},
 	}
 	if got := decodeJSON(t, out.String()); !reflect.DeepEqual(got, want) {
 		t.Errorf("group list --json:\n%s\nwant:\n%v", out.String(), want)
@@ -86,6 +87,7 @@ func TestSpaceListJSONShowsEverySpace(t *testing.T) {
 	for _, args := range [][]string{
 		{"space", "dotfiles", "acme", "https://example.com/acme.git"},
 		{"key", "use", "--space", "acme", key},
+		{"space", "color", "acme", "magenta"},
 		{"space", "list", "--json"},
 	} {
 		if err := a.execute(args); err != nil {
@@ -93,9 +95,9 @@ func TestSpaceListJSONShowsEverySpace(t *testing.T) {
 		}
 	}
 	want := []any{
-		map[string]any{"number": 1.0, "name": "home", "default": true, "groups": 1.0, "connections": 3.0, "dotfiles": "", "identity": ""},
-		map[string]any{"number": 2.0, "name": "acme", "default": false, "groups": 2.0, "connections": 1.0, "dotfiles": "https://example.com/acme.git", "identity": key},
-		map[string]any{"number": 4.0, "name": "empty", "default": false, "groups": 0.0, "connections": 0.0, "dotfiles": "", "identity": ""},
+		map[string]any{"number": 1.0, "name": "home", "default": true, "groups": 1.0, "connections": 3.0, "color": "", "dotfiles": "", "identity": ""},
+		map[string]any{"number": 2.0, "name": "acme", "default": false, "groups": 2.0, "connections": 1.0, "color": "magenta", "dotfiles": "https://example.com/acme.git", "identity": key},
+		map[string]any{"number": 4.0, "name": "empty", "default": false, "groups": 0.0, "connections": 0.0, "color": "", "dotfiles": "", "identity": ""},
 	}
 	if got := decodeJSON(t, out.String()); !reflect.DeepEqual(got, want) {
 		t.Errorf("space list --json:\n%s\nwant:\n%v", out.String(), want)

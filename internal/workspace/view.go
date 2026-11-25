@@ -103,7 +103,7 @@ func (m *Model) render() string {
 	if lw > 0 {
 		list = m.renderList(lw, f.mainH)
 	}
-	sep := dimStyle.Render("│")
+	sep := m.frameStyle().Render("│")
 	for i := range f.mainH {
 		if lw > 0 {
 			lines = append(lines, list[i]+sep+pane[i])
@@ -118,14 +118,14 @@ func (m *Model) render() string {
 	return strings.Join(lines, "\n")
 }
 
-// rule is a full-width dim line, with join where it meets the line between
-// the list and the pane.
+// rule is a full-width line in frameStyle, with join where it meets the
+// line between the list and the pane.
 func (m *Model) rule(join string) string {
 	r := strings.Repeat("─", m.w)
 	if lw := m.listWidth(); lw > 0 {
 		r = strings.Repeat("─", lw) + join + strings.Repeat("─", m.w-lw-1)
 	}
-	return dimStyle.Render(r)
+	return m.frameStyle().Render(r)
 }
 
 func (m *Model) renderList(w, h int) []string {
@@ -267,7 +267,8 @@ func (m *Model) tunnelLine(r tunnelRow, cursor bool, w int) string {
 
 // spaceBar is the Workspace's top row: every Space as [1] homelab, the
 // active Space in the accent colour, one with a live Session in normal
-// text and an idle one dimmed. When the names do not fit in w columns it
+// text and an idle one dimmed; a Space with an Indicator color is in that
+// color instead, bold when active and faint when idle. When the names do not fit in w columns it
 // shows every Space number instead, [1] [2] [3] … [9], a free number
 // fainter still, and closes them up, [1][2][3], when even that is wider.
 // It is empty while there is only one Space.
@@ -288,6 +289,9 @@ func (m *Model) spaceBar(w int) string {
 			style = spaceActiveStyle
 		case !t.Live:
 			style = dimStyle
+		}
+		if c, ok := indicator(t.Color, lipgloss.NewStyle()); ok && !t.Free() {
+			style = c.Bold(t.Active).Faint(!t.Active && !t.Live)
 		}
 		label := fmt.Sprintf("[%d]", t.Number)
 		numbers = append(numbers, style.Render(label))
@@ -345,20 +349,26 @@ func (m *Model) spaceNoteLines(w int) []string {
 }
 
 // headerLabel is a group header, ▾ 1 web ●1 •: its fold marker, Group
-// number (for a stored Group), name, its member count while collapsed, then
-// how many members are open and whether any has unseen activity.
+// number (for a stored Group), name, in the Group's resolved Indicator
+// color if any, its member count while collapsed, then how many members
+// are open and whether any has unseen activity.
 func (m *Model) headerLabel(group string) string {
 	collapsed := m.st.Collapsed(group) && m.st.Filter() == ""
 	fold := "▾ "
 	if collapsed {
 		fold = "▸ "
 	}
-	name := boldStyle.Render(group)
+	style, colored := indicator(m.st.Color(m.st.Space(), group), boldStyle)
+	name := style.Render(group)
 	if n := m.st.GroupPosition(group); n > 0 {
 		name = dimStyle.Render(fmt.Sprint(n)) + " " + name
 	}
 	if group == "" {
-		name = dimStyle.Render("ungrouped")
+		style, colored = indicator(m.st.Color(m.st.Space(), ""), lipgloss.NewStyle())
+		if !colored {
+			style = dimStyle
+		}
+		name = style.Render("ungrouped")
 	}
 	members := m.st.Members(group)
 	open, unseen := 0, false
@@ -472,7 +482,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	labels := make([]string, len(c.Sessions))
 	plain := make([]string, len(c.Sessions))
 	for i, s := range c.Sessions {
-		labels[i], plain[i] = tabLabel(s, i == c.Current, m.paneFocused())
+		labels[i], plain[i] = tabLabel(s, i == c.Current, m.paneFocused(), m.st.ActiveColor())
 	}
 	// Grow a window of tabs around the current one while it fits, leaving
 	// room for ‹ and › and for the [+].
@@ -525,8 +535,10 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 // tabLabel is a tab, [1 ssh ●]: its number, what it runs and a dot, green
 // while live and yellow once ended. Unseen activity makes it bold and adds
 // •. The current tab is in the accent colour while the pane has focus, and
-// in reverse video while it has not. plain is the label unstyled.
-func tabLabel(s *Session, current, focused bool) (label, plain string) {
+// in reverse video while it has not; the Indicator color color, when there
+// is one, takes the accent colour's place in both (ADR-0009). plain is the
+// label unstyled.
+func tabLabel(s *Session, current, focused bool, color string) (label, plain string) {
 	what := "ssh"
 	if s.Action != "" {
 		what = string(s.Action)
@@ -544,9 +556,11 @@ func tabLabel(s *Session, current, focused bool) (label, plain string) {
 	plain += "]"
 	switch {
 	case current && focused:
-		return focusStyle.Render(plain), plain
+		style, _ := indicator(color, focusStyle)
+		return style.Render(plain), plain
 	case current:
-		return activeRow.Render(plain), plain
+		style, _ := indicator(color, activeRow)
+		return style.Render(plain), plain
 	}
 	style := lipgloss.NewStyle()
 	if unseen {
@@ -654,13 +668,15 @@ func (m *Model) gettingStartedHints() (add, spaces, help hintLine) {
 }
 
 // paneTitle is the pane's header, alias · user@host[:port], or the alias
-// alone until (or unless) its endpoint resolves.
+// alone until (or unless) its endpoint resolves. The alias is in the Active
+// connection's Indicator color, if any.
 func (m *Model) paneTitle() string {
 	c := m.st.Active()
 	if c == nil {
 		return ""
 	}
-	t := " " + boldStyle.Render(c.Alias)
+	alias, _ := indicator(m.st.ActiveColor(), boldStyle)
+	t := " " + alias.Render(c.Alias)
 	if e := m.endpoints[c.Alias]; e.text != "" {
 		t += dimStyle.Render(" · " + e.text)
 	}
@@ -784,7 +800,7 @@ func (m *Model) statusHints() []hintLine {
 func (m *Model) endedHints() hintLine { return m.hint(inEnded, "r", "x") }
 
 // sessionStatus is the status line's left side: the Active connection as
-// Group / alias, and the key it uses.
+// Group / alias, in its Indicator color if it has one, and the key it uses.
 func (m *Model) sessionStatus() string {
 	key := "OpenSSH default"
 	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
@@ -802,7 +818,11 @@ func (m *Model) sessionStatus() string {
 	if group == "" {
 		group = "ungrouped"
 	}
-	return lead + group + " / " + c.Alias + dimStyle.Render(" · key: "+key)
+	crumb := group + " / " + c.Alias
+	if style, ok := indicator(m.st.ActiveColor(), lipgloss.NewStyle()); ok {
+		crumb = style.Render(crumb)
+	}
+	return lead + crumb + dimStyle.Render(" · key: "+key)
 }
 
 // fit truncates or pads s to exactly w columns.
