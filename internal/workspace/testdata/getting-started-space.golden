@@ -1,6 +1,6 @@
  [1] default  [2] acme  [5] idle                                                
 ────────────────────────────┬───────────────────────────────────────────────────
- no hosts in ssh_config     │                                                   
+ no connections here        │                                                   
                             │                                                   
                             │                                                   
                             │  No connections in idle yet.                      

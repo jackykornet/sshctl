@@ -186,8 +186,11 @@ func (m *Model) renderList(w, h int) []string {
 	}
 	if len(rows) == 0 && len(lines) < h {
 		msg := "no hosts in ssh_config"
-		if m.st.Filter() != "" {
+		switch {
+		case m.st.Filter() != "":
 			msg = "no matches"
+		case !m.st.NoHosts():
+			msg = "no connections here"
 		}
 		lines = append(lines, fit(dimStyle.Render(" "+msg), w))
 	}
@@ -643,8 +646,14 @@ func (m *Model) gettingStarted(w int) []string {
 		where = "in Space " + m.st.SpaceName("")
 	}
 	add, spaces, help := m.gettingStartedHints()
+	// On a Group header a adds a Group, so the screen says that instead.
+	addPara := add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + "."
+	if g, ok := m.headerTarget(); ok {
+		addPara = add.String() + ": a new group, here on a group header. To add a connection to " + g +
+			", run sshctl add <alias> --space " + m.st.ActiveSpaceName() + " --group " + g + "."
+	}
 	paras := []string{
-		add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + ".",
+		addPara,
 		"Hosts already in ~/.ssh/config show up " + where + ". Saving needs " + openssh.IncludeLine +
 			" at the top of ~/.ssh/config; sshctl asks before adding it.",
 		spaces.String() + ": switch, add or rename Spaces.",
