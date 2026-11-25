@@ -307,31 +307,44 @@ The only SSH config sshctl writes is `~/.ssh/sshctl_config` (owner-only), plus t
 
 Hosts that are only reachable over a VPN time out slowly when the VPN is down. OpenSSH can check first and stop at once with a clear message, through a `Match exec` block in your own `~/.ssh/config`. sshctl needs no setting for this: `sshctl <alias>`, `group connect`, Tunnels and the Workspace's tabs all run `ssh`, which reads the block.
 
-Put the block after the `Include sshctl_config` line, because sshctl only counts an `Include` that comes before the first `Host` or `Match`:
+Give each VPN a block of its own, and match it by alias. Put the blocks after the `Include sshctl_config` line, because sshctl only counts an `Include` that comes before the first `Host` or `Match`:
 
 ```sshconfig
 Include sshctl_config
 
-# Stop at once when the office VPN is down.
-Match host 10.20.*,*.corp.example.com !exec "~/.ssh/vpn-up"
-    ProxyCommand sh -c 'echo "office VPN is not connected" >&2; exit 1'
+# Stop at once when a customer's VPN is down.
+Match originalhost acme-* !exec "~/.ssh/vpn-up acme"
+    ProxyCommand sh -c 'echo "Acme VPN is not connected" >&2; exit 1'
+Match originalhost beta-web,beta-db !exec "~/.ssh/vpn-up beta"
+    ProxyCommand sh -c 'echo "Beta VPN is not connected" >&2; exit 1'
 ```
 
-`Match host` compares the HostName the Connection resolves to, so it covers every Connection on the office network whatever its alias; `Match originalhost work-*` matches by alias instead. `!exec` is true when the command fails, and then the `ProxyCommand` prints the message and exits instead of connecting. ssh adds a `Connection closed` line after it, and in the Workspace the message stays in the ended tab. When the VPN is up, the block does not apply and ssh connects as usual.
+`Match originalhost` compares the alias you connect to, as a pattern (`acme-*`) or a list. Matching by alias rather than address (`Match host 10.20.*`) keeps customers apart when their networks use the same addresses: `acme-web` and `beta-web` can both be `10.20.0.5` and still each get their own check. `!exec` is true when the command fails, and then the `ProxyCommand` prints the message and exits instead of connecting. ssh adds a `Connection closed` line after it, and in the Workspace the message stays in the ended tab. When the check passes, the block does not apply and ssh connects as usual.
 
-`~/.ssh/vpn-up` is any command that exits 0 when the VPN is up (make it executable with `chmod +x`). Keep it fast, since it runs on every connect to those hosts, and also when the Workspace's pane header runs `ssh -G`. For example:
+`~/.ssh/vpn-up` is any command that exits 0 when the customer's hosts are reachable (make it executable with `chmod +x`). It can pass in more than one way, for example when you are at the customer's office, where no VPN is needed, or when their VPN is up. Keep it fast, since it runs on every connect to those hosts, and also when the Workspace's pane header runs `ssh -G`. For example, on Linux:
 
 ```sh
 #!/bin/sh
-# Linux, WireGuard or OpenVPN: the tunnel's interface exists.
-ip link show wg0 >/dev/null 2>&1
-# macOS, a VPN set up in System Settings:
-#   scutil --nc status "Office VPN" | head -n 1 | grep -qx Connected
-# Any system: a host on the office network answers on port 22 within 2 seconds.
-#   nc -z -w 2 10.20.0.1 22
+# Usage: vpn-up <customer>. Exits 0 when that customer's hosts are reachable.
+case "$1" in
+acme)
+	# At the Acme office, this machine has an address on its network.
+	ip -4 addr show | grep -q 'inet 172\.16\.40\.' && exit 0
+	# Anywhere else, the Acme WireGuard tunnel must be up.
+	ip link show wg-acme >/dev/null 2>&1
+	;;
+beta)
+	ip link show tun-beta >/dev/null 2>&1
+	;;
+*)
+	exit 1
+	;;
+esac
 ```
 
-A Host block that sets `ProxyJump` skips the check: OpenSSH uses the first of `ProxyJump` and `ProxyCommand` it reads, and sshctl's Host blocks come first. On Windows, OpenSSH runs both commands with `cmd.exe`, so use a `.cmd` or PowerShell script for `vpn-up` and `ProxyCommand cmd /c "echo office VPN is not connected 1>&2 & exit 1"`.
+The office test must fit only that office: a common home range such as `192.168.1.` would pass at home too. On macOS, `ifconfig | grep -q 'inet 172\.16\.40\.'` tests the address, and `scutil --nc status "Beta VPN" | head -n 1 | grep -qx Connected` tests a VPN set up in System Settings.
+
+A Host block that sets `ProxyJump` skips the check: OpenSSH uses the first of `ProxyJump` and `ProxyCommand` it reads, and sshctl's Host blocks come first. On Windows, OpenSSH runs both commands with `cmd.exe`, so use a `.cmd` or PowerShell script for `vpn-up` and `ProxyCommand cmd /c "echo Acme VPN is not connected 1>&2 & exit 1"`.
 
 ## Syncing with chezmoi
 
