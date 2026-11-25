@@ -169,12 +169,9 @@ func TestTabBarScrollsToCurrentTab(t *testing.T) {
 	for range 6 {
 		press(m, keyPrefix, text("n")[0])
 	}
-	for _, s := range m.st.Active().Sessions {
-		s.Title = "~/src"
-	}
 	bar, spans := m.tabBar(m.w - m.paneOffset())
 	bar = ansi.Strip(bar)
-	if !strings.HasPrefix(bar, "‹") || !strings.Contains(bar, " 7 ~/src │ + ") {
+	if !strings.HasPrefix(bar, "‹") || !strings.Contains(bar, " 7 ssh │ + ") {
 		t.Fatalf("tab bar should scroll to show tab 7: %q", bar)
 	}
 	if last := spans[len(spans)-2]; last.index != 6 { // the last span is the +

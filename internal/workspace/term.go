@@ -22,14 +22,10 @@ type vterm struct {
 }
 
 // newVterm creates an emulator of w×h cells. onClipboard receives text that
-// a remote program copies with OSC 52, and onTitle the window title it sets
-// with OSC 0 or 2; either may be nil.
-func newVterm(w, h, scrollback int, onClipboard, onTitle func(string)) *vterm {
+// a remote program copies with OSC 52.
+func newVterm(w, h, scrollback int, onClipboard func(string)) *vterm {
 	em := vt.NewSafeEmulator(w, h)
 	em.SetScrollbackSize(scrollback)
-	if onTitle != nil {
-		em.SetCallbacks(vt.Callbacks{Title: onTitle})
-	}
 	em.RegisterOscHandler(52, func(data []byte) bool {
 		if text, ok := parseOSC52(data); ok && onClipboard != nil {
 			onClipboard(text)

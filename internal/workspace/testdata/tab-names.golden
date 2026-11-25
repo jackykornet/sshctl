@@ -1,5 +1,5 @@
  ▾ 1 web                    │ db-main                                                               
-   ○ prod-web public site   │  1 ~/src │ 2 logs • │ 3 provision ✕ 255 │ 4 vim notes.txt │ +         
+   ○ prod-web public site   │  1 ssh │ 2 logs • │ 3 provision ✕ 255 │ 4 vim notes.txt │ +           
    ○ staging                │                                                                       
  ▾ ungrouped ●1 •           │                                                                       
 ›  ● db-main • postgres     │                                                                       

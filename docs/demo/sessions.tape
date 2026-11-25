@@ -13,20 +13,15 @@ Sleep 1s
 Type "uptime" Sleep 300ms Enter
 Sleep 1s
 
-# The tab is named after the title the shell sets: its directory.
-Type "cd /var/log" Sleep 300ms Enter
-Sleep 1.2s
-
 # A second tab on the same connection.
 Ctrl+B Type "n"
 Sleep 1s
 Type "ls" Sleep 300ms Enter
 Sleep 1s
 
-# Name the tab yourself: the prompt starts with its automatic name, ~.
+# Name the tab yourself; until then it is called ssh.
 Ctrl+B Type ","
 Sleep 500ms
-Backspace Sleep 200ms
 Type "deploy" Sleep 300ms Enter
 Sleep 1.2s
 

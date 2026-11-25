@@ -5,11 +5,9 @@ package workspace
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/sshctl/sshctl/internal/catalog"
 )
@@ -35,9 +33,6 @@ type Session struct {
 	// Name is the name typed for the tab (prefix ,), or "" for none. It
 	// lasts as long as the tab, reconnects included, and is not saved.
 	Name string
-	// Title is the window title the remote side last set (OSC 0 or 2),
-	// cleaned by cleanTitle. A reconnect clears it.
-	Title string
 	// Launch is what the Session's process runs.
 	Launch
 }
@@ -46,8 +41,8 @@ type Session struct {
 // with …
 const tabNameWidth = 20
 
-// Label is the tab's name: the typed Name, else an Action's name, else the
-// remote Title, else "" (the tab shows only its number).
+// Label is the tab's name: the typed Name, else an Action's name, else
+// "ssh".
 func (s *Session) Label() string {
 	switch {
 	case s.Name != "":
@@ -55,25 +50,7 @@ func (s *Session) Label() string {
 	case s.Action != "":
 		return string(s.Action)
 	}
-	return s.Title
-}
-
-// hostPrefix matches the user@host a shell's title starts with, such as
-// "jacky@web: ~/src", which the pane header already shows.
-var hostPrefix = regexp.MustCompile(`^[^\s@:]+@[^\s:]+(:\s*|\s+|$)`)
-
-// cleanTitle is a remote window title as a tab shows it: without control
-// characters, which could restyle the Workspace, without a leading
-// user@host, and trimmed.
-func cleanTitle(title string) string {
-	title = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, title)
-	title = strings.TrimSpace(title)
-	return strings.TrimSpace(hostPrefix.ReplaceAllString(title, ""))
+	return "ssh"
 }
 
 // A Launch is what a process runs for its Connection: ssh to it (a login

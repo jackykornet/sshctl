@@ -91,7 +91,7 @@ func TestPrefixIBootstrapsActiveConnectionWhilePaneHasFocus(t *testing.T) {
 		t.Fatalf("Command calls = %v, want %v", r.calls, want)
 	}
 	bar, _ := m.tabBar(60)
-	if got := ansi.Strip(bar); !strings.Contains(got, " 1 │ 2 bootstrap │ + ") {
+	if got := ansi.Strip(bar); !strings.Contains(got, " 1 ssh │ 2 bootstrap │ + ") {
 		t.Fatalf("tab bar = %q, want a labelled Bootstrap tab", got)
 	}
 }

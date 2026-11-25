@@ -474,7 +474,7 @@ const newTabLabel = " + "
 const tabSep = "│"
 
 // tabBar renders the Active connection's tabs in width columns,
-// ` 1 ~/src │ 2 provision │ + `, scrolling so the current tab stays
+// ` 1 ssh │ 2 provision │ + `, scrolling so the current tab stays
 // visible, with ‹ and › where tabs are cut off, and reports where each
 // visible tab and the + sit.
 func (m *Model) tabBar(width int) (string, []tabSpan) {
@@ -535,7 +535,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 	return fit(b.String(), width), spans
 }
 
-// tabLabel is a tab, ` 1 ~/src `: its number, its name (Session.Label, cut
+// tabLabel is a tab, ` 1 ssh `: its number, its name (Session.Label, cut
 // to tabNameWidth columns) and a marker, • for unseen activity (bold, like
 // the rest of the tab) or a yellow ✕ and the exit code once it has ended.
 // The current tab is a block: bold reverse video in the accent colour
@@ -543,10 +543,7 @@ func (m *Model) tabBar(width int) (string, []tabSpan) {
 // Indicator color color, when there is one, takes the accent colour's
 // place in both (ADR-0009). plain is the label unstyled.
 func tabLabel(s *Session, current, focused bool, color string) (label, plain string) {
-	head := fmt.Sprintf(" %d", s.N)
-	if name := s.Label(); name != "" {
-		head += " " + ansi.Truncate(name, tabNameWidth, "…")
-	}
+	head := fmt.Sprintf(" %d %s", s.N, ansi.Truncate(s.Label(), tabNameWidth, "…"))
 	marker := ""
 	unseen := s.Unseen && !s.Ended
 	switch {
