@@ -36,6 +36,28 @@ if [ -f "$atlas_snapshot" ]; then
 	echo "Restored atlas memory and notes from $atlas_snapshot"
 fi
 
+# vhs records the Workspace GIFs (docs/demo/*.tape). Its release binary,
+# since building it needs a newer Go than the repo pins; it drives ttyd,
+# ffmpeg and Chromium.
+vhs_version=0.12.1
+ttyd_version=1.7.7
+if ! vhs --version 2>/dev/null | grep -q "v$vhs_version"; then
+	case "$(uname -m)" in
+	x86_64) vhs_arch=x86_64 ttyd_arch=x86_64 ;;
+	aarch64 | arm64) vhs_arch=arm64 ttyd_arch=aarch64 ;;
+	*) echo "vhs: no release for $(uname -m)" >&2 && exit 1 ;;
+	esac
+	sudo apt-get update -qq
+	sudo apt-get install -y -qq ffmpeg chromium
+	tmp="$(mktemp -d)"
+	curl -fsSL -o "$tmp/ttyd" "https://github.com/tsl0922/ttyd/releases/download/$ttyd_version/ttyd.$ttyd_arch"
+	curl -fsSL "https://github.com/charmbracelet/vhs/releases/download/v$vhs_version/vhs_${vhs_version}_Linux_$vhs_arch.tar.gz" |
+		tar -xz -C "$tmp"
+	sudo install -m 755 "$tmp/ttyd" /usr/local/bin/ttyd
+	sudo install -m 755 "$(find "$tmp" -name vhs -type f)" /usr/local/bin/vhs
+	rm -rf "$tmp"
+fi
+
 npm install --global @openai/codex@latest @anthropic-ai/claude-code@latest
 
 codex plugin marketplace add mattpocock/skills || true

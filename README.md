@@ -62,7 +62,7 @@ go test -race ./...
 
 `gofmt -l .` must print nothing. CI does not cross-vet, so run the Windows `go vet` yourself. After an intended change to the Workspace layout, regenerate its golden files with `go test ./internal/workspace -update` and review the diff.
 
-The Workspace GIFs (the one at the top of this README and those in the [Guide](docs/guide.md)) are recorded with [vhs](https://github.com/charmbracelet/vhs), which needs `ttyd`, `ffmpeg` and Chromium. Each `docs/demo/<name>.tape` records `docs/demo/<name>.gif`. When the layout changes, re-record them from the repository root and check the results:
+The Workspace GIFs (the one at the top of this README and those in the [Guide](docs/guide.md)) are recorded with [vhs](https://github.com/charmbracelet/vhs), which needs `ttyd`, `ffmpeg` and Chromium (the dev container installs all four). Each `docs/demo/<name>.tape` records `docs/demo/<name>.gif`. When the layout changes, re-record them from the repository root and check the results:
 
 ```sh
 for t in docs/demo/*.tape; do vhs "$t"; done
