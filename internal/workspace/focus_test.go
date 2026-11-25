@@ -109,7 +109,7 @@ func TestCurrentTabShowsPaneFocus(t *testing.T) {
 	m := newTestModel(t, 100, 10)
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
-	focused := styled(accentStyle, "[1 ssh ●]")
+	focused := styled(accentStyle.Reverse(true), " 1 ")
 	if !strings.Contains(m.render(), focused) {
 		t.Error("the current tab is not in the accent colour while the pane has focus")
 	}
@@ -117,7 +117,7 @@ func TestCurrentTabShowsPaneFocus(t *testing.T) {
 	if strings.Contains(m.render(), focused) {
 		t.Error("the current tab is in the accent colour while the list has focus")
 	}
-	if !strings.Contains(m.render(), styled(activeRow, "[1 ssh ●]")) {
+	if !strings.Contains(m.render(), styled(activeRow, " 1 ")) {
 		t.Error("the current tab is not in reverse video while the list has focus")
 	}
 }

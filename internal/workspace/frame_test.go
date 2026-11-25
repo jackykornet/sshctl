@@ -85,11 +85,11 @@ func TestPlusTabOpensANewTab(t *testing.T) {
 	_, spans := m.tabBar(m.w - m.paneOffset())
 	plus := spans[len(spans)-1]
 	if plus.index != newTabSpan {
-		t.Fatalf("last span = %+v, want [+]", plus)
+		t.Fatalf("last span = %+v, want the +", plus)
 	}
 	m.Update(tea.MouseClickMsg{X: m.paneOffset() + plus.start + 1, Y: m.frame().tabRow, Button: tea.MouseLeft})
 	if n := len(m.st.Get("db-main").Sessions); n != 2 {
-		t.Fatalf("db-main has %d tabs after clicking [+], want 2", n)
+		t.Fatalf("db-main has %d tabs after clicking +, want 2", n)
 	}
 }
 

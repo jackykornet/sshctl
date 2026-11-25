@@ -8,7 +8,7 @@ import (
 // newTestTerm returns a 10×3 emulator that has been sent out.
 func newTestTerm(t *testing.T, out string) *vterm {
 	t.Helper()
-	term := newVterm(10, 3, 100, nil)
+	term := newVterm(10, 3, 100, nil, nil)
 	if _, err := term.Write([]byte(strings.ReplaceAll(out, "\n", "\r\n"))); err != nil {
 		t.Fatal(err)
 	}

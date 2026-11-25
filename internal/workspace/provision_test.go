@@ -88,7 +88,7 @@ func TestProvisionTabAsksForRepoAndShowsExitCode(t *testing.T) {
 	press(m, keyEnter)
 	pump(t, m, func() bool { return sess.Ended })
 	got := screen(m)
-	for _, want := range []string{"applying https://example.com/d.git", "mise install failed", "session ended (exit 3)", "[1 provision ●]"} {
+	for _, want := range []string{"applying https://example.com/d.git", "mise install failed", "session ended (exit 3)", " 1 provision ✕ 3 "} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("screen lacks %q; exit=%d screen:\n%s", want, sess.ExitCode, got)
 		}

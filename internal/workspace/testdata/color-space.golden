@@ -1,7 +1,7 @@
  [1] default  [2] acme                                                          
 ────────────────────────────┬───────────────────────────────────────────────────
  ▾ 1 data ●1                │ db                                                
-›  ● db                     │ [1 ssh ●] [+]                                     
+›  ● db                     │  1 │ +                                            
  ▾ ungrouped                │                                                   
    ○ cache                  │                                                   
                             │                                                   
@@ -11,7 +11,7 @@
  ... .......  bbb bbbb                                                          
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
  . . bbbb gg                b bb                                                
-.###########################b bb bbb bb ...                                     
+.###########################b BBB. .                                            
  . bbbbbbbbb                b                                                   
    . .....                  b                                                   
                             b                                                   

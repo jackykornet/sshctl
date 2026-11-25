@@ -76,7 +76,7 @@ func TestBootstrapTabAnswersPromptsAndShowsExitCode(t *testing.T) {
 	press(m, keyEnter)
 	pump(t, m, func() bool { return sess.Ended })
 	got := screen(m)
-	if !strings.Contains(got, "key installed with hunter2") || !strings.Contains(got, "session ended (exit 2)") || !strings.Contains(got, "[1 bootstrap ●]") {
+	if !strings.Contains(got, "key installed with hunter2") || !strings.Contains(got, "session ended (exit 2)") || !strings.Contains(got, " 1 bootstrap ✕ 2 ") {
 		t.Fatalf("exit=%d screen:\n%s", sess.ExitCode, got)
 	}
 }
@@ -91,7 +91,7 @@ func TestPrefixIBootstrapsActiveConnectionWhilePaneHasFocus(t *testing.T) {
 		t.Fatalf("Command calls = %v, want %v", r.calls, want)
 	}
 	bar, _ := m.tabBar(60)
-	if got := ansi.Strip(bar); !strings.Contains(got, "[1 ssh ●] [2 bootstrap ●]") {
+	if got := ansi.Strip(bar); !strings.Contains(got, " 1 │ 2 bootstrap │ + ") {
 		t.Fatalf("tab bar = %q, want a labelled Bootstrap tab", got)
 	}
 }

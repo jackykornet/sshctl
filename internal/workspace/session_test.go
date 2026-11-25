@@ -80,7 +80,7 @@ func TestSessionShowsOutputAndTakesInput(t *testing.T) {
 	}
 	press(m, keyPrefix, text("n")[0]) // a second tab must not record history again
 	pump(t, m, func() bool {
-		return strings.Contains(screen(m), "[2 ssh ●]") && strings.Contains(screen(m), "hello alpha")
+		return strings.Contains(screen(m), " 1 │ 2 │ + ") && strings.Contains(screen(m), "hello alpha")
 	})
 	if len(*opened) != 1 {
 		t.Fatalf("OnOpen calls after second tab = %v", *opened)

@@ -1,5 +1,5 @@
  ▾ 1 web ●1                 │ prod-web                                          
-›  ● prod-web public site   │ [1 ssh ●] [2 ssh ●] [+]                           
+›  ● prod-web public site   │  1 │ 2 │ +                                        
    ○ staging                │                                                   
  ▾ ungrouped                │                                                   
    ○ db-main postgres       │                                                   
