@@ -81,12 +81,27 @@ func (m *Model) contextKeys(ctx keyContext) []boundKey {
 	return out
 }
 
+// String writes l as "key action · key action". When every item has the
+// same lead, as on the Session pane's line of prefix commands, the lead is
+// written once, as "^B: Tab list · n new", to leave room for more keys.
 func (l hintLine) String() string {
+	shared := len(l.items) > 1
+	for _, it := range l.items {
+		shared = shared && it.lead != "" && it.lead == l.items[0].lead
+	}
 	parts := make([]string, len(l.items))
 	for i, it := range l.items {
-		parts[i] = it.lead + keyNames(it.keys, l.prefixKey) + " " + it.name
+		lead := it.lead
+		if shared {
+			lead = ""
+		}
+		parts[i] = lead + keyNames(it.keys, l.prefixKey) + " " + it.name
 	}
-	return strings.Join(parts, " · ")
+	line := strings.Join(parts, " · ")
+	if shared {
+		line = strings.TrimSuffix(l.items[0].lead, " ") + ": " + line
+	}
+	return line
 }
 
 // findKey returns the binding of key in table.

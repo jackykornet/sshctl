@@ -2,8 +2,10 @@ package workspace
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // A modal is the prompt, form or screen that takes the Workspace's input
@@ -54,6 +56,32 @@ func (m *Model) form() *connForm {
 	}
 	f, _ := md.(*connForm)
 	return f
+}
+
+// A paneModal is a modal drawn in the Session pane, w by h: the form and
+// the pickers. The others are on the status line, or the help screen.
+type paneModal interface {
+	modal
+	renderPane(m *Model, w, h int) []string
+}
+
+// paneModal returns the modal the pane shows: the open one, or the form or
+// Space picker a confirmation or Space name prompt was opened from; nil
+// for none.
+func (m *Model) paneModal() paneModal {
+	md := m.mode.modal
+	if c, ok := md.(*confirmation); ok {
+		md = c.back
+	}
+	if in, ok := md.(*spaceInput); ok {
+		md = in.back
+	}
+	p, _ := md.(paneModal)
+	return p
+}
+
+func (f *connForm) renderPane(m *Model, w, h int) []string {
+	return f.render(w, h, m.spaceNames(), f.groups(m.st), m.features.On(catalog.FeatureBootstrap), m.opts.CommandNames)
 }
 
 // confirm returns the open confirmation, or nil.
@@ -126,7 +154,7 @@ func (h *helpScreen) keys() []boundKey {
 		on("down", by(0, 1)).as("scroll"),
 		on("pgup", by(-1, 0)).as("scroll"),
 		on("pgdown", by(1, 0)).as("scroll"),
-		on("esc", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }).as("close"),
+		on("esc", closeModal).as("close"),
 	}
 }
 
@@ -223,4 +251,26 @@ func (g *prefixGate) promptHints(keys []boundKey) hintLine {
 		return hintsFor(keys, "esc")
 	}
 	return hintsFor(keys, "enter", "esc")
+}
+
+// closeModal is the action that closes the modal, as Esc does in a picker.
+func closeModal(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
+
+// movePickerCursor is the action that moves a picker's cursor by delta, kept
+// within the n rows it has.
+func movePickerCursor(cursor *int, delta int, n func(*Model) int) action {
+	return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		*cursor = max(0, min(*cursor+delta, n(m)-1))
+		return nil
+	}
+}
+
+// padLines is a pane's lines, w columns wide, cut or padded with blank
+// lines to h.
+func padLines(lines []string, w, h int) []string {
+	lines = lines[:min(len(lines), h)]
+	for len(lines) < h {
+		lines = append(lines, strings.Repeat(" ", w))
+	}
+	return lines
 }

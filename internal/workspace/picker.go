@@ -61,10 +61,7 @@ func (p *spacePicker) key(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 func (p *spacePicker) keys() []boundKey {
 	move := func(delta int) action {
-		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
-			p.cursor = max(0, min(p.cursor+delta, len(m.st.SpaceSlots())-1))
-			return nil
-		}
+		return movePickerCursor(&p.cursor, delta, func(m *Model) int { return len(m.st.SpaceSlots()) })
 	}
 	shift := func(delta int) action {
 		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.shiftSpace(p, delta) }
@@ -103,18 +100,17 @@ func (p *spacePicker) keys() []boundKey {
 		}
 		return nil
 	}
-	closePicker := func(m *Model, _ tea.KeyPressMsg) tea.Cmd { m.showModal(nil); return nil }
 	return []boundKey{
 		on("enter", enter).as("switch"), on("space", enter),
 		on("a", add).as("add"),
 		on("e", rename).as("rename"),
 		on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteSpace(p) }).as("delete"),
 		on("C", color).as("color"),
-		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)),
-		on("shift+down", shift(1)).as("move"), on("J", shift(1)),
+		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)).as("move"),
+		on("shift+down", shift(1)).as("move"), on("J", shift(1)).as("move"),
 		on("up", move(-1)), on("k", move(-1)),
 		on("down", move(1)), on("j", move(1)),
-		on("esc", closePicker).as("close"), on("ctrl+c", closePicker), on("q", closePicker), on("P", closePicker),
+		on("esc", closeModal).as("close"), on("ctrl+c", closeModal), on("q", closeModal), on("P", closeModal),
 	}
 }
 
@@ -122,7 +118,8 @@ func (p *spacePicker) hints() []hintLine {
 	if p.swallowed {
 		return []hintLine{hintsFor(p.keys(), "esc")}
 	}
-	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "shift+up", "shift+down", "esc", "C")}
+	// K/J rather than the longer Shift+↑/↓, so the line fits 80 columns.
+	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "K", "J", "C", "esc")}
 }
 
 // target is the row under the cursor: a Space, or a free Space number.
@@ -199,7 +196,7 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 // render draws the picker in the w by h pane: a row per Space number,
 // [2] acme, or [3] empty dimmed when it is free, then each Space without a
 // number. A Space's name is in its Indicator color, if it has one.
-func (p *spacePicker) render(m *Model, w, h int) []string {
+func (p *spacePicker) renderPane(m *Model, w, h int) []string {
 	lines := []string{fit(" "+boldStyle.Render("Spaces"), w)}
 	for i, t := range m.st.SpaceSlots() {
 		pointer := "  "
@@ -218,7 +215,7 @@ func (p *spacePicker) render(m *Model, w, h int) []string {
 		case colored:
 			row = dimStyle.Render(number) + " " + color.Bold(t.Active).Faint(!t.Active && !t.Live).Render(t.Name)
 		case t.Active:
-			row = dimStyle.Render(number) + " " + spaceActiveStyle.Render(t.Name)
+			row = dimStyle.Render(number) + " " + accentStyle.Render(t.Name)
 		case !t.Live:
 			row = dimStyle.Render(number + " " + t.Name)
 		default:
@@ -226,11 +223,7 @@ func (p *spacePicker) render(m *Model, w, h int) []string {
 		}
 		lines = append(lines, fit(pointer+" "+row, w))
 	}
-	lines = lines[:min(len(lines), h)]
-	for len(lines) < h {
-		lines = append(lines, strings.Repeat(" ", w))
-	}
-	return lines
+	return padLines(lines, w, h)
 }
 
 // spaceInput is the status-line prompt for a new Space's name, or a Space's

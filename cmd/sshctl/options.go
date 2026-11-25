@@ -50,6 +50,8 @@ type input struct {
 	// args are the operands, in order; dashed counts those given after --.
 	args   []string
 	dashed int
+	// dash reports whether -- was given.
+	dash bool
 	// opts holds the options given, by long name, with "" for one that
 	// takes no value.
 	opts map[string]string
@@ -74,13 +76,23 @@ func (in input) beforeDash() []string { return in.args[:len(in.args)-in.dashed] 
 // and options. It refuses an unknown option, a missing value, a value for an
 // option that takes none, and an option given twice.
 func parseArgs(args []string) (input, error) {
-	in := input{opts: map[string]string{}}
+	in, _, err := scanArgs(args, true)
+	return in, err
+}
+
+// scanArgs is the one reading of a call's words into operands and options.
+// Strict, it is parseArgs. Otherwise, for completion, it refuses nothing:
+// it skips an unknown option, keeps the last of one given twice, and
+// returns as pending a value option given last, whose value is the word
+// being completed.
+func scanArgs(args []string, strict bool) (in input, pending *option, err error) {
+	in = input{opts: map[string]string{}}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
 			rest := args[i+1:]
 			in.args = append(in.args, rest...)
-			in.dashed = len(rest)
+			in.dashed, in.dash = len(rest), true
 			break
 		}
 		if !strings.HasPrefix(arg, "-") || arg == "-" {
@@ -96,23 +108,31 @@ func parseArgs(args []string) (input, error) {
 			o = findOption("", arg[1])
 		}
 		if o == nil {
-			return in, fmt.Errorf("unknown option %s", arg)
+			if !strict {
+				continue
+			}
+			return in, nil, fmt.Errorf("unknown option %s", arg)
 		}
 		name := "--" + o.name
-		if _, dup := in.opts[o.name]; dup {
-			return in, fmt.Errorf("%s given twice", name)
+		if _, dup := in.opts[o.name]; dup && strict {
+			return in, nil, fmt.Errorf("%s given twice", name)
 		}
 		switch {
 		case !o.value && hasValue:
-			return in, fmt.Errorf("%s takes no value", name)
+			if strict {
+				return in, nil, fmt.Errorf("%s takes no value", name)
+			}
 		case o.value && !hasValue:
 			if i+1 == len(args) {
-				return in, fmt.Errorf("%s needs a value", name)
+				if strict {
+					return in, nil, fmt.Errorf("%s needs a value", name)
+				}
+				return in, o, nil
 			}
 			i++
 			value = args[i]
 		}
 		in.opts[o.name] = value
 	}
-	return in, nil
+	return in, nil, nil
 }

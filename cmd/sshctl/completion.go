@@ -88,37 +88,14 @@ func candidates(snap catalog.Snapshot, words []string, cur string) []string {
 			words = words[1:]
 		}
 	}
-	var operands []string
-	opts := map[string]string{}
-	for i := 0; i < len(words); i++ {
-		w := words[i]
-		if w == "--" {
-			// After --, a remote command or operands only.
-			return nil
-		}
-		if !strings.HasPrefix(w, "-") || w == "-" {
-			operands = append(operands, w)
-			continue
-		}
-		var o *option
-		value, hasValue := "", false
-		if long, ok := strings.CutPrefix(w, "--"); ok {
-			long, value, hasValue = strings.Cut(long, "=")
-			o = findOption(long, 0)
-		} else if len(w) == 2 {
-			o = findOption("", w[1])
-		}
-		if o == nil || !o.value || hasValue {
-			if o != nil {
-				opts[o.name] = value
-			}
-			continue
-		}
-		if i+1 == len(words) {
-			return optionValues(snap, o.name, opts)
-		}
-		i++
-		opts[o.name] = words[i]
+	in, pending, _ := scanArgs(words, false)
+	if in.dash {
+		// After --, a remote command or operands only.
+		return nil
+	}
+	operands, opts := in.args, in.opts
+	if pending != nil {
+		return optionValues(snap, pending.name, opts)
 	}
 	if long, ok := strings.CutPrefix(cur, "--"); ok {
 		if name, _, ok := strings.Cut(long, "="); ok {
@@ -179,7 +156,7 @@ func (c *command) operandValues(snap catalog.Snapshot, operands []string, opts m
 // command, they are connect's and --version.
 func optionNames(c *command, operands []string) []string {
 	if c == nil {
-		return []string{"--connect", "--help", "--version"}
+		return append(optionNames(&connectCommand, nil), "--version")
 	}
 	var forms []*form
 	for i := range c.forms {

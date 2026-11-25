@@ -55,10 +55,10 @@ type Catalog interface {
 	// the Space that has it.
 	MoveSpace(name string, n int) error
 	// SetGroupColor saves the Indicator color of space's Group group, one of
-	// catalog.Colors or "" for none (ADR-0009).
+	// config.Colors or "" for none (ADR-0009).
 	SetGroupColor(space, group, color string) error
 	// SetSpaceColor saves the Indicator color of the Space space, one of
-	// catalog.Colors or "" for none.
+	// config.Colors or "" for none.
 	SetSpaceColor(space, color string) error
 	// Keys lists the key files a Selected identity is chosen from, as
 	// "sshctl key list" shows them.

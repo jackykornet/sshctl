@@ -125,7 +125,7 @@ func (a *app) spaceDotfiles(in input) error {
 	case len(args) == 1 && args[0] != "" && !unset:
 		return a.catalog().SetSpaceDotfiles(space, args[0])
 	}
-	return errors.New("usage: sshctl space dotfiles <space> [<url|none> | --unset]")
+	return errUsage
 }
 
 // spaceList prints each Space's number, name, Group count and Connection

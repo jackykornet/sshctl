@@ -66,14 +66,15 @@ func (c *Config) noteUnknownColors() {
 // ungrouped Connection), resolved Group → Space → none: the Group's own
 // color, else its Space's, else "". A color CheckColor refuses counts as
 // none.
-func (c *Config) ColorFor(space, group string) string {
-	if i := c.GroupIndex(space, group); group != "" && i >= 0 {
-		if color := c.Groups[i].Color; color != "" && CheckColor(color) == nil {
+// It reads only spaces and groups, so a Snapshot of them resolves the same.
+func ColorFor(spaces []Space, groups []Group, space, group string) string {
+	if i := groupIndex(groups, space, group); group != "" && i >= 0 {
+		if color := groups[i].Color; color != "" && CheckColor(color) == nil {
 			return color
 		}
 	}
-	if i := c.SpaceIndex(space); i >= 0 {
-		if color := c.Spaces[i].Color; CheckColor(color) == nil {
+	if i := spaceIndex(spaces, space); i >= 0 {
+		if color := spaces[i].Color; CheckColor(color) == nil {
 			return color
 		}
 	}

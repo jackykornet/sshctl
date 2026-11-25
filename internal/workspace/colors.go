@@ -7,12 +7,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/config"
 )
 
-// indicatorColors are the terminal colours of the Indicator colors
-// (ADR-0009): basic ANSI ones, so they follow the user's theme.
-var indicatorColors = map[string]color.Color{
+// basicColors are the basic ANSI colours by name, so the Indicator colors
+// follow the user's theme.
+var basicColors = map[string]color.Color{
 	"red":     lipgloss.Red,
 	"yellow":  lipgloss.Yellow,
 	"green":   lipgloss.Green,
@@ -20,6 +20,18 @@ var indicatorColors = map[string]color.Color{
 	"blue":    lipgloss.Blue,
 	"magenta": lipgloss.Magenta,
 }
+
+// indicatorColors are the terminal colours of config.Colors, the Indicator
+// colors (ADR-0009); TestEveryIndicatorColorIsDrawn checks each has one.
+var indicatorColors = func() map[string]color.Color {
+	out := map[string]color.Color{}
+	for _, name := range config.Colors {
+		if c, ok := basicColors[name]; ok {
+			out[name] = c
+		}
+	}
+	return out
+}()
 
 // indicator returns base drawn in the Indicator color name, and false
 // with base unchanged when name is none or unknown.
@@ -43,7 +55,7 @@ func (m *Model) frameStyle() lipgloss.Style {
 
 // colorChoices are the choices of the color prompt: none (""), then every
 // Indicator color.
-var colorChoices = append([]string{""}, catalog.Colors...)
+var colorChoices = append([]string{""}, config.Colors...)
 
 // colorTarget returns what C colors: the Group whose header is under the
 // cursor, or the Group of the Connection under it, while the list has focus,
@@ -77,7 +89,7 @@ func colorKey(m *Model, _ tea.KeyPressMsg) tea.Cmd {
 }
 
 // colorInput is the status-line prompt that sets the Indicator color of a
-// Group, or of a Space when group is "": none or one of catalog.Colors,
+// Group, or of a Space when group is "": none or one of config.Colors,
 // chosen with ←/→ from the one it has of its own and set with Enter. Asked from the Space picker, back is
 // the picker, which Enter and Esc return to.
 type colorInput struct {
@@ -120,7 +132,7 @@ func (in *colorInput) hints() []hintLine {
 	if in.swallowed {
 		return []hintLine{hintsFor(in.keys(), "esc")}
 	}
-	return []hintLine{hintsFor(in.keys(), "enter", "esc")}
+	return []hintLine{hintsFor(in.keys(), "left", "right", "enter", "esc")}
 }
 
 func (in *colorInput) paste(string) {}
@@ -136,7 +148,7 @@ func (in *colorInput) status() (string, bool) {
 	for i, c := range colorChoices {
 		label := c
 		if c == "" {
-			label = catalog.ColorNone
+			label = config.ColorNone
 		}
 		style, _ := indicator(c, lipgloss.NewStyle())
 		if i == in.cursor {

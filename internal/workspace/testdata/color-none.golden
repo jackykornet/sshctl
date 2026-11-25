@@ -7,7 +7,7 @@
 ›  ● db-main postgres       │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- SESSION ungrouped / db-main · key: id_ed25519          ^B Tab list · ^B ? help 
+ SESSION ungrouped / db-main  ^B: Tab list · n new · w close · [/] tab · ? help 
  ccc ccccccc  bbb bbbb                                                          
 ................................................................................
  . . rrr                    . .......                                           

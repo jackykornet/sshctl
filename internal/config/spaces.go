@@ -55,8 +55,10 @@ func CheckSpaceName(name string) error {
 
 // SpaceIndex returns the position in Spaces of space as Groups and
 // Connections refer to it ("" for the default Space), or -1.
-func (c *Config) SpaceIndex(space string) int {
-	return slices.IndexFunc(c.Spaces, func(s Space) bool {
+func (c *Config) SpaceIndex(space string) int { return spaceIndex(c.Spaces, space) }
+
+func spaceIndex(spaces []Space, space string) int {
+	return slices.IndexFunc(spaces, func(s Space) bool {
 		if space == "" {
 			return s.Default
 		}

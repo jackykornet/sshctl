@@ -2,9 +2,7 @@ package workspace
 
 import (
 	"fmt"
-	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/openssh"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,12 +24,10 @@ var (
 	dropStyle   = lipgloss.NewStyle().Underline(true).Bold(true)
 	// selectionStyle draws text selected with the mouse in a Session pane.
 	selectionStyle = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
-	// spaceActiveStyle is the accent colour of the active Space in the
-	// Space bar.
-	spaceActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
-	// focusStyle is the accent colour of the side with focus: the current
-	// tab while the pane has it, and the status bar's LIST or SESSION tag.
-	focusStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
+	// accentStyle is the Workspace's accent colour: the active Space in the
+	// Space bar and the picker, and the side with focus, its current tab
+	// while the pane has it and the status bar's LIST or SESSION tag.
+	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Cyan).Bold(true)
 	// focusRowStyle is the list's cursor row while the list has focus.
 	focusRowStyle = lipgloss.NewStyle().Reverse(true).Foreground(lipgloss.Cyan)
 	// spaceFreeStyle is a free Space number in the Space bar, fainter than
@@ -187,8 +183,11 @@ func (m *Model) renderList(w, h int) []string {
 	}
 	if len(rows) == 0 && len(lines) < h {
 		msg := "no hosts in ssh_config"
-		if m.st.Filter() != "" {
+		switch {
+		case m.st.Filter() != "":
 			msg = "no matches"
+		case !m.st.NoHosts():
+			msg = "no connections here"
 		}
 		lines = append(lines, fit(dimStyle.Render(" "+msg), w))
 	}
@@ -226,7 +225,7 @@ func (m *Model) pointer(cursor bool) string {
 	case !cursor:
 		return " "
 	case m.listFocused():
-		return focusStyle.Render("›")
+		return accentStyle.Render("›")
 	}
 	return dimStyle.Render("›")
 }
@@ -286,7 +285,7 @@ func (m *Model) spaceBar(w int) string {
 		case t.Free():
 			style = spaceFreeStyle
 		case t.Active:
-			style = spaceActiveStyle
+			style = accentStyle
 		case !t.Live:
 			style = dimStyle
 		}
@@ -556,7 +555,7 @@ func tabLabel(s *Session, current, focused bool, color string) (label, plain str
 	plain += "]"
 	switch {
 	case current && focused:
-		style, _ := indicator(color, focusStyle)
+		style, _ := indicator(color, accentStyle)
 		return style.Render(plain), plain
 	case current:
 		style, _ := indicator(color, activeRow)
@@ -577,17 +576,8 @@ func tabLabel(s *Session, current, focused bool, color string) (label, plain str
 // the header (when f has room for it), the tab line and the Session.
 func (m *Model) renderPane(w int, f frameLayout) []string {
 	h := f.mainH
-	if fm := m.form(); fm != nil {
-		return fm.render(w, h, m.spaceNames(), fm.groups(m.st), m.features.On(catalog.FeatureBootstrap), m.opts.CommandNames)
-	}
-	if p := m.picker(); p != nil {
-		return p.render(m, w, h)
-	}
-	if p, ok := m.mode.modal.(*keyPicker); ok {
-		return p.render(m, w, h)
-	}
-	if p := m.history(); p != nil {
-		return p.render(m, w, h)
+	if p := m.paneModal(); p != nil {
+		return p.renderPane(m, w, h)
 	}
 	var lines []string
 	if f.paneHeader {
@@ -644,8 +634,14 @@ func (m *Model) gettingStarted(w int) []string {
 		where = "in Space " + m.st.SpaceName("")
 	}
 	add, spaces, help := m.gettingStartedHints()
+	// On a Group header a adds a Group, so the screen says that instead.
+	addPara := add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + "."
+	if g, ok := m.headerTarget(); ok {
+		addPara = add.String() + ": a new group, here on a group header. To add a connection to " + g +
+			", run sshctl add <alias> --space " + m.st.ActiveSpaceName() + " --group " + g + "."
+	}
 	paras := []string{
-		add.String() + ": a new connection, saved to ~/.ssh/" + openssh.ManagedFile + ".",
+		addPara,
 		"Hosts already in ~/.ssh/config show up " + where + ". Saving needs " + openssh.IncludeLine +
 			" at the top of ~/.ssh/config; sshctl asks before adding it.",
 		spaces.String() + ": switch, add or rename Spaces.",
@@ -716,6 +712,9 @@ func (m *Model) helpLines() (title string, body []string) {
 
 func (m *Model) renderStatus(w int) string {
 	var left string
+	// dropKey is set when the left side ends with the dim key, which
+	// the hints may take the room of: the focused pane's keys matter more.
+	dropKey := false
 	modalStatus, ok := "", false
 	if m.mode.modal != nil {
 		modalStatus, ok = m.mode.modal.status()
@@ -751,6 +750,7 @@ func (m *Model) renderStatus(w int) string {
 		}
 	default:
 		left = m.sessionStatus()
+		dropKey = true
 	}
 	// The tag says which side has focus; a modal's or the filter's own
 	// status says where you are instead.
@@ -759,17 +759,25 @@ func (m *Model) renderStatus(w int) string {
 		if m.paneFocused() {
 			tag = "SESSION"
 		}
-		left = focusStyle.Render(tag) + " " + left
+		left = accentStyle.Render(tag) + " " + left
 	}
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
+	lefts := []string{left}
+	if dropKey {
+		lefts = append(lefts, strings.TrimSuffix(left, m.statusKey()))
+	}
 	line := " " + left
+hints:
 	for _, hints := range m.statusHints() {
 		right := hints.String()
-		if gap := w - ansi.StringWidth(line) - ansi.StringWidth(right) - 1; gap >= 1 {
-			line += strings.Repeat(" ", gap) + right + " "
-			break
+		for _, l := range lefts {
+			// A space before the left side, at least one between, one after.
+			if gap := w - ansi.StringWidth(l) - ansi.StringWidth(right) - 2; gap >= 1 {
+				line = " " + l + strings.Repeat(" ", gap) + right + " "
+				break hints
+			}
 		}
 	}
 	// The bar's reverse video carries on after each styled part, such as
@@ -780,8 +788,12 @@ func (m *Model) renderStatus(w int) string {
 
 // statusHints are the hint lines for the status line's right side, for the
 // focused pane's most important keys, the longest first; it shows the first
-// that fits. Each drops the last key but help from the one before.
+// that fits. Each drops the last key but help from the one before. A modal
+// hints at its own keys, so it has none (ADR-0007).
 func (m *Model) statusHints() []hintLine {
+	if m.mode.modal != nil {
+		return nil
+	}
 	var keys hintLine
 	if m.paneFocused() {
 		keys = m.hint(inPrefix, "tab", "n", "w", "[", "]", "s")
@@ -802,17 +814,13 @@ func (m *Model) endedHints() hintLine { return m.hint(inEnded, "r", "x") }
 // sessionStatus is the status line's left side: the Active connection as
 // Group / alias, in its Indicator color if it has one, and the key it uses.
 func (m *Model) sessionStatus() string {
-	key := "OpenSSH default"
-	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
-		key = filepath.Base(k)
-	}
 	lead := ""
 	if n := m.tunnels.count(); n > 0 {
 		lead = tunnelMarker + " " + plural(n, "tunnel") + " · "
 	}
 	c := m.st.Active()
 	if c == nil {
-		return lead + "no active connection" + dimStyle.Render(" · key: "+key)
+		return lead + "no active connection" + m.statusKey()
 	}
 	group := c.Group
 	if group == "" {
@@ -822,7 +830,13 @@ func (m *Model) sessionStatus() string {
 	if style, ok := indicator(m.st.ActiveColor(), lipgloss.NewStyle()); ok {
 		crumb = style.Render(crumb)
 	}
-	return lead + crumb + dimStyle.Render(" · key: "+key)
+	return lead + crumb + m.statusKey()
+}
+
+// statusKey is the end of sessionStatus: the key the active Space's new
+// tabs use, dim.
+func (m *Model) statusKey() string {
+	return dimStyle.Render(" · key: " + keyLabel(m.identities.SpaceIdentity(m.st.Space())))
 }
 
 // fit truncates or pads s to exactly w columns.

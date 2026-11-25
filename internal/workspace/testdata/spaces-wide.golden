@@ -5,4 +5,4 @@
                                         │  Select a connection and press Enter.                     
                                         │                                                           
 ────────────────────────────────────────┴───────────────────────────────────────────────────────────
- LIST no active connection · key: id_ed25519     Enter open · / filter · a add · e edit · ^B ? help 
+ LIST no active connection            Enter open · / filter · a add · e edit · d delete · ^B ? help 

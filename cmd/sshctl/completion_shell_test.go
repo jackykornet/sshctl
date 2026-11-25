@@ -1,36 +1,78 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
-// shellTree builds sshctl into a directory put first on PATH, over a home
-// whose ssh_config has web01 and web02, for the completion scripts to run.
+// realEnv is the environment the test binary started with, before any test
+// set a fake HOME, so go build uses the real module and build caches rather
+// than filling a read-only module cache inside a test's TempDir.
+var realEnv = os.Environ()
+
+// built is sshctl, built once into a directory removed when the tests end.
+var built struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if built.dir != "" {
+		os.RemoveAll(built.dir)
+	}
+	os.Exit(code)
+}
+
+// buildSshctl builds sshctl once, with the real environment, and returns
+// the directory that holds it.
+func buildSshctl(t *testing.T) string {
+	t.Helper()
+	built.once.Do(func() {
+		dir, err := os.MkdirTemp("", "sshctl-bin")
+		if err != nil {
+			built.err = err
+			return
+		}
+		built.dir = dir
+		exe := filepath.Join(dir, "sshctl")
+		if runtime.GOOS == "windows" {
+			exe += ".exe"
+		}
+		cmd := exec.Command("go", "build", "-o", exe, ".")
+		cmd.Env = realEnv
+		if out, err := cmd.CombinedOutput(); err != nil {
+			built.err = fmt.Errorf("go build: %v\n%s", err, out)
+		}
+	})
+	if built.err != nil {
+		t.Fatal(built.err)
+	}
+	return built.dir
+}
+
+// shellTree puts sshctl first on PATH, over a home whose ssh_config has
+// web01 and web02, for the completion scripts to run.
 func shellTree(t *testing.T) []string {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("builds sshctl")
 	}
+	bin := buildSshctl(t)
 	home := fakeHome(t)
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("Host web01\nHost web02\n"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	exe := filepath.Join(bin, "sshctl")
-	if runtime.GOOS == "windows" {
-		exe += ".exe"
-	}
-	if out, err := exec.Command("go", "build", "-o", exe, ".").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	return append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

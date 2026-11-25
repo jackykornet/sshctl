@@ -188,6 +188,8 @@ func TestWrongCallsGetTheCommandsUsage(t *testing.T) {
 		{"agent"}, {"key"}, {"key", "bogus"}, {"config", "bogus"},
 		{"group", "--space", "default"}, {"group", "add"}, {"space", "rename", "default"},
 		{"list", "extra"}, {"bootstrap"},
+		{"key", "add"}, {"key", "use"}, {"known-hosts", "remove"},
+		{"provision", "default", "a", "b"}, {"space", "dotfiles", "default", "a", "b"},
 	} {
 		err := a.execute(args)
 		if want := "usage: sshctl " + usage(args[0]); err == nil || err.Error() != want {

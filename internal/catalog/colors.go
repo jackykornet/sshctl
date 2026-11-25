@@ -2,20 +2,13 @@ package catalog
 
 import "github.com/sshctl/sshctl/internal/config"
 
-// Colors lists the Indicator colors (ADR-0009) in the order they are
-// offered; "" is none, which the user names ColorNone.
-var Colors = config.Colors
-
-// ColorNone is how the user names no Indicator color.
-const ColorNone = config.ColorNone
-
 // Color returns the Indicator color (ADR-0009) of the Space ref's Group
 // group ("" for the default Space; group "" for an ungrouped Connection),
 // resolved Group → Space → none: the Group's own color, else its Space's,
 // else "". A Connection has no color of its own; it takes the one of its
 // Group and Space.
 func (s Snapshot) Color(ref, group string) string {
-	return (&config.Config{Spaces: s.Spaces, Groups: s.Groups}).ColorFor(ref, group)
+	return config.ColorFor(s.Spaces, s.Groups, ref, group)
 }
 
 // SetGroupColor saves the Indicator color of the Space space's Group group:
