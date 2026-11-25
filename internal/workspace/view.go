@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/openssh"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -716,6 +715,9 @@ func (m *Model) helpLines() (title string, body []string) {
 
 func (m *Model) renderStatus(w int) string {
 	var left string
+	// dropKey is set when the left side ends with the dim key, which
+	// the hints may take the room of: the focused pane's keys matter more.
+	dropKey := false
 	modalStatus, ok := "", false
 	if m.mode.modal != nil {
 		modalStatus, ok = m.mode.modal.status()
@@ -751,6 +753,7 @@ func (m *Model) renderStatus(w int) string {
 		}
 	default:
 		left = m.sessionStatus()
+		dropKey = true
 	}
 	// The tag says which side has focus; a modal's or the filter's own
 	// status says where you are instead.
@@ -764,12 +767,20 @@ func (m *Model) renderStatus(w int) string {
 	if m.prefix || m.mode.modal != nil && m.mode.modal.prefixArmed() {
 		left = keyHint(m.opts.PrefixKey) + " … " + left
 	}
+	lefts := []string{left}
+	if dropKey {
+		lefts = append(lefts, strings.TrimSuffix(left, m.statusKey()))
+	}
 	line := " " + left
+hints:
 	for _, hints := range m.statusHints() {
 		right := hints.String()
-		if gap := w - ansi.StringWidth(line) - ansi.StringWidth(right) - 1; gap >= 1 {
-			line += strings.Repeat(" ", gap) + right + " "
-			break
+		for _, l := range lefts {
+			// A space before the left side, at least one between, one after.
+			if gap := w - ansi.StringWidth(l) - ansi.StringWidth(right) - 2; gap >= 1 {
+				line = " " + l + strings.Repeat(" ", gap) + right + " "
+				break hints
+			}
 		}
 	}
 	// The bar's reverse video carries on after each styled part, such as
@@ -780,8 +791,12 @@ func (m *Model) renderStatus(w int) string {
 
 // statusHints are the hint lines for the status line's right side, for the
 // focused pane's most important keys, the longest first; it shows the first
-// that fits. Each drops the last key but help from the one before.
+// that fits. Each drops the last key but help from the one before. A modal
+// hints at its own keys, so it has none (ADR-0007).
 func (m *Model) statusHints() []hintLine {
+	if m.mode.modal != nil {
+		return nil
+	}
 	var keys hintLine
 	if m.paneFocused() {
 		keys = m.hint(inPrefix, "tab", "n", "w", "[", "]", "s")
@@ -802,17 +817,13 @@ func (m *Model) endedHints() hintLine { return m.hint(inEnded, "r", "x") }
 // sessionStatus is the status line's left side: the Active connection as
 // Group / alias, in its Indicator color if it has one, and the key it uses.
 func (m *Model) sessionStatus() string {
-	key := "OpenSSH default"
-	if k := m.identities.SpaceIdentity(m.st.Space()); k != "" {
-		key = filepath.Base(k)
-	}
 	lead := ""
 	if n := m.tunnels.count(); n > 0 {
 		lead = tunnelMarker + " " + plural(n, "tunnel") + " · "
 	}
 	c := m.st.Active()
 	if c == nil {
-		return lead + "no active connection" + dimStyle.Render(" · key: "+key)
+		return lead + "no active connection" + m.statusKey()
 	}
 	group := c.Group
 	if group == "" {
@@ -822,7 +833,13 @@ func (m *Model) sessionStatus() string {
 	if style, ok := indicator(m.st.ActiveColor(), lipgloss.NewStyle()); ok {
 		crumb = style.Render(crumb)
 	}
-	return lead + crumb + dimStyle.Render(" · key: "+key)
+	return lead + crumb + m.statusKey()
+}
+
+// statusKey is the end of sessionStatus: the key the active Space's new
+// tabs use, dim.
+func (m *Model) statusKey() string {
+	return dimStyle.Render(" · key: " + keyLabel(m.identities.SpaceIdentity(m.st.Space())))
 }
 
 // fit truncates or pads s to exactly w columns.

@@ -131,7 +131,7 @@ var bindings = []binding{
 		tunnelRows: true,
 	},
 	{
-		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new tab")),
+		keys: each(inPrefix, on("n", followCursor(newTab(LaunchShell))).as("new")),
 		help: "new tab for the active connection",
 	},
 	{

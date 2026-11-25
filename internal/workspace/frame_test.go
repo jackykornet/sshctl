@@ -118,8 +118,36 @@ func TestStatusHintsFollowFocus(t *testing.T) {
 	}
 	m.st.SetCursor("db-main")
 	press(m, keyEnter)
-	if got, want := m.statusHints()[0].String(), "^B Tab list · ^B n new tab · ^B w close · ^B [/] tab · ^B s scroll · ^B ? help"; got != want {
+	if got, want := m.statusHints()[0].String(), "^B: Tab list · n new · w close · [/] tab · s scroll · ? help"; got != want {
 		t.Errorf("pane hints = %q, want %q", got, want)
+	}
+}
+
+// At 80 columns the status line hints at five or more of the focused
+// pane's keys (#89): the dim key gives way to them.
+func TestStatusHintsShowFiveKeysAt80Columns(t *testing.T) {
+	m := newTestModel(t, 80, 12)
+	m.st.SetCursor("prod-web")
+	count := func() int {
+		rows := strings.Split(strings.TrimRight(screen(m), "\n"), "\n")
+		status := rows[len(rows)-1]
+		for _, l := range m.statusHints() {
+			if strings.Contains(status, l.String()) {
+				n := 0
+				for _, it := range l.items {
+					n += len(it.keys)
+				}
+				return n
+			}
+		}
+		return 0
+	}
+	if n := count(); n < 5 {
+		t.Errorf("list focus hints at %d keys, want 5 or more", n)
+	}
+	press(m, keyEnter)
+	if n := count(); n < 5 {
+		t.Errorf("pane focus hints at %d keys, want 5 or more", n)
 	}
 }
 
