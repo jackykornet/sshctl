@@ -110,8 +110,8 @@ func (p *spacePicker) keys() []boundKey {
 		on("e", rename).as("rename"),
 		on("d", func(m *Model, _ tea.KeyPressMsg) tea.Cmd { return m.deleteSpace(p) }).as("delete"),
 		on("C", color).as("color"),
-		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)),
-		on("shift+down", shift(1)).as("move"), on("J", shift(1)),
+		on("shift+up", shift(-1)).as("move"), on("K", shift(-1)).as("move"),
+		on("shift+down", shift(1)).as("move"), on("J", shift(1)).as("move"),
 		on("up", move(-1)), on("k", move(-1)),
 		on("down", move(1)), on("j", move(1)),
 		on("esc", closePicker).as("close"), on("ctrl+c", closePicker), on("q", closePicker), on("P", closePicker),
@@ -122,7 +122,8 @@ func (p *spacePicker) hints() []hintLine {
 	if p.swallowed {
 		return []hintLine{hintsFor(p.keys(), "esc")}
 	}
-	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "shift+up", "shift+down", "esc", "C")}
+	// K/J rather than the longer Shift+↑/↓, so the line fits 80 columns.
+	return []hintLine{hintsFor(p.keys(), "enter", "a", "e", "d", "K", "J", "C", "esc")}
 }
 
 // target is the row under the cursor: a Space, or a free Space number.

@@ -120,7 +120,7 @@ func (in *colorInput) hints() []hintLine {
 	if in.swallowed {
 		return []hintLine{hintsFor(in.keys(), "esc")}
 	}
-	return []hintLine{hintsFor(in.keys(), "enter", "esc")}
+	return []hintLine{hintsFor(in.keys(), "left", "right", "enter", "esc")}
 }
 
 func (in *colorInput) paste(string) {}

@@ -229,4 +229,7 @@ func TestColorPromptGolden(t *testing.T) {
 	m.st.SetCursorGroup("web")
 	press(m, text("C")...)
 	golden(t, "color-prompt", m)
+	if hint := m.mode.modal.(hinter).hints()[0].String(); !strings.HasPrefix(hint, "←/→ choose · ") {
+		t.Errorf("color prompt hints = %q, want ←/→ choose first", hint)
+	}
 }

@@ -7,4 +7,4 @@
    ○ db-main postgres       │                                                   
                             │                                                   
 ────────────────────────────┴───────────────────────────────────────────────────
- group web: none red yellow green cyan blue magenta  Enter set · Esc cancel     
+ group web: none red yellow green cyan blue magenta  ←/→ choose · Enter set · E…
