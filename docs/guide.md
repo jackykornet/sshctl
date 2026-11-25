@@ -171,6 +171,8 @@ The scripts complete the command named `sshctl` (and `sshctl.exe` in PowerShell)
 
 ## Workspace
 
+![Opening connections in tabs, a second tab, an ended Session reconnecting](demo/sessions.gif)
+
 Run `sshctl` with no arguments in a terminal to open the Workspace: the connection list on the left, the active connection on the right, and a status bar at the bottom. (When output is piped or redirected, `sshctl` prints help instead.)
 
 ```
@@ -223,6 +225,8 @@ Keys go to the remote session. Workspace commands start with the prefix key (`Ct
 
 ### Spaces
 
+![Switching Space by number, and adding a Space in the Space picker](demo/spaces.gif)
+
 The list shows one Space at a time, the active Space: its groups and connections only. Sessions in other Spaces keep running. Each Space has a fixed number from 1 to 9, which it keeps until you change it: deleting a Space leaves its number free, and no other Space is renumbered. With more than one Space, a Space bar across the top shows each Space as `[1] homelab  [2] customer1`: the active Space in the accent colour, a Space with a live session in normal text, an idle one dimmed. When the names do not fit, it shows all nine numbers instead, `[1] [2] [3] … [9]`, a free number fainter still (the gaps close up, `[1][2][3]`, when even that is too wide). Press `1`–`9` in the list, or the prefix and then `1`–`9` in the terminal, to switch; each Space comes back with the connection it showed before. A free number switches nothing, and the status line says so (`no Space 3`). The active Space is remembered between runs on this machine, starting in the default Space. New connections and groups go into the active Space, and group numbers count within it. With more than one Space, the filter searches every Space: a match from another Space shows where it lives, `acme › prod › web01` (`acme › web01` when ungrouped; a narrow list shortens the path, never the alias), and opening or acting on it switches to that Space.
 
 `P` in the list opens the Space picker in the right-hand pane: one row per number, `[2] customer1`, with a free number shown dimmed as `[3] empty`. Spaces without a number, from an older config with ten or more, are listed below the nine rows. `Enter` switches to the Space under the cursor. `a` adds a Space: on a free row it takes that row's number, on a row in use the lowest free number. `e` renames the Space, and `d` deletes it (only an empty Space other than the default Space, asking first) and leaves its row empty. `Shift+↑`/`Shift+↓` (or `K`/`J`) moves the Space to the next number up or down, swapping with the Space there if the number is taken. `C` sets the Space's [Indicator color](#indicator-colors). Manage Spaces from the command line with `sshctl space`.
@@ -239,11 +243,15 @@ Background tunnels run with `BatchMode=yes`, so one that needs a password, passp
 
 ### Adding, editing and deleting connections
 
+![Adding a connection with the form, then opening it](demo/add.gif)
+
 `a` opens a form for a new connection: alias, HostName, User, Port, identity file, description, group and Tunnels (the group under the cursor is filled in). Tunnels is a comma-separated list of Tunnel specs such as `panel=8083, cockpit=9090`; a bad one keeps the form open with the error. `Ctrl+S` saves it; for a new connection, `Ctrl+O` saves it and then runs Bootstrap in its own tab. A group that does not exist yet is created after you confirm `Create group X?`. sshctl writes the Host block to its own file, `~/.ssh/sshctl_config`, and never rewrites your hand-written `~/.ssh/config`. The first time, it asks to add `Include sshctl_config` to the top of `~/.ssh/config` so OpenSSH reads the file, and keeps the previous file as `~/.ssh/config.sshctl-backup`.
 
 `e` edits the connection under the cursor (or the active one). For connections in `sshctl_config` you can change every field, including the alias. For hosts defined elsewhere in your ssh_config, only the description, group and Tunnels can be edited. `d` deletes a connection's Host block from `sshctl_config` along with its description, group and Tunnels, after asking first. For other hosts it removes only those. A connection with open tabs cannot be renamed or deleted. `sshctl edit` and `sshctl remove` do the same from the command line. Options you add by hand inside an `sshctl_config` Host block are kept when sshctl rewrites the file; comments are not.
 
 ### Groups
+
+![Collapsing a group, moving a group up, moving a connection into a group, and filtering by group](demo/groups.gif)
 
 Once any group exists, the list shows each group in the order you set (empty ones too, marked `(empty)`), with `ungrouped` last. Each header shows the group's number (its position, counting from 1, for example `1 prod`), its member count while collapsed, how many of its members are open (`●2`), and whether any has unseen activity, so a collapsed group (`▸`) still shows what is going on inside it. Numbers change when groups are reordered or deleted. Collapsed groups are remembered between runs.
 

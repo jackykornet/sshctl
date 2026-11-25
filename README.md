@@ -7,6 +7,8 @@ An SSH workspace: keep sessions open in tabs and each customer's hosts in their 
 
 `sshctl` is a cross-platform Go CLI for managing connection metadata while delegating SSH work to your installed OpenSSH tools. It never stores private keys or passphrases.
 
+![The Workspace: Groups and the Space bar, a Session tab, the filter and switching Space](docs/demo/workspace.gif)
+
 ## Feature status
 
 | Feature | Status |
@@ -59,6 +61,14 @@ go test -race ./...
 ```
 
 `gofmt -l .` must print nothing. CI does not cross-vet, so run the Windows `go vet` yourself. After an intended change to the Workspace layout, regenerate its golden files with `go test ./internal/workspace -update` and review the diff.
+
+The Workspace GIFs (the one at the top of this README and those in the [Guide](docs/guide.md)) are recorded with [vhs](https://github.com/charmbracelet/vhs), which needs `ttyd`, `ffmpeg` and Chromium. Each `docs/demo/<name>.tape` records `docs/demo/<name>.gif`. When the layout changes, re-record them from the repository root and check the results:
+
+```sh
+for t in docs/demo/*.tape; do vhs "$t"; done
+```
+
+Every tape starts with `docs/demo/sandbox/start.tape`, which builds sshctl and runs it with `HOME` set to a copy of `docs/demo/sandbox/home`, which holds made-up hosts only, and with `docs/demo/sandbox/bin/ssh` in place of OpenSSH, a script that plays a remote shell and connects nowhere. Keep any new demo data made up.
 
 CI runs `gofmt` on Ubuntu, and `go vet` and the test suite on the GitHub-hosted Ubuntu, macOS, and Windows runners (Linux and Windows on amd64, macOS on arm64). The other three targets are only cross-compiled. The Workspace's Session tests start real processes in pseudo-terminals on all three runners, with `sh` (or `cmd.exe` on Windows, through ConPTY) standing in for `ssh`. A few Session tests rely on POSIX-only tools and are skipped on Windows.
 

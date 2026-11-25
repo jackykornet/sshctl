@@ -1,0 +1,23 @@
+{
+  "version": 5,
+  "spaces": [
+    {"name": "acme", "number": 1, "default": true},
+    {"name": "homelab", "number": 2}
+  ],
+  "groups": [
+    {"name": "prod"},
+    {"name": "staging"},
+    {"name": "pis", "space": "homelab"}
+  ],
+  "connections": {
+    "web-1": {"alias": "web-1", "description": "nginx + app", "group": "prod"},
+    "web-2": {"alias": "web-2", "description": "nginx + app", "group": "prod"},
+    "db-main": {"alias": "db-main", "description": "postgres primary", "group": "prod"},
+    "staging-web": {"alias": "staging-web", "group": "staging"},
+    "staging-db": {"alias": "staging-db", "group": "staging"},
+    "bastion": {"alias": "bastion", "description": "jump host"},
+    "pi-1": {"alias": "pi-1", "description": "k3s server", "group": "pis", "space": "homelab"},
+    "pi-2": {"alias": "pi-2", "description": "k3s agent", "group": "pis", "space": "homelab"},
+    "nas": {"alias": "nas", "description": "backups", "space": "homelab"}
+  }
+}
