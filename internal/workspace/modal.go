@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/sshctl/sshctl/internal/catalog"
 )
 
 // A modal is the prompt, form or screen that takes the Workspace's input
@@ -55,6 +56,32 @@ func (m *Model) form() *connForm {
 	}
 	f, _ := md.(*connForm)
 	return f
+}
+
+// A paneModal is a modal drawn in the Session pane, w by h: the form and
+// the pickers. The others are on the status line, or the help screen.
+type paneModal interface {
+	modal
+	renderPane(m *Model, w, h int) []string
+}
+
+// paneModal returns the modal the pane shows: the open one, or the form or
+// Space picker a confirmation or Space name prompt was opened from; nil
+// for none.
+func (m *Model) paneModal() paneModal {
+	md := m.mode.modal
+	if c, ok := md.(*confirmation); ok {
+		md = c.back
+	}
+	if in, ok := md.(*spaceInput); ok {
+		md = in.back
+	}
+	p, _ := md.(paneModal)
+	return p
+}
+
+func (f *connForm) renderPane(m *Model, w, h int) []string {
+	return f.render(w, h, m.spaceNames(), f.groups(m.st), m.features.On(catalog.FeatureBootstrap), m.opts.CommandNames)
 }
 
 // confirm returns the open confirmation, or nil.

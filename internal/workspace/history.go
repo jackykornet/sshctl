@@ -141,7 +141,7 @@ func (p *historyPicker) status() (string, bool) {
 
 // render draws the picker in the w by h pane: a row per History entry with
 // its alias, Space and description, a missing one dimmed as (missing).
-func (p *historyPicker) render(m *Model, w, h int) []string {
+func (p *historyPicker) renderPane(m *Model, w, h int) []string {
 	rows := p.rows(m)
 	aliasW, spaceW := 0, 0
 	for _, r := range rows {

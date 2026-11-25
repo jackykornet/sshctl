@@ -196,7 +196,7 @@ func (m *Model) deleteSpace(p *spacePicker) tea.Cmd {
 // render draws the picker in the w by h pane: a row per Space number,
 // [2] acme, or [3] empty dimmed when it is free, then each Space without a
 // number. A Space's name is in its Indicator color, if it has one.
-func (p *spacePicker) render(m *Model, w, h int) []string {
+func (p *spacePicker) renderPane(m *Model, w, h int) []string {
 	lines := []string{fit(" "+boldStyle.Render("Spaces"), w)}
 	for i, t := range m.st.SpaceSlots() {
 		pointer := "  "

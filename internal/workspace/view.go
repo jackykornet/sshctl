@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"github.com/sshctl/sshctl/internal/catalog"
 	"github.com/sshctl/sshctl/internal/openssh"
 	"strings"
 
@@ -577,17 +576,8 @@ func tabLabel(s *Session, current, focused bool, color string) (label, plain str
 // the header (when f has room for it), the tab line and the Session.
 func (m *Model) renderPane(w int, f frameLayout) []string {
 	h := f.mainH
-	if fm := m.form(); fm != nil {
-		return fm.render(w, h, m.spaceNames(), fm.groups(m.st), m.features.On(catalog.FeatureBootstrap), m.opts.CommandNames)
-	}
-	if p := m.picker(); p != nil {
-		return p.render(m, w, h)
-	}
-	if p, ok := m.mode.modal.(*keyPicker); ok {
-		return p.render(m, w, h)
-	}
-	if p := m.history(); p != nil {
-		return p.render(m, w, h)
+	if p := m.paneModal(); p != nil {
+		return p.renderPane(m, w, h)
 	}
 	var lines []string
 	if f.paneHeader {

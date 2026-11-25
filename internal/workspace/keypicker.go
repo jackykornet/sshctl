@@ -129,7 +129,7 @@ func keyLabel(k string) string {
 // render draws the picker in the w by h pane: a row per key, ● on the one
 // the active Space's new tabs use, tagged with the Space when it is the
 // Space's own and with global when it is the global one.
-func (p *keyPicker) render(m *Model, w, h int) []string {
+func (p *keyPicker) renderPane(m *Model, w, h int) []string {
 	space := m.st.Space()
 	lines := []string{
 		fit(" "+boldStyle.Render("Keys for space "+m.st.ActiveSpaceName()), w),
