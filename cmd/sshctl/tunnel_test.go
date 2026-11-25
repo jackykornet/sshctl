@@ -151,8 +151,8 @@ func TestEditKeepsTunnels(t *testing.T) {
 	tunnels := []tunnel.Tunnel{{Name: "panel", LocalPort: 8083, RemoteHost: "localhost", RemotePort: 8083}}
 	cfg := config.New()
 	cfg.Connections["web"] = config.Connection{Alias: "web", Description: "front end", Tunnels: tunnels}
-	a, _ := cliTree(t, "Host web\n", cfg, "site\n\n")
-	if err := a.metadata([]string{"web"}, true); err != nil {
+	a, _ := cliTree(t, "Host web\n", cfg, "")
+	if err := a.execute([]string{"edit", "web", "--description", "site"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := load(t, a).Connections["web"]; got.Description != "site" || !reflect.DeepEqual(got.Tunnels, tunnels) {

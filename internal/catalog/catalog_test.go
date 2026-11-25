@@ -257,25 +257,6 @@ func TestDeleteUnmanagedConnectionRemovesOnlyMetadata(t *testing.T) {
 	}
 }
 
-func TestDeleteMetadataKeepsTheManagedHostBlock(t *testing.T) {
-	tr := renamable(t)
-	if err := tr.cat.DeleteMetadata("api"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := tr.config(t).Connections["api"]; ok {
-		t.Error("api's metadata should be deleted")
-	}
-	if h, ok := tr.hosts(t)["api"]; !ok || h.HostName != "h" {
-		t.Errorf("Host blocks = %+v, want api's kept", tr.hosts(t))
-	}
-	if !slices.Equal(tr.config(t).History, []string{"api"}) {
-		t.Errorf("History = %v, want [api]", tr.config(t).History)
-	}
-	if err := tr.cat.DeleteMetadata("api"); !errors.Is(err, ErrNoMetadata) {
-		t.Errorf("deleting again: err = %v, want ErrNoMetadata", err)
-	}
-}
-
 // unchanged fails unless tr still holds what renamable wrote.
 func (tr *tree) unchanged(t *testing.T) {
 	t.Helper()
@@ -430,6 +411,30 @@ func TestSetCollapsedSavesTheCollapsedGroups(t *testing.T) {
 	}
 	if want := []string{"data", "staging"}; !slices.Equal(snap.Collapsed, want) {
 		t.Errorf("snapshot collapsed = %v, want %v", snap.Collapsed, want)
+	}
+}
+
+func TestKeysListsSSHDirPublicKeysAndRegisteredKeys(t *testing.T) {
+	tr := newTree(t, true, "")
+	d := tr.ssh.SSHDir
+	for _, n := range []string{"id_ed25519", "id_ed25519.pub", "work.pub", "work-cert.pub", "known_hosts"} {
+		if err := os.WriteFile(filepath.Join(d, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := tr.config(t)
+	c.Keys = []string{"/k/deploy", filepath.Join(d, "work.pub")}
+	if err := config.Save(tr.cfg, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := tr.cat.Keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/k/deploy", filepath.Join(d, "id_ed25519.pub"), filepath.Join(d, "work-cert.pub"), filepath.Join(d, "work.pub")}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("Keys() = %v, want %v", got, want)
 	}
 }
 

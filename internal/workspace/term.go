@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"io"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -16,6 +17,8 @@ import (
 // emulator can be swapped without touching the rest of the Workspace.
 type vterm struct {
 	em *vt.SafeEmulator
+	// writeMu is held by Write and by Lines while it reads the scrollback.
+	writeMu sync.Mutex
 }
 
 // newVterm creates an emulator of w×h cells. onClipboard receives text that
@@ -48,7 +51,11 @@ func parseOSC52(data []byte) (string, bool) {
 }
 
 // Write feeds program output into the emulator.
-func (t *vterm) Write(p []byte) (int, error) { return t.em.Write(p) }
+func (t *vterm) Write(p []byte) (int, error) {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	return t.em.Write(p)
+}
 
 // Read returns bytes the emulator sends to the program: encoded key presses,
 // mouse events, pastes and replies to terminal queries.
@@ -194,6 +201,9 @@ func (t *vterm) Lines(scroll int) []string {
 	if scroll <= 0 {
 		return screen
 	}
+	// SafeEmulator locks only its own methods; the *Scrollback it returns is
+	// read unlocked, so hold writeMu to keep the runner's Write out meanwhile.
+	t.writeMu.Lock()
 	sb := t.em.Scrollback()
 	n := sb.Len()
 	scroll = min(scroll, n)
@@ -201,6 +211,7 @@ func (t *vterm) Lines(scroll int) []string {
 	for i := n - scroll; i < n && len(lines) < h; i++ {
 		lines = append(lines, sb.Line(i).Render())
 	}
+	t.writeMu.Unlock()
 	for i := 0; len(lines) < h && i < len(screen); i++ {
 		lines = append(lines, screen[i])
 	}

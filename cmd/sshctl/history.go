@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 // history prints the Connections opened, most recent first.
-func (a *app) history() error {
+func (a *app) history(input) error {
 	opened, err := a.catalog().History()
 	if err != nil {
 		return err

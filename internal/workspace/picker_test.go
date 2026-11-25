@@ -260,6 +260,14 @@ func TestSpacePickerGolden(t *testing.T) {
 	press(m, text("P")...)
 	press(m, keyDown)
 	golden(t, "space-picker", m)
+	// Every key hinted fits at 80 columns, C color before Esc close.
+	hint := m.mode.modal.(hinter).hints()[0].String()
+	if !strings.HasSuffix(hint, "C color · Esc close") {
+		t.Errorf("picker hints = %q, want C color before Esc close at the end", hint)
+	}
+	if !strings.Contains(screen(m), hint) {
+		t.Errorf("picker hints %q cut off at 80 columns:\n%s", hint, screen(m))
+	}
 }
 
 func TestThePickerRenamesAndMovesTheDefaultSpace(t *testing.T) {

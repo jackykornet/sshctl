@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/sshctl/sshctl/internal/catalog"
@@ -34,15 +36,28 @@ func (a *app) runWorkspace() error {
 		ScrollbackLines: a.cfg.Workspace.ScrollbackLines,
 		Notice:          strings.Join(a.cfg.Notices, "; "),
 		ReadClipboard:   platform.ReadClipboard,
+		Resolve:         resolveEndpoint,
+		CommandNames:    commandNames,
 	})
+}
+
+// resolveTimeout bounds the "ssh -G" behind the Workspace pane's header.
+const resolveTimeout = 5 * time.Second
+
+// resolveEndpoint is the user, host and port ssh uses for alias, for the
+// Workspace pane's header.
+func resolveEndpoint(alias string) (openssh.Endpoint, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	defer cancel()
+	// Not openssh.Run: the Workspace owns the terminal.
+	return openssh.Resolve(ctx, openssh.RunQuiet, alias)
 }
 
 // sessionCommand builds the command line for a new tab. An Action runs this
 // sshctl binary's own command for alias ("sshctl bootstrap -- <alias>"), which
 // reads the config itself. Otherwise it builds ssh using alias's Selected
 // identity (its Space's own, or else the global one) as it is now, so a
-// change made with "sshctl key use" applies to the next tab; LaunchClaude runs
-// claude on the remote host. LaunchTunnel runs alias's Tunnels as the
+// change made with "sshctl key use" applies to the next tab. LaunchTunnel runs alias's Tunnels as the
 // config holds them now, with BatchMode, since it has no terminal to prompt in.
 func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error) {
 	if l.Action != "" {
@@ -64,5 +79,5 @@ func (a *app) sessionCommand(alias string, l workspace.Launch) ([]string, error)
 		}
 		return openssh.TunnelArgs(alias, cfg.IdentityFor(conn.Space), conn.Tunnels, true), nil
 	}
-	return openssh.ConnectArgs(alias, cfg.IdentityFor(conn.Space), l.Kind == workspace.LaunchClaude), nil
+	return openssh.ConnectArgs(alias, cfg.IdentityFor(conn.Space)), nil
 }

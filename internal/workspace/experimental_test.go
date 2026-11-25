@@ -53,7 +53,7 @@ func TestSaveAndBootstrapKeepsTheFormOpenWhileBootstrapIsOff(t *testing.T) {
 	m, r := offModel(t, []Entry{{Alias: "alpha"}}, catalog.FeatureBootstrap)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	press(m, text("a")...)
-	if !strings.Contains(screen(m), "Ctrl+O save and Bootstrap (experimental, off)") {
+	if !strings.Contains(screen(m), "^O save and Bootstrap (experimental, off)") {
 		t.Fatalf("form does not mark Ctrl+O off:\n%s", screen(m))
 	}
 	fill(m, "api", "10.0.0.9")
@@ -97,7 +97,7 @@ func TestHelpScreenSaysWhichExperimentalFeaturesAreOff(t *testing.T) {
 func TestReloadPicksUpAFeatureTurnedOn(t *testing.T) {
 	m, r := offModel(t, []Entry{{Alias: "alpha"}}, catalog.FeatureBootstrap)
 	r.off = nil
-	press(m, keyPrefix, text("r")[0])
+	press(m, keyPrefix, text("R")[0])
 	press(m, keyPrefix, text("i")[0])
 	if want := (commandCall{"alpha", bootstrapLaunch}); len(r.calls) != 1 || r.calls[0] != want {
 		t.Fatalf("Command calls = %v, want [%v]", r.calls, want)

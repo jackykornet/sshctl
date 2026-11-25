@@ -1,8 +1,8 @@
- [1] [2] [3] [4] [5] [6] [7] [8] [9]    │                                                           
-›▾ 1 web 2                              │                                                           
-     prod-web public site               │  Select a connection and press Enter.                     
-     staging                            │                                                           
+ [1] default  [2] acme  [5] idle                                                                    
+›▾ 1 web                                │                                                           
+   ○ prod-web public site               │                                                           
+   ○ staging                            │                                                           
+                                        │  Select a connection and press Enter.                     
                                         │                                                           
-                                        │                                                           
-                                        │                                                           
- default · no active connection · key: id_ed25519             ^B ? help · ^B n new tab · ^B w close 
+────────────────────────────────────────┴───────────────────────────────────────────────────────────
+ LIST no active connection            Enter open · / filter · a add · e edit · d delete · ^B ? help 

@@ -20,8 +20,9 @@ import (
 // state.json (ADR-0004); version 4 adds Spaces (ADR-0005); version 5
 // gives each Space a fixed number (ADR-0010), so an older sshctl refuses
 // the file rather than save it without them; version 6 adds Tunnels
-// (ADR-0012), for the same reason. Older configs are migrated by Load.
-const Version = 6
+// (ADR-0012), and version 7 Indicator colors on Groups and Spaces
+// (ADR-0009), for the same reason. Older configs are migrated by Load.
+const Version = 7
 
 // StateVersion is the state.json format written by Save.
 const StateVersion = 1
@@ -55,6 +56,9 @@ type Group struct {
 	// Connections, DotfilesNone to refuse Provision for them, or "" when
 	// unset, so the global Provision.Dotfiles applies.
 	Dotfiles string `json:"dotfiles,omitempty"`
+	// Color is the Group's Indicator color (ADR-0009), one of Colors, or ""
+	// for none, so its Space's applies.
+	Color string `json:"color,omitempty"`
 }
 
 type Config struct {
@@ -247,8 +251,10 @@ func allDigits(s string) bool {
 
 // GroupIndex returns the position in Groups of the Group named name in
 // space ("" for the default Space), or -1.
-func (c *Config) GroupIndex(space, name string) int {
-	for i, g := range c.Groups {
+func (c *Config) GroupIndex(space, name string) int { return groupIndex(c.Groups, space, name) }
+
+func groupIndex(groups []Group, space, name string) int {
+	for i, g := range groups {
 		if g.Space == space && g.Name == name {
 			return i
 		}
@@ -601,6 +607,7 @@ func loadConfig(path string, legacy []string, state State, haveState bool) (*Con
 				return nil, e
 			}
 		}
+		c.noteUnknownColors()
 		return &c, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {

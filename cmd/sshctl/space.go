@@ -13,7 +13,8 @@ import (
 // A Space is given by name or by its Space number, which it keeps until it
 // is moved (ADR-0010); see spaceName.
 
-func (a *app) spaceAdd(args []string) error {
+func (a *app) spaceAdd(in input) error {
+	args := in.args
 	switch len(args) {
 	case 1:
 		return a.catalog().AddSpace(args[0])
@@ -27,7 +28,8 @@ func (a *app) spaceAdd(args []string) error {
 	return errUsage
 }
 
-func (a *app) spaceRename(args []string) error {
+func (a *app) spaceRename(in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -40,7 +42,8 @@ func (a *app) spaceRename(args []string) error {
 
 // spaceDelete deletes an empty Space. Only an empty Space can be deleted,
 // so nothing is lost and there is nothing to confirm.
-func (a *app) spaceDelete(args []string) error {
+func (a *app) spaceDelete(in input) error {
+	args := in.args
 	if len(args) != 1 {
 		return errUsage
 	}
@@ -51,7 +54,8 @@ func (a *app) spaceDelete(args []string) error {
 	return a.catalog().DeleteSpace(space)
 }
 
-func (a *app) spaceMove(args []string) error {
+func (a *app) spaceMove(in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -94,7 +98,8 @@ func (a *app) spaceName(arg string) (string, error) {
 // spaceDotfiles shows the dotfiles setting of the Space args[0], a
 // Provision setting, or sets it to args[1] (a repo URL or none) or, with
 // --unset, unsets it so the global one applies.
-func (a *app) spaceDotfiles(args []string) error {
+func (a *app) spaceDotfiles(in input) error {
+	args := in.args
 	if len(args) == 0 {
 		return errUsage
 	}
@@ -102,8 +107,9 @@ func (a *app) spaceDotfiles(args []string) error {
 	if err != nil {
 		return err
 	}
+	unset := in.flag("unset")
 	switch args = args[1:]; {
-	case len(args) == 0:
+	case len(args) == 0 && !unset:
 		snap, err := a.catalog().Snapshot()
 		if err != nil {
 			return err
@@ -114,20 +120,21 @@ func (a *app) spaceDotfiles(args []string) error {
 		}
 		fmt.Fprintln(a.out, describeDotfiles(s.Dotfiles))
 		return nil
-	case len(args) == 1 && args[0] == "--unset":
+	case len(args) == 0:
 		return a.catalog().SetSpaceDotfiles(space, "")
-	case len(args) == 1 && args[0] != "" && !strings.HasPrefix(args[0], "-"):
+	case len(args) == 1 && args[0] != "" && !unset:
 		return a.catalog().SetSpaceDotfiles(space, args[0])
 	}
-	return errors.New("usage: sshctl space dotfiles <space> [<url|none> | --unset]")
+	return errUsage
 }
 
 // spaceList prints each Space's number, name, Group count and Connection
 // count, Orphaned ones included, marking the default Space, then the
-// dotfiles repo and Selected identity it sets, if any. Spaces come in number
+// Indicator color, dotfiles repo and Selected identity it sets, if any. Spaces come in number
 // order, so free numbers leave gaps; a Space without a number (beyond the
 // ninth in an older config) comes last, shown as -.
-func (a *app) spaceList(args []string) error {
+func (a *app) spaceList(in input) error {
+	args := in.args
 	if len(args) != 0 {
 		return errUsage
 	}
@@ -142,6 +149,18 @@ func (a *app) spaceList(args []string) error {
 	for _, e := range snap.Entries {
 		conns[e.Space]++
 	}
+	if in.flag("json") {
+		spaces := []spaceJSON{}
+		for _, s := range snap.Spaces {
+			ref, _ := snap.SpaceRef(s.Name)
+			j := spaceJSON{Name: s.Name, Default: s.Default, Groups: groups[ref], Connections: conns[ref], Color: s.Color, Dotfiles: s.Dotfiles, Identity: snap.SpaceIdentities[ref]}
+			if s.Number > 0 {
+				j.Number = &s.Number
+			}
+			spaces = append(spaces, j)
+		}
+		return a.writeJSON(spaces)
+	}
 	for _, s := range snap.Spaces {
 		ref, _ := snap.SpaceRef(s.Name)
 		num := "-"
@@ -152,6 +171,7 @@ func (a *app) spaceList(args []string) error {
 		if s.Default {
 			tag = "  (default)"
 		}
+		tag += colorTag(s.Color)
 		if s.Dotfiles != "" {
 			tag += "  dotfiles " + describeDotfiles(s.Dotfiles)
 		}
@@ -171,32 +191,26 @@ type spaceOption struct {
 	set       bool
 }
 
-// cutSpaceOption takes "--space <space>" out of args, wherever it is, and
-// returns the rest. The Space is a name or a Space number (see spaceName).
-// It refuses --space twice, without a Space, or naming no Space.
-func (a *app) cutSpaceOption(args []string) (spaceOption, []string, error) {
-	var opt spaceOption
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		if args[i] != "--space" {
-			rest = append(rest, args[i])
-			continue
-		}
-		if opt.set || i+1 == len(args) || args[i+1] == "" {
-			return opt, nil, errors.New("--space needs a Space name or number, given once")
-		}
-		i++
-		snap, err := a.catalog().Snapshot()
-		if err != nil {
-			return opt, nil, err
-		}
-		ref, err := snap.ResolveSpace(args[i])
-		if err != nil {
-			return opt, nil, err
-		}
-		opt = spaceOption{ref: ref, name: snap.SpaceName(ref), set: true}
+// spaceOption resolves the --space option in gives, if any: a Space name or
+// a Space number (see spaceName). It refuses an empty one or one naming no
+// Space.
+func (a *app) spaceOption(in input) (spaceOption, error) {
+	arg, ok := in.value(fieldSpace)
+	if !ok {
+		return spaceOption{}, nil
 	}
-	return opt, rest, nil
+	if arg == "" {
+		return spaceOption{}, errors.New("--space needs a Space name or number")
+	}
+	snap, err := a.catalog().Snapshot()
+	if err != nil {
+		return spaceOption{}, err
+	}
+	ref, err := snap.ResolveSpace(arg)
+	if err != nil {
+		return spaceOption{}, err
+	}
+	return spaceOption{ref: ref, name: snap.SpaceName(ref), set: true}, nil
 }
 
 // spaceIn is a Space as a command sees it: how Groups and Connections

@@ -1,0 +1,10 @@
+ [1] default  [2] acme                                                          
+────────────────────────────┬───────────────────────────────────────────────────
+›▾ 1 web                    │                                                   
+   ○ prod-web public site   │                                                   
+   ○ staging                │                                                   
+ ▾ ungrouped                │  Select a connection and press Enter.             
+   ○ db-main postgres       │                                                   
+                            │                                                   
+────────────────────────────┴───────────────────────────────────────────────────
+ group web: none red yellow green cyan blue magenta  ←/→ choose · Enter set · E…

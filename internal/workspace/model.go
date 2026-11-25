@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sshctl/sshctl/internal/catalog"
+	"github.com/sshctl/sshctl/internal/openssh"
 )
 
 const (
@@ -28,7 +29,7 @@ type Options struct {
 	// It is required.
 	Catalog Catalog
 	// Command returns the command line for a new Session of alias that runs
-	// what l says: ssh, claude on the remote host, or one of sshctl's own
+	// what l says: ssh or one of sshctl's own
 	// Actions. It is called each time a tab opens or reconnects, so it can
 	// use the Selected identity at that moment. When nil, Sessions get no
 	// process (used by layout tests).
@@ -43,6 +44,15 @@ type Options struct {
 	// it is nil or returns no text, the Workspace asks the host terminal for
 	// the clipboard with OSC 52 instead.
 	ReadClipboard func() (string, error)
+	// Resolve returns the user, host and port ssh uses for alias, for the
+	// pane's header. It runs once per Connection, off the Bubble Tea loop,
+	// when the Connection first becomes active. When nil, or when it fails,
+	// the header shows the alias alone (used by tests: no ssh runs).
+	Resolve func(alias string) (openssh.Endpoint, error)
+	// CommandNames are sshctl's built-in commands. An alias equal to one
+	// is reached only with sshctl -c <alias> (ADR-0011), so the add/edit
+	// form warns about it.
+	CommandNames []string
 }
 
 type focus int
@@ -94,6 +104,22 @@ type Model struct {
 	// until the next key, or the hideSpaceNoteMsg carrying spaceNoteID.
 	spaceNote   bool
 	spaceNoteID int
+	// endpoints caches each Connection's resolved endpoint for the pane's
+	// header, by alias, from the moment it is asked for.
+	endpoints map[string]endpoint
+}
+
+// An endpoint is a Connection's user@host[:port] for the pane's header.
+type endpoint struct {
+	// done says Resolve has answered; text is empty when it failed.
+	done bool
+	text string
+}
+
+// endpointMsg carries Resolve's answer for alias.
+type endpointMsg struct {
+	alias string
+	text  string
 }
 
 // New loads the first Snapshot and builds the Workspace model.
@@ -119,7 +145,7 @@ func New(opts Options) (*Model, error) {
 	st.SetGroups(snap.Groups)
 	st.SetSpace(snap.ActiveSpace)
 	st.RestoreCollapsed(snap.Collapsed)
-	m := &Model{opts: opts, st: st, identities: selectedIdentities(snap), features: snap.Experimental, ev: newEvents()}
+	m := &Model{opts: opts, st: st, endpoints: map[string]endpoint{}, identities: selectedIdentities(snap), features: snap.Experimental, ev: newEvents()}
 	m.sessions = &sessions{
 		st:         st,
 		ev:         m.ev,
@@ -164,6 +190,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.keepViews()
 	cmd := m.update(msg)
 	m.syncSize()
+	m.resolveActive()
 	return m, cmd
 }
 
@@ -196,6 +223,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if r := m.tunnels.exited(msg); r != nil {
 			return tea.Batch(m.setStatus(r.alias+" tunnel failed: "+r.err, true), m.ev.listen())
 		}
+		return m.ev.listen()
+	case endpointMsg:
+		m.endpoints[msg.alias] = endpoint{done: true, text: msg.text}
 		return m.ev.listen()
 	case clipboardMsg:
 		return tea.Batch(tea.SetClipboard(msg.text), m.ev.listen())
@@ -287,9 +317,6 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.prefix = true
 		return nil
 	}
-	if cmd, ok := m.runBinding(inAny, msg); ok {
-		return cmd
-	}
 	if m.filtering() {
 		m.filterKey(msg)
 		return nil
@@ -308,7 +335,9 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if m.scrolling() && r != nil {
-		m.scrollKey(r, msg.String())
+		if bk, ok := findKey(m.scrollKeys(), msg.String()); ok {
+			bk.run(m, msg)
+		}
 		return nil
 	}
 	if s.Ended {
@@ -322,23 +351,40 @@ func (m *Model) paneKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) scrollKey(r *runner, k string) {
+// scrollKeys are scroll mode's keys, which act on the current tab's runner.
+func (m *Model) scrollKeys() []boundKey {
 	_, h := m.paneSize()
-	switch k {
-	case "up", "k":
-		m.scrollBy(r, 1)
-	case "down", "j":
-		m.scrollBy(r, -1)
-	case "pgup":
-		m.scrollBy(r, h)
-	case "pgdown", "ctrl+f", "space":
-		m.scrollBy(r, -h)
-	case "g", "home":
-		m.scrollBy(r, r.term.ScrollbackLen())
-	case "G", "end", "q", "esc":
-		r.scroll = 0
-		m.stopScroll()
+	by := func(n func(r *runner) int) action {
+		return func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+			if _, r := m.currentRunner(); r != nil {
+				m.scrollBy(r, n(r))
+			}
+			return nil
+		}
 	}
+	lines := func(n int) action { return by(func(*runner) int { return n }) }
+	top := by(func(r *runner) int { return r.term.ScrollbackLen() })
+	exit := func(m *Model, _ tea.KeyPressMsg) tea.Cmd {
+		if _, r := m.currentRunner(); r != nil {
+			r.scroll = 0
+		}
+		m.stopScroll()
+		return nil
+	}
+	return []boundKey{
+		on("up", lines(1)).as("scroll"), on("k", lines(1)),
+		on("down", lines(-1)).as("scroll"), on("j", lines(-1)),
+		on("pgup", lines(h)).as("scroll"),
+		on("pgdown", lines(-h)).as("scroll"), on("ctrl+f", lines(-h)), on("space", lines(-h)),
+		on("g", top).as("top"), on("home", top),
+		on("G", exit).as("bottom"), on("end", exit),
+		on("q", exit).as("exit"), on("esc", exit),
+	}
+}
+
+// scrollHints is scroll mode's hint line.
+func (m *Model) scrollHints() hintLine {
+	return hintsFor(m.scrollKeys(), "up", "down", "pgup", "pgdown", "g", "G", "q")
 }
 
 func (m *Model) scrollBy(r *runner, n int) {
@@ -377,7 +423,7 @@ func (m *Model) prefixCommand(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	p := keyHint(m.opts.PrefixKey)
-	return m.setStatus(fmt.Sprintf("unknown command %s %s (%s ? for help)", p, msg.String(), p), true)
+	return m.setStatus(fmt.Sprintf("unknown command %s %s · %s", p, msg.String(), m.hint(inPrefix, "?")), true)
 }
 
 func (m *Model) selectTab(delta int) {
@@ -393,6 +439,12 @@ func (m *Model) enter() tea.Cmd {
 	if c == nil {
 		return nil
 	}
+	return m.openOrSwitch(c)
+}
+
+// openOrSwitch opens c, or makes it active when it is open, after making
+// its Space the active Space (showSpaceOf).
+func (m *Model) openOrSwitch(c *Connection) tea.Cmd {
 	saved := m.showSpaceOf(c)
 	if c.Open() {
 		m.st.Activate(c.Alias)
@@ -402,9 +454,10 @@ func (m *Model) enter() tea.Cmd {
 	return tea.Batch(saved, m.open(c.Alias, Launch{}))
 }
 
-// showSpaceOf makes c's Space the active Space when the filter found c in
-// another Space, so whatever acts on c acts in its own Space: opening it,
-// a new tab or Action, its Group, the form. The cursor stays on c.
+// showSpaceOf makes c's Space the active Space when the filter or the
+// History picker found c in another Space, so whatever acts on c acts in
+// its own Space: opening it, a new tab or Action, its Group, the form. The
+// cursor stays on c.
 func (m *Model) showSpaceOf(c *Connection) tea.Cmd {
 	if c.Space == m.st.Space() {
 		return nil
@@ -564,7 +617,7 @@ func (m *Model) closeTab() tea.Cmd {
 	if sess.Ended {
 		return doClose(m)
 	}
-	m.ask(fmt.Sprintf("Close %s %d? (y/n)", c.Alias, sess.N), doClose)
+	m.ask(fmt.Sprintf("Close %s %d?", c.Alias, sess.N), doClose)
 	return nil
 }
 
@@ -578,11 +631,11 @@ func (m *Model) quit() tea.Cmd {
 	case n == 0 && k == 0:
 		return tea.Quit
 	case k == 0:
-		question = fmt.Sprintf("%s will be closed. Quit? (y/n)", sessions)
+		question = fmt.Sprintf("%s will be closed. Quit?", sessions)
 	case n == 0:
-		question = fmt.Sprintf("%s running, quit anyway? (y/n)", tunnels)
+		question = fmt.Sprintf("%s running, quit anyway?", tunnels)
 	default:
-		question = fmt.Sprintf("%s and %s running, quit anyway? (y/n)", sessions, tunnels)
+		question = fmt.Sprintf("%s and %s running, quit anyway?", sessions, tunnels)
 	}
 	m.ask(question, func(m *Model) tea.Cmd {
 		m.tunnels.stopAll()
@@ -599,6 +652,7 @@ func (m *Model) reload(alias, status string) tea.Cmd {
 		return m.setStatus("reload: "+err.Error(), true)
 	}
 	m.st.Reload(snap.Entries)
+	clear(m.endpoints) // ssh_config may have changed
 	m.st.SetSpaces(snap.Spaces, snap.ActiveSpace)
 	m.st.SetGroups(snap.Groups)
 	m.identities = selectedIdentities(snap)
@@ -756,4 +810,46 @@ func keyHint(k string) string {
 		return "^" + strings.ToUpper(rest)
 	}
 	return k
+}
+
+// resolveActive starts resolving the Active connection's endpoint for the
+// pane's header, the first time it is active. Resolve runs off the Bubble
+// Tea loop and answers with an endpointMsg.
+func (m *Model) resolveActive() {
+	c := m.st.Active()
+	if c == nil {
+		return
+	}
+	if _, ok := m.endpoints[c.Alias]; ok {
+		return
+	}
+	if m.opts.Resolve == nil {
+		m.endpoints[c.Alias] = endpoint{done: true}
+		return
+	}
+	m.endpoints[c.Alias] = endpoint{}
+	alias, resolve, ch := c.Alias, m.opts.Resolve, m.ev.ch
+	go func() {
+		e, err := resolve(alias)
+		text := ""
+		if err == nil {
+			text = endpointText(e)
+		}
+		ch <- endpointMsg{alias: alias, text: text}
+	}()
+}
+
+// endpointText is e as user@host, with :port when it is not 22.
+func endpointText(e openssh.Endpoint) string {
+	if e.HostName == "" {
+		return ""
+	}
+	t := e.HostName
+	if e.User != "" {
+		t = e.User + "@" + t
+	}
+	if e.Port != "" && e.Port != "22" {
+		t += ":" + e.Port
+	}
+	return t
 }

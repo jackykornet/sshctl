@@ -1,9 +1,9 @@
- ▾ 1 web 2                  │                                                   
-     prod-web public site   │  Add connection                                   
-›    staging                │                                                   
- ▾ ungrouped 2              │  › Alias          █                               
-     db-main postgres       │    HostName       host or IP address              
-     old-box (missing)      │    User           OpenSSH default                 
+ ▾ 1 web                    │                                                   
+   ○ prod-web public site   │  Add connection                                   
+›  ○ staging                │                                                   
+ ▾ ungrouped                │  › Alias          █                               
+   ○ db-main postgres       │    HostName       host or IP address              
+   ○ old-box (missing)      │    User           OpenSSH default                 
                             │    Port           22                              
                             │    Identity file  OpenSSH default                 
                             │    Description                                    
@@ -11,6 +11,6 @@
                             │                   0 none · 1 web                  
                             │    Tunnels        panel=8083, cockpit=9090        
                             │                                                   
-                            │  Tab/↑↓ move · Ctrl+S save · Esc cancel           
-                            │  Ctrl+O save and Bootstrap                        
- no active connection · key: id_ed25519   ^B ? help · ^B n new tab · ^B w close 
+                            │  ^S save · Tab/Shift+Tab move · Esc cancel        
+────────────────────────────┴───────────────────────────────────────────────────
+ no active connection · key: id_ed25519                                         

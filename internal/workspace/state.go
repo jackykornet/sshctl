@@ -35,7 +35,7 @@ type Session struct {
 }
 
 // A Launch is what a process runs for its Connection: ssh to it (a login
-// shell, claude, or its Tunnels), or one of sshctl's own Actions on it.
+// shell or its Tunnels), or one of sshctl's own Actions on it.
 type Launch struct {
 	// Kind is what ssh runs, when there is no Action.
 	Kind LaunchKind
@@ -52,8 +52,6 @@ type LaunchKind int
 const (
 	// LaunchShell is a login shell.
 	LaunchShell LaunchKind = iota
-	// LaunchClaude runs claude on the remote host instead of a login shell.
-	LaunchClaude
 	// LaunchTunnel runs the Connection's Tunnels (ssh -N -L …, in
 	// BatchMode) as a background process with no pseudo-terminal and no
 	// tab. It is not a Session; see tunnels.
@@ -254,6 +252,8 @@ type SpaceTab struct {
 	Active bool
 	// Live is set when one of the Space's Connections has a live Session.
 	Live bool
+	// Color is the Space's own Indicator color, "" for none.
+	Color string
 }
 
 // Free reports whether t is a free Space number rather than a Space.
@@ -271,7 +271,7 @@ func (s *State) SpaceTabs() []SpaceTab {
 	tabs := make([]SpaceTab, len(s.spaces))
 	for i, sp := range s.spaces {
 		ref := spaceRef(sp)
-		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref]}
+		tabs[i] = SpaceTab{Name: sp.Name, Ref: ref, Number: sp.Number, Active: ref == s.space, Live: live[ref], Color: s.Color(ref, "")}
 	}
 	return tabs
 }
@@ -347,6 +347,14 @@ func (s *State) SpaceEmpty(ref string) bool {
 	}
 	return true
 }
+
+// NoConnections reports whether the active Space has no Connections,
+// whatever the filter.
+func (s *State) NoConnections() bool { return len(s.ordered()) == 0 }
+
+// NoHosts reports whether no Space has a Connection, so ssh_config has no
+// hosts for the list.
+func (s *State) NoHosts() bool { return len(s.conns) == 0 }
 
 // Space returns the active Space as Connections refer to it, "" for the
 // default Space.
@@ -454,6 +462,35 @@ func (s *State) ResolveGroupIn(ref, input string) (group string, ok bool) {
 // catalog's lookups read them.
 func (s *State) catalogData() catalog.Snapshot {
 	return catalog.Snapshot{Spaces: s.spaces, Groups: s.allGroups}
+}
+
+// Color returns the Indicator color of the Space ref's Group group ("" for
+// ungrouped), resolved Group → Space → none by catalog.Snapshot.Color.
+func (s *State) Color(ref, group string) string {
+	return s.catalogData().Color(ref, group)
+}
+
+// OwnColor returns the Indicator color the Space ref, or with group its
+// Group, carries itself, not resolved: "" when it has none.
+func (s *State) OwnColor(ref, group string) string {
+	if group == "" {
+		return s.Color(ref, "")
+	}
+	for _, g := range s.allGroups {
+		if g.Space == ref && g.Name == group {
+			return g.Color
+		}
+	}
+	return ""
+}
+
+// ActiveColor returns the Indicator color the pane is framed in: the Active
+// connection's, or with none active, the active Space's.
+func (s *State) ActiveColor() string {
+	if c := s.Active(); c != nil {
+		return s.Color(c.Space, c.Group)
+	}
+	return s.Color(s.space, "")
 }
 
 // SpaceGroups returns the stored Groups of the Space ref ("" for the

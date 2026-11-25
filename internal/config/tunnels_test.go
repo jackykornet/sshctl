@@ -21,8 +21,8 @@ func TestLoadVersion5HasNoTunnelsAndSavesVersion6(t *testing.T) {
 	if m := c.Connections["web"]; m.Description != "front end" || m.Tunnels != nil {
 		t.Errorf("web = %+v, want its description and no Tunnels", m)
 	}
-	if again, err := Load(path, nil); err != nil || again.Version != 6 {
-		t.Errorf("saved version %v (%v), want 6", again.Version, err)
+	if again, err := Load(path, nil); err != nil || again.Version != Version {
+		t.Errorf("saved version %v (%v), want %d", again.Version, err, Version)
 	}
 }
 

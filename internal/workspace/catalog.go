@@ -14,6 +14,8 @@ type Catalog interface {
 	Snapshot() (Snapshot, error)
 	// RecordOpen records in History that alias was opened.
 	RecordOpen(alias string) error
+	// History returns the aliases opened, most recent first.
+	History() ([]string, error)
 	// SetGroup saves alias's group ("" for none).
 	SetGroup(alias, group string) error
 	// SetCollapsed saves every group the list shows collapsed.
@@ -52,6 +54,21 @@ type Catalog interface {
 	// MoveSpace gives a Space the Space number n, swapping numbers with
 	// the Space that has it.
 	MoveSpace(name string, n int) error
+	// SetGroupColor saves the Indicator color of space's Group group, one of
+	// config.Colors or "" for none (ADR-0009).
+	SetGroupColor(space, group, color string) error
+	// SetSpaceColor saves the Indicator color of the Space space, one of
+	// config.Colors or "" for none.
+	SetSpaceColor(space, color string) error
+	// Keys lists the key files a Selected identity is chosen from, as
+	// "sshctl key list" shows them.
+	Keys() ([]string, error)
+	// SetIdentity makes key (a private key path) the global Selected
+	// identity; "" leaves the choice of keys to OpenSSH.
+	SetIdentity(key string) error
+	// SetSpaceIdentity makes key the Space space's Selected identity; ""
+	// unsets it, so the global one applies.
+	SetSpaceIdentity(space, key string) error
 	// ProvisionRepo returns the dotfiles repo Provision applies to alias,
 	// catalog.ErrNoDotfiles when none is set, or an error wrapping
 	// catalog.ErrProvisionRefused when the setting that applies is none.

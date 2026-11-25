@@ -41,8 +41,6 @@ func keyStep(k string, want string) modeStep {
 		msg = keyDown
 	case "tab":
 		msg = tea.KeyPressMsg{Code: tea.KeyTab}
-	case "alt+right":
-		msg = tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt}
 	default:
 		msg = text(k)[0]
 	}
@@ -54,7 +52,7 @@ func wheel(b tea.MouseButton) tea.MouseWheelMsg {
 }
 
 // In the pane Workspace (newPaneModel) the pane body starts at column 29,
-// row 1, and the list shows alpha on row 0 and beta on row 1, one row lower
+// row 2, and the list shows alpha on row 0 and beta on row 1, one row lower
 // while the filter line shows.
 func TestModeChanges(t *testing.T) {
 	toList := []modeStep{keyStep("prefix", "list"), keyStep("tab", "list")}
@@ -78,7 +76,7 @@ func TestModeChanges(t *testing.T) {
 			{msg: wheel(tea.MouseWheelUp), want: "scroll"},
 			{msg: wheel(tea.MouseWheelDown), want: "list"},
 		}},
-		{"scroll: another tab leaves it", []modeStep{keyStep("prefix", "list"), keyStep("s", "scroll"), keyStep("alt+right", "list")}},
+		{"scroll: another tab leaves it", []modeStep{keyStep("prefix", "list"), keyStep("s", "scroll"), keyStep("prefix", "scroll"), keyStep("]", "list")}},
 		{"scroll: Session ended keeps it", []modeStep{
 			keyStep("prefix", "list"), keyStep("s", "scroll"),
 			{do: func(m *Model, sess *Session) { endSession(m, sess, 1) }, want: "scroll"},
@@ -92,31 +90,31 @@ func TestModeChanges(t *testing.T) {
 			keyStep("x", "filter"),
 		})},
 		{"select: drag in the pane, then a key", []modeStep{
-			{msg: click(29, 1, tea.MouseLeft), want: "select over list"},
-			{msg: motion(33, 2), want: "select over list"},
-			{msg: release(33, 2), want: "select over list"},
+			{msg: click(29, 2, tea.MouseLeft), want: "select over list"},
+			{msg: motion(33, 3), want: "select over list"},
+			{msg: release(33, 3), want: "select over list"},
 			keyStep("x", "list"),
 		}},
 		{"select: a click elsewhere ends it", []modeStep{
-			{msg: click(29, 1, tea.MouseLeft), want: "select over list"},
-			{msg: release(33, 2), want: "select over list"},
+			{msg: click(29, 2, tea.MouseLeft), want: "select over list"},
+			{msg: release(33, 3), want: "select over list"},
 			{msg: click(2, 1, tea.MouseLeft), want: "drag over list"},
 			{msg: release(2, 1), want: "list"},
 		}},
 		{"select: the wheel ends it", []modeStep{
-			{msg: click(29, 1, tea.MouseLeft), want: "select over list"},
-			{msg: release(33, 2), want: "select over list"},
+			{msg: click(29, 2, tea.MouseLeft), want: "select over list"},
+			{msg: release(33, 3), want: "select over list"},
 			{msg: wheel(tea.MouseWheelUp), want: "scroll"},
 		}},
 		{"select: in scroll mode returns to it", []modeStep{
 			{msg: wheel(tea.MouseWheelUp), want: "scroll"},
-			{msg: click(29, 1, tea.MouseLeft), want: "select over scroll"},
-			{msg: release(33, 2), want: "select over scroll"},
+			{msg: click(29, 2, tea.MouseLeft), want: "select over scroll"},
+			{msg: release(33, 3), want: "select over scroll"},
 			keyStep("k", "scroll"),
 		}},
 		{"select: Session ended keeps it", []modeStep{
-			{msg: click(29, 1, tea.MouseLeft), want: "select over list"},
-			{msg: release(33, 2), want: "select over list"},
+			{msg: click(29, 2, tea.MouseLeft), want: "select over list"},
+			{msg: release(33, 3), want: "select over list"},
 			{do: func(m *Model, sess *Session) { endSession(m, sess, 1) }, want: "select over list"},
 		}},
 		{"drag: press and release in place", []modeStep{
@@ -126,7 +124,7 @@ func TestModeChanges(t *testing.T) {
 		{"drag: dropped off the list", []modeStep{
 			{msg: click(2, 1, tea.MouseLeft), want: "drag over list"},
 			{msg: motion(2, 3), want: "drag over list"},
-			{msg: release(50, 3), want: "list"},
+			{msg: release(50, 4), want: "list"},
 		}},
 		{"drag: while filtering returns to it", steps(toList, []modeStep{
 			keyStep("/", "filter"),

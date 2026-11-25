@@ -120,21 +120,18 @@ func TestTunnelsRefusesAnUnknownConnection(t *testing.T) {
 	}
 }
 
-// DeleteMetadata removes Tunnels with the rest of the metadata, as Delete
-// does, and a Connection whose only metadata is Tunnels has metadata.
-func TestDeleteMetadataDeletesTunnels(t *testing.T) {
+// Delete removes Tunnels with the rest of the metadata, also for a
+// Connection whose only metadata is Tunnels.
+func TestDeleteDeletesTunnels(t *testing.T) {
 	tr := newTree(t, false, "Host web\n")
 	if err := tr.cat.AddTunnel("web", panel); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.cat.DeleteMetadata("web"); err != nil {
-		t.Fatalf("DeleteMetadata(web) with only a Tunnel: %v", err)
+	if err := tr.cat.Delete("web"); err != nil {
+		t.Fatalf("Delete(web) with only a Tunnel: %v", err)
 	}
 	if m, ok := tr.config(t).Connections["web"]; ok {
 		t.Errorf("web = %+v, want no metadata", m)
-	}
-	if err := tr.cat.DeleteMetadata("web"); !errors.Is(err, ErrNoMetadata) {
-		t.Errorf("again: err = %v, want ErrNoMetadata", err)
 	}
 }
 

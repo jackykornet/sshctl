@@ -6,7 +6,7 @@ import (
 	"github.com/sshctl/sshctl/internal/openssh"
 )
 
-func (a *app) agentEnsure() error {
+func (a *app) agentEnsure(input) error {
 	status, err := openssh.AgentStatus()
 	if err != nil {
 		return err

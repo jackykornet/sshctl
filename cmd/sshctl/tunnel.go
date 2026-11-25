@@ -16,7 +16,8 @@ import (
 // ssh -N, until ssh exits or the user presses Ctrl-C. ssh may prompt in the
 // terminal, so it runs without BatchMode. It returns ssh's exit status and
 // does not record History: a tunnel is not a Session.
-func (a *app) tunnelRun(args []string) error {
+func (a *app) tunnelRun(in input) error {
+	args := in.args
 	if len(args) != 1 {
 		return errUsage
 	}
@@ -43,7 +44,8 @@ func (a *app) tunnelRun(args []string) error {
 }
 
 // tunnelAdd saves a Tunnel, given as a spec, on a Connection.
-func (a *app) tunnelAdd(args []string) error {
+func (a *app) tunnelAdd(in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -55,7 +57,8 @@ func (a *app) tunnelAdd(args []string) error {
 }
 
 // tunnelRemove deletes a Connection's Tunnel by name or local port.
-func (a *app) tunnelRemove(args []string) error {
+func (a *app) tunnelRemove(in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -65,7 +68,8 @@ func (a *app) tunnelRemove(args []string) error {
 
 // tunnelList prints one Connection's Tunnels or, with no alias, every
 // Connection's, in the order list shows the Connections.
-func (a *app) tunnelList(args []string) error {
+func (a *app) tunnelList(in input) error {
+	args := in.args
 	if len(args) > 1 {
 		return errUsage
 	}

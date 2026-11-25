@@ -9,22 +9,6 @@ import (
 	"github.com/sshctl/sshctl/internal/config"
 )
 
-func TestAddAndEditRefuseAnUnknownGroupWithAHint(t *testing.T) {
-	for _, edit := range []bool{false, true} {
-		cfg := config.New()
-		cfg.Groups = []config.Group{{Name: "prod"}}
-		cfg.Connections["web"] = config.Connection{Alias: "web", Description: "site", Group: "prod"}
-		a, _ := cliTree(t, "Host web\n", cfg, "\nnowhere\n")
-		err := a.metadata([]string{"web"}, edit)
-		if err == nil || !strings.Contains(err.Error(), "sshctl group add nowhere") {
-			t.Fatalf("edit=%v: err = %v, want a hint to run sshctl group add nowhere", edit, err)
-		}
-		if got := loadCLI(t, a).Connections["web"]; got.Group != "prod" {
-			t.Errorf("edit=%v: web = %+v, want it left in prod", edit, got)
-		}
-	}
-}
-
 // groupTree is an app whose config has Groups prod (web, db), empty and
 // data (old, an Orphaned connection), with prod and data collapsed.
 func groupTree(t *testing.T, in string) (*app, *bytes.Buffer) {

@@ -298,6 +298,21 @@ func TestBootstrapRefusesAnUnknownAliasBeforeRunningAnything(t *testing.T) {
 	}
 }
 
+func TestBootstrapSaysAnOrphanedConnectionIsMissingFromSSHConfig(t *testing.T) {
+	a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
+	a.cfg.Connections["gone"] = config.Connection{Alias: "gone", Description: "retired"}
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		t.Fatal(err)
+	}
+	err := a.execute([]string{"bootstrap", "gone"})
+	if err == nil || err.Error() != "gone is missing from ssh_config" {
+		t.Errorf("err = %v, want gone is missing from ssh_config", err)
+	}
+	if len(h.calls) != 0 {
+		t.Errorf("ran %q, want nothing", h.calls)
+	}
+}
+
 func TestBootstrapFailsEarlyWithoutPOSIXSh(t *testing.T) {
 	a, _, h := bootstrapTree(t, openssh.IncludeLine+"\n")
 	managedWeb(t, a, openssh.Endpoint{HostName: "10.0.0.5"})

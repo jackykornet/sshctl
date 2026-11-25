@@ -11,7 +11,7 @@ import (
 	"github.com/sshctl/sshctl/internal/workspace"
 )
 
-func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
+func TestSessionCommandRunsSshWithTheSelectedIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	c := config.New()
 	c.SelectedIdentity = "/k/id"
@@ -19,24 +19,12 @@ func TestSessionCommandRunsClaudeWithRemoteTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{cfgPath: path, cfg: config.New()}
-	tests := []struct {
-		name string
-		kind workspace.LaunchKind
-		want []string
-	}{
-		{"plain tab", workspace.LaunchShell, []string{"ssh", "-i", "/k/id", "web"}},
-		{"claude tab", workspace.LaunchClaude, []string{"ssh", "-t", "-i", "/k/id", "web", "claude"}},
+	got, err := a.sessionCommand("web", workspace.Launch{Kind: workspace.LaunchShell})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := a.sessionCommand("web", workspace.Launch{Kind: tt.kind})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("sessionCommand(web, %v) = %v, want %v", tt.kind, got, tt.want)
-			}
-		})
+	if want := []string{"ssh", "-i", "/k/id", "web"}; !slices.Equal(got, want) {
+		t.Errorf("sessionCommand(web, shell) = %v, want %v", got, want)
 	}
 }
 

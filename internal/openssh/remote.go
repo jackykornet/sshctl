@@ -26,6 +26,15 @@ func Run(ctx context.Context, argv []string, out io.Writer) error {
 	return cmd.Run()
 }
 
+// RunQuiet is the Runner that starts the real ssh with neither the
+// terminal's input nor its error output, for a caller that owns the
+// terminal, such as the Workspace.
+func RunQuiet(ctx context.Context, argv []string, out io.Writer) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout = out
+	return cmd.Run()
+}
+
 // RemoteArgs returns the ssh command line that runs script with sh on alias's
 // host. ssh hands its command to the remote user's login shell, so the script
 // is quoted once for that shell and then run by sh whatever the login shell

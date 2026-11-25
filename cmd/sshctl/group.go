@@ -15,14 +15,16 @@ import (
 // Group number, 0 for ungrouped; a name keeps scripts working when Groups
 // are reordered.
 
-func (a *app) groupAdd(space spaceOption, args []string) error {
+func (a *app) groupAdd(space spaceOption, in input) error {
+	args := in.args
 	if len(args) != 1 {
 		return errUsage
 	}
 	return a.catalog().AddGroup(space.name, args[0])
 }
 
-func (a *app) groupRename(space spaceOption, args []string) error {
+func (a *app) groupRename(space spaceOption, in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -31,7 +33,8 @@ func (a *app) groupRename(space spaceOption, args []string) error {
 	})
 }
 
-func (a *app) groupMove(space spaceOption, args []string) error {
+func (a *app) groupMove(space spaceOption, in input) error {
+	args := in.args
 	if len(args) != 2 {
 		return errUsage
 	}
@@ -46,9 +49,10 @@ func (a *app) groupMove(space spaceOption, args []string) error {
 
 // groupConnect opens a terminal window for each Connection of the Group
 // arg, or with 0 each ungrouped Connection of the Space.
-func (a *app) groupConnect(space spaceOption, args []string) error {
+func (a *app) groupConnect(space spaceOption, in input) error {
+	args := in.args
 	if len(args) != 1 {
-		return errors.New("usage: sshctl group [--space <space>] connect <group>")
+		return errUsage
 	}
 	snap, err := a.catalog().Snapshot()
 	if err != nil {
@@ -124,10 +128,12 @@ func findStoredGroup(snap catalog.Snapshot, space spaceOption, arg string) (ref,
 	return ref, name, err
 }
 
-// groupList prints each Group's number, name, member count and dotfiles
-// setting, Space by Space. With --space it lists that Space's Groups; with
+// groupList prints each Group's number, name, member count, dotfiles
+// setting and Indicator color, if any, Space by Space. With --space it
+// lists that Space's Groups; with
 // several Spaces and no --space, each line starts with the Space's name.
-func (a *app) groupList(space spaceOption, args []string) error {
+func (a *app) groupList(space spaceOption, in input) error {
+	args := in.args
 	if len(args) != 0 {
 		return errUsage
 	}
@@ -136,11 +142,21 @@ func (a *app) groupList(space spaceOption, args []string) error {
 		return err
 	}
 	spaces := space.spaces(snap)
-	dotfiles := map[groupKey]string{}
+	records := map[groupKey]catalog.Group{}
 	for _, g := range snap.Groups {
-		dotfiles[groupKey{g.Space, g.Name}] = g.Dotfiles
+		records[groupKey{g.Space, g.Name}] = g
 	}
 	members := memberCounts(snap)
+	if in.flag("json") {
+		groups := []groupJSON{}
+		for _, s := range spaces {
+			for i, name := range snap.GroupNames(s.ref) {
+				k := groupKey{s.ref, name}
+				groups = append(groups, groupJSON{Space: s.name, Number: i + 1, Name: name, Connections: members[k], Dotfiles: records[k].Dotfiles, Color: records[k].Color})
+			}
+		}
+		return a.writeJSON(groups)
+	}
 	for _, s := range spaces {
 		prefix := ""
 		if len(spaces) > 1 {
@@ -148,7 +164,8 @@ func (a *app) groupList(space spaceOption, args []string) error {
 		}
 		for i, name := range snap.GroupNames(s.ref) {
 			k := groupKey{s.ref, name}
-			fmt.Fprintf(a.out, "%s%-2d %-20s %-2d %s\n", prefix, i+1, name, members[k], describeDotfiles(dotfiles[k]))
+			g := records[k]
+			fmt.Fprintf(a.out, "%s%-2d %-20s %-2d %s%s\n", prefix, i+1, name, members[k], describeDotfiles(g.Dotfiles), colorTag(g.Color))
 		}
 	}
 	return nil
@@ -156,20 +173,11 @@ func (a *app) groupList(space spaceOption, args []string) error {
 
 // groupDelete deletes the Group args name (see findGroup) after asking,
 // unless --yes is given. Its Connections become ungrouped; none is deleted.
-func (a *app) groupDelete(space spaceOption, args []string) error {
-	var names []string
-	yes := false
-	for _, arg := range args {
-		if arg == "--yes" {
-			yes = true
-		} else {
-			names = append(names, arg)
-		}
-	}
-	if len(names) != 1 {
+func (a *app) groupDelete(space spaceOption, in input) error {
+	if len(in.args) != 1 {
 		return errUsage
 	}
-	arg := names[0]
+	arg, yes := in.args[0], in.flag("yes")
 	cat := a.catalog()
 	snap, err := cat.Snapshot()
 	if err != nil {

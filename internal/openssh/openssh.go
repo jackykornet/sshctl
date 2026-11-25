@@ -142,27 +142,14 @@ func (c *Client) SafeSettings() ([]string, error) {
 	return settings, err
 }
 
-func (c *Client) Connect(ctx context.Context, alias string, key string, claude bool) error {
-	argv := ConnectArgs(alias, key, claude)
-	return runInteractive(ctx, argv[0], argv[1:]...)
-}
-
 // ConnectArgs returns the ssh command line for alias. A non-empty key is the
-// Selected identity and is passed with -i; claude runs claude on the remote
-// host, with -t because ssh gives a remote command no terminal otherwise.
-func ConnectArgs(alias, key string, claude bool) []string {
+// Selected identity and is passed with -i.
+func ConnectArgs(alias, key string) []string {
 	argv := []string{"ssh"}
-	if claude {
-		argv = append(argv, "-t")
-	}
 	if key != "" {
 		argv = append(argv, "-i", key)
 	}
-	argv = append(argv, alias)
-	if claude {
-		argv = append(argv, "claude")
-	}
-	return argv
+	return append(argv, alias)
 }
 
 // TunnelArgs returns the ssh command line that runs tunnels, alias's

@@ -24,6 +24,9 @@ type Space struct {
 	// Connections whose Group sets none, DotfilesNone to refuse Provision
 	// for them, or "" when unset, so the global Provision.Dotfiles applies.
 	Dotfiles string `json:"dotfiles,omitempty"`
+	// Color is the Space's Indicator color (ADR-0009), one of Colors, or ""
+	// for none. A Group's own color wins over it.
+	Color string `json:"color,omitempty"`
 }
 
 // MaxSpaces is how many Space numbers there are, and so how many Spaces.
@@ -52,8 +55,10 @@ func CheckSpaceName(name string) error {
 
 // SpaceIndex returns the position in Spaces of space as Groups and
 // Connections refer to it ("" for the default Space), or -1.
-func (c *Config) SpaceIndex(space string) int {
-	return slices.IndexFunc(c.Spaces, func(s Space) bool {
+func (c *Config) SpaceIndex(space string) int { return spaceIndex(c.Spaces, space) }
+
+func spaceIndex(spaces []Space, space string) int {
+	return slices.IndexFunc(spaces, func(s Space) bool {
 		if space == "" {
 			return s.Default
 		}
