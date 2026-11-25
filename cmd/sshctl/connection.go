@@ -213,7 +213,7 @@ func (a *app) saveSpec(r *bufio.Reader, old string, s catalog.Spec) error {
 		return err
 	}
 	fmt.Fprintf(a.out, "Add %q to the top of %s? (y/n) ", inc.Line, inc.Config)
-	if !confirmed(r) {
+	if !confirm(r) {
 		return err
 	}
 	if err := a.catalog().AddInclude(); err != nil {
@@ -247,16 +247,9 @@ func (a *app) remove(in input) error {
 	}
 	if !yes {
 		fmt.Fprint(a.out, question)
-		if !confirmed(bufio.NewReader(a.in)) {
+		if !confirm(a.in) {
 			return errors.New("not removed")
 		}
 	}
 	return a.catalog().Delete(alias)
-}
-
-// confirmed reads a line from r and reports whether it is y or yes.
-func confirmed(r *bufio.Reader) bool {
-	line, err := r.ReadString('\n')
-	line = strings.TrimSpace(line)
-	return (err == nil || line != "") && (strings.EqualFold(line, "y") || strings.EqualFold(line, "yes"))
 }

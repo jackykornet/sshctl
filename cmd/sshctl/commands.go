@@ -544,9 +544,17 @@ func (a *app) connect(in input) error {
 	return a.recordHistory(alias)
 }
 
+// confirm reads a line from in and reports whether it is y or yes, also
+// when the input ends without a newline. A *bufio.Reader is read as is, so
+// a caller that asks twice keeps what it buffered.
 func confirm(in io.Reader) bool {
-	line, err := bufio.NewReader(in).ReadString('\n')
-	return err == nil && (strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"))
+	r, ok := in.(*bufio.Reader)
+	if !ok {
+		r = bufio.NewReader(in)
+	}
+	line, err := r.ReadString('\n')
+	line = strings.TrimSpace(line)
+	return (err == nil || line != "") && (strings.EqualFold(line, "y") || strings.EqualFold(line, "yes"))
 }
 
 func (a *app) showConfig(input) error {
