@@ -24,6 +24,7 @@ Run from the repository root. CI (`.github/workflows/ci.yml`) runs these, so run
 - `go test -race ./...` (CI runs it on Ubuntu, macOS and Windows).
 
 CI does not cross-vet, so also run `GOOS=windows go vet ./...` locally to catch Windows-only build errors before pushing.
+CI skips its test and build jobs when a change touches nothing in the `changes` filter of `ci.yml` (Go files, `go.mod`/`go.sum`, test data, completion scripts, `docs/guide.md`, `.gitattributes`, workflows). Add a path there when a test or the build starts reading a new file.
 - `go run ./cmd/sshctl` launches the CLI; in a terminal with no arguments it opens the Workspace.
 
 Use Go 1.25 only, and set `GOTOOLCHAIN=local` if `go get` tries to upgrade. Newer Lip Gloss releases need Go 1.26, so dependency versions in `go.mod` stay pinned.
