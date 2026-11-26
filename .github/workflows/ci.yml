@@ -1,9 +1,39 @@
 name: CI
 on:
+  # Branches are tested through their pull request; main is tested on push,
+  # which milestone-release.yml waits for.
   push:
+    branches: [main]
   pull_request:
+permissions:
+  contents: read
+  pull-requests: read
 jobs:
+  # Changes that cannot affect the build or the tests (most docs) skip the
+  # test and build jobs. The run still succeeds, so milestone-release.yml
+  # still sees CI passed on main.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - '**/testdata/**'
+              - 'cmd/sshctl/completion/**'
+              - 'docs/guide.md'  # TestGuideListsTheCommands reads it
+              - '.gitattributes'
+              - '.github/workflows/**'
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +56,8 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       matrix:
         goos: [linux, darwin, windows]

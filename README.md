@@ -77,6 +77,8 @@ Every tape starts with `docs/demo/sandbox/start.tape`, which builds sshctl and r
 
 CI runs `gofmt` on Ubuntu, and `go vet` and the test suite on the GitHub-hosted Ubuntu, macOS, and Windows runners (Linux and Windows on amd64, macOS on arm64). The other three targets are only cross-compiled. The Workspace's Session tests start real processes in pseudo-terminals on all three runners, with `sh` (or `cmd.exe` on Windows, through ConPTY) standing in for `ssh`. A few Session tests rely on POSIX-only tools and are skipped on Windows.
 
+CI tests pull requests and pushes to `main`. A change that touches no Go code, `go.mod`/`go.sum`, test data, completion scripts, `docs/guide.md` (a test reads it), `.gitattributes` or workflows skips the test and build jobs; the run still passes, so a docs-only commit on `main` does not hold up a release.
+
 CI does not run a real OpenSSH client or open terminal windows, so actual connections and `group connect`'s terminal launching depend on the locally installed OpenSSH and terminal applications and are not verified by CI.
 
 A release is a milestone titled with its version tag (`v0.7.0`). When the milestone has no open issues left and CI has passed on `main`, the **Milestone release** workflow tags `main` and runs the **Release** workflow, which builds the Windows, macOS and Linux binaries for amd64 and arm64 and publishes them. To publish an existing tag by hand, run the **Release** workflow from GitHub Actions and enter the tag (for example, `v0.1.0`). New `v*` tags publish automatically.
