@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+<title>sshctl</title>
+<defs>
+  <mask id="i-back"><rect width="120" height="120" fill="#fff"/><rect x="10" y="38" width="84" height="72" rx="18" fill="#000"/></mask>
+  <mask id="i-front"><rect width="120" height="120" fill="#fff"/><polyline points="32,62 44,74 32,86" fill="none" stroke="#000" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></mask>
+</defs>
+<rect x="30" y="14" width="76" height="64" rx="14" fill="none" stroke="#f2f5f7" stroke-width="6" mask="url(#i-back)"/>
+<rect x="18" y="46" width="68" height="56" rx="10" fill="#f2f5f7" mask="url(#i-front)"/>
+<rect x="50" y="82" width="20" height="7" rx="2.5" fill="#3ddc97"/>
+</svg>

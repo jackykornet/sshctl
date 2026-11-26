@@ -1,4 +1,9 @@
-# sshctl
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/svg/sshctl-logo-light.svg">
+    <img src="docs/logo/svg/sshctl-logo.svg" alt="sshctl" width="254">
+  </picture>
+</h1>
 
 An SSH workspace: keep sessions open in tabs and each customer's hosts in their own Space.
 
